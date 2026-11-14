@@ -30,3 +30,5 @@ rustc-ice-*.txt
 
 # Agent workspace (private notes, scripts, tools): never committed
 /local/
+/ui/node_modules/
+/ui/dist/
