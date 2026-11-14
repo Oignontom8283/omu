@@ -16,8 +16,24 @@ import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findT
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Palette } from './components/Palette.tsx';
-import { KINDS, canConnect, canonical, defaultKind, edgeId, fromFlow, idBase, positionsOf, toFlow, uniqueId } from './graph.ts';
-import type { AppInfo, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeType, SystemInfo } from './types.ts';
+import {
+  KINDS_BY_CATEGORY,
+  canConnect,
+  canonical,
+  categoryOf,
+  defaultKind,
+  edgeId,
+  edgesAfterKindChange,
+  flowOfEdge,
+  fromFlow,
+  idBase,
+  positionsOf,
+  toFlow,
+  uniqueId,
+} from './graph.ts';
+import { LANGUAGES, languageName, useI18n } from './i18n/index.tsx';
+import { useTheme, type ThemeChoice } from './theme.tsx';
+import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeType, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
@@ -27,10 +43,14 @@ function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+const asEdge = (e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? '', targetHandle: e.targetHandle ?? '' });
+
 export function App() {
   const rpc = useMemo(() => new Rpc(findToken()), []);
   const daemon = useMemo(() => api(rpc), [rpc]);
   const flow = useReactFlow();
+  const { t, language, setLanguage } = useI18n();
+  const { choice, setChoice, resolved } = useTheme();
 
   const [conn, setConn] = useState<Connection>('connecting');
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -46,10 +66,7 @@ export function App() {
   const [showJson, setShowJson] = useState(false);
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const graph = useMemo(
-    () => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? 'out', targetHandle: e.targetHandle ?? 'in' }))),
-    [nodes, edges],
-  );
+  const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
   const dirty = canonical(graph) !== canonical(applied);
 
   // keep the latest values for the callbacks that must not change identity
@@ -102,7 +119,7 @@ export function App() {
     const offEvent = rpc.onEvent((method, params) => {
       if (method === EVENT_STATUS) setStatus(params as EngineStatus);
       if (method === EVENT_GRAPH) {
-        if (dirtyRef.current) setNotice('The graph was changed elsewhere. Apply to overwrite it, or Revert to load it.');
+        if (dirtyRef.current) setNotice('app.changedElsewhere');
         else void daemon.graphGet().then((g) => daemon.layoutGet().then((l) => show(g, l)));
       }
     });
@@ -117,11 +134,11 @@ export function App() {
   // applications and devices change while the panel is open
   useEffect(() => {
     if (conn !== 'open') return;
-    const t = setInterval(() => {
+    const timer = setInterval(() => {
       daemon.apps().then(setApps).catch(() => undefined);
       daemon.devices().then(setDevices).catch(() => undefined);
     }, 4000);
-    return () => clearInterval(t);
+    return () => clearInterval(timer);
   }, [conn, daemon]);
 
   const apply = async () => {
@@ -151,9 +168,10 @@ export function App() {
     }
   };
 
-  const addNode = (type: NodeType) => {
+  const addNode = (category: Category) => {
+    const type = KINDS_BY_CATEGORY[category][0];
     const id = uniqueId(idBase(type), nodesRef.current.map((n) => n.id));
-    // start at the middle of the view and slide away from the nodes already there
+    // start at the middle of the view and slide away from the blocks already there
     const p = flow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
     const position = { x: p.x - 115, y: p.y - 70 };
     while (nodesRef.current.some((n) => Math.abs(n.position.x - position.x) < 40 && Math.abs(n.position.y - position.y) < 40)) {
@@ -175,7 +193,7 @@ export function App() {
   const onConnect = useCallback(
     (c: FlowConnection) => {
       setEdges((list) => {
-        const id = edgeId({ from: { node: c.source, port: c.sourceHandle ?? 'out' }, to: { node: c.target, port: c.targetHandle ?? 'in' } });
+        const id = edgeId({ from: { node: c.source, port: c.sourceHandle ?? '' }, to: { node: c.target, port: c.targetHandle ?? '' } });
         return addEdge({ ...c, id }, list);
       });
     },
@@ -186,7 +204,7 @@ export function App() {
     (c: { source: string; target: string; sourceHandle?: string | null; targetHandle?: string | null }) =>
       canConnect(
         nodesRef.current.map((n) => ({ id: n.id, spec: n.data.spec })),
-        edgesRef.current.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? '', targetHandle: e.targetHandle ?? '' })),
+        edgesRef.current.map(asEdge),
         { source: c.source, target: c.target, sourceHandle: c.sourceHandle ?? null, targetHandle: c.targetHandle ?? null },
       ),
     [],
@@ -198,15 +216,20 @@ export function App() {
       devices,
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
       update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...kind } } } : n))),
+      changeKind: (id: string, type: NodeType) => {
+        const plain = nodesRef.current.map((n) => ({ id: n.id, spec: n.data.spec }));
+        setEdges(edgesAfterKindChange(plain, edgesRef.current.map(asEdge), id, type));
+        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...defaultKind(type) } } } : n)));
+      },
       rename: (id: string, next: string) => {
-        if (!ID_PATTERN.test(next)) return 'Use letters, digits, - _ and . only';
-        if (nodesRef.current.some((n) => n.id === next)) return 'This name is already used';
+        if (!ID_PATTERN.test(next)) return 'node.nameChars';
+        if (nodesRef.current.some((n) => n.id === next)) return 'node.nameTaken';
         setNodes((list) => list.map((n) => (n.id === id ? { ...n, id: next, data: { spec: { ...n.data.spec, id: next } } } : n)));
         setEdges((list) =>
           list.map((e) => {
             const source = e.source === id ? next : e.source;
             const target = e.target === id ? next : e.target;
-            return { ...e, source, target, id: edgeId({ from: { node: source, port: e.sourceHandle ?? 'out' }, to: { node: target, port: e.targetHandle ?? 'in' } }) };
+            return { ...e, source, target, id: edgeId({ from: { node: source, port: e.sourceHandle ?? '' }, to: { node: target, port: e.targetHandle ?? '' } }) };
           }),
         );
         return null;
@@ -215,28 +238,55 @@ export function App() {
     [apps, devices, status, setNodes, setEdges],
   );
 
-  const hasVirtualMic = graph.nodes.some((n) => n.type === 'virtual_mic');
-  const noProvider = hasVirtualMic && info !== null && !(info.virtual_microphones?.available ?? false);
+  // each edge is drawn in the colour of the flow it carries
+  const plainNodes = useMemo(() => nodes.map((n) => ({ id: n.id, spec: n.data.spec })), [nodes]);
+  const shownEdges = useMemo(
+    () => edges.map((e) => ({ ...e, className: `flow-${flowOfEdge(plainNodes, { source: e.source, sourceHandle: e.sourceHandle }) ?? 'audio'}` })),
+    [edges, plainNodes],
+  );
+
+  const noProvider = graph.nodes.some((n) => n.type === 'virtual_mic') && info !== null && !(info.virtual_microphones?.available ?? false);
+  const connLabel = conn === 'open' ? 'app.connected' : conn === 'connecting' ? 'app.connecting' : 'app.disconnected';
 
   return (
     <Editor.Provider value={context}>
       <div className="app">
         <header className="topbar">
-          <strong className="brand">{PRODUCT_NAME}</strong>
-          <span className={`pill ${conn}`}>{conn === 'open' ? 'connected' : conn === 'connecting' ? 'connecting…' : 'disconnected'}</span>
+          <strong>{PRODUCT_NAME}</strong>
+          <span className={`pill ${conn}`}>{t(connLabel)}</span>
           {info && (
             <span className="muted" title={`protocol ${info.protocol_version}`}>
               {info.backend} · v{info.version}
             </span>
           )}
-          {status && <span className={`pill ${status.running ? 'open' : 'closed'}`}>{status.running ? 'engine running' : 'engine stopped'}</span>}
+          {status && <span className={`pill ${status.running ? 'open' : 'closed'}`}>{t(status.running ? 'app.engineRunning' : 'app.engineStopped')}</span>}
           <span className="spacer" />
-          <button onClick={autoLayout} disabled={nodes.length === 0}>Tidy up</button>
-          <button onClick={() => setShowJson((v) => !v)} className={showJson ? 'on' : ''}>JSON</button>
-          <button onClick={stopEngine} disabled={conn !== 'open' || !status?.running}>Stop engine</button>
-          <button onClick={revert} disabled={conn !== 'open' || !dirty}>Revert</button>
+          <select aria-label={t('app.language')} value={language} onChange={(e) => setLanguage(e.target.value)}>
+            {LANGUAGES.map((code) => (
+              <option key={code} value={code}>
+                {languageName(code)}
+              </option>
+            ))}
+          </select>
+          <select aria-label={t('app.theme')} value={choice} onChange={(e) => setChoice(e.target.value as ThemeChoice)}>
+            <option value="system">{t('app.themeSystem')}</option>
+            <option value="light">{t('app.themeLight')}</option>
+            <option value="dark">{t('app.themeDark')}</option>
+          </select>
+          <button onClick={autoLayout} disabled={nodes.length === 0}>
+            {t('app.tidy')}
+          </button>
+          <button onClick={() => setShowJson((v) => !v)} className={showJson ? 'on' : ''}>
+            {t('app.json')}
+          </button>
+          <button onClick={stopEngine} disabled={conn !== 'open' || !status?.running}>
+            {t('app.stopEngine')}
+          </button>
+          <button onClick={revert} disabled={conn !== 'open' || !dirty}>
+            {t('app.revert')}
+          </button>
           <button className="primary" onClick={apply} disabled={conn !== 'open' || busy || !dirty}>
-            {busy ? 'Applying…' : dirty ? 'Apply' : 'Applied'}
+            {busy ? t('app.applying') : dirty ? t('app.apply') : t('app.applied')}
           </button>
         </header>
 
@@ -244,35 +294,39 @@ export function App() {
           <div className="banners">
             {problems.length > 0 && (
               <div className="banner error">
-                <strong>The graph was refused:</strong>
-                <ul>{problems.map((p) => <li key={p}>{p}</li>)}</ul>
-                <button onClick={() => setProblems([])}>×</button>
+                <strong>{t('app.refused')}</strong>
+                <ul>
+                  {problems.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+                <button className="plain" aria-label={t('app.close')} onClick={() => setProblems([])}>
+                  ×
+                </button>
               </div>
             )}
             {IN_DESKTOP_WINDOW && conn === 'closed' && (
               <div className="banner warn">
-                The daemon is not running.{' '}
-                <button className="inline"
+                {t('app.daemonDown')}{' '}
+                <button
+                  className="inline"
                   onClick={() => {
                     startDaemon().catch((e) => setNotice(message(e)));
                   }}
                 >
-                  Start the daemon
+                  {t('app.startDaemon')}
                 </button>
               </div>
             )}
             {notice && (
               <div className="banner warn">
-                {notice}
-                <button onClick={() => setNotice(null)}>×</button>
+                {notice.startsWith('app.') ? t(notice) : notice}
+                <button className="plain" aria-label={t('app.close')} onClick={() => setNotice(null)}>
+                  ×
+                </button>
               </div>
             )}
-            {noProvider && (
-              <div className="banner info">
-                This system has no virtual microphone yet: a “{KINDS.virtual_mic.label}” node stays silent
-                {info?.virtual_microphones?.error ? ` (${info.virtual_microphones.error})` : ''}. Send to a playback device instead, or install a virtual audio cable.
-              </div>
-            )}
+            {noProvider && <div className="banner info">{t('app.noProvider', { error: info?.virtual_microphones?.error ? ` (${info.virtual_microphones.error})` : '' })}</div>}
           </div>
         )}
 
@@ -280,7 +334,7 @@ export function App() {
           <Palette onAdd={addNode} />
           <ReactFlow
             nodes={nodes}
-            edges={edges}
+            edges={shownEdges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
@@ -291,18 +345,18 @@ export function App() {
             fitView
             fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
             minZoom={0.2}
-            colorMode="dark"
+            colorMode={resolved}
             proOptions={{ hideAttribution: true }}
           >
             <Background gap={24} />
             <Controls showInteractive={false} />
-            <MiniMap pannable zoomable nodeColor={(n) => KINDS[(n.data as { spec: { type: NodeType } }).spec.type].color} />
+            <MiniMap pannable zoomable nodeColor={(n) => `var(--cat-${categoryOf((n.data as { spec: { type: NodeType } }).spec.type)})`} />
           </ReactFlow>
           {showJson && <textarea className="json" readOnly value={JSON.stringify(graph, null, 2)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">
-              <p>No node yet.</p>
-              <p className="muted">Add an <b>Application</b> and a <b>Virtual mic</b> from the left, link them, then press <b>Apply</b>.</p>
+              <p>{t('app.emptyTitle')}</p>
+              <p className="muted">{t('app.emptyHint')}</p>
             </div>
           )}
         </div>

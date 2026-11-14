@@ -1,28 +1,68 @@
-:root {
-  --bg: #0f1117;
-  --panel: #171a23;
-  --panel-2: #1e2230;
-  --line: #2a2f42;
+/* Plain on purpose: a handful of colour variables per theme, flat boxes, one border colour. The real design comes later;
+   what matters here is that every colour goes through a variable so a theme is just another set of values. */
+
+:root,
+:root[data-theme='light'] {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --field: #f0f1f4;
+  --line: #d3d6de;
+  --text: #1c1f26;
+  --muted: #646b7b;
+  --primary: #3454d1;
+  --on-primary: #ffffff;
+  --ok: #1c9a4a;
+  --bad: #d4332b;
+  --warn: #a86a00;
+
+  /* the five families of blocks (a condition is red) */
+  --cat-input: #0f9d8a;
+  --cat-output: #2f6fd6;
+  --cat-processing: #8a4ad6;
+  --cat-condition: #d4332b;
+  --cat-trigger: #c98a00;
+
+  /* the three flows between blocks */
+  --flow-audio: #2f9ad6;
+  --flow-condition: #d4332b;
+  --flow-action: #c98a00;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  --bg: #14161c;
+  --panel: #1d2029;
+  --field: #262a36;
+  --line: #343949;
   --text: #e6e8ef;
-  --muted: #8b92a8;
+  --muted: #9097ab;
+  --primary: #7b93ff;
+  --on-primary: #10131c;
   --ok: #4ade80;
   --bad: #f87171;
   --warn: #fbbf24;
-  --primary: #6d8bff;
+
+  --cat-input: #2dd4bf;
+  --cat-output: #6aa0ff;
+  --cat-processing: #c08bff;
+  --cat-condition: #f87171;
+  --cat-trigger: #fbbf24;
+
+  --flow-audio: #5cc1ff;
+  --flow-condition: #f87171;
+  --flow-action: #fbbf24;
   color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
 }
-
 html,
 body,
 #root {
   height: 100%;
   margin: 0;
 }
-
 body {
   background: var(--bg);
   color: var(--text);
@@ -34,103 +74,103 @@ body {
   flex-direction: column;
   height: 100%;
 }
-
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
+  gap: 8px;
+  padding: 8px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--line);
-  flex-wrap: wrap;
 }
-
-.brand {
-  font-size: 16px;
-  letter-spacing: 0.02em;
-}
-
 .spacer {
   flex: 1;
 }
-
-.muted {
+.muted,
+.hint {
   color: var(--muted);
+}
+.warn {
+  color: var(--warn);
 }
 
 .pill {
-  padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  padding: 1px 8px;
   border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
   color: var(--muted);
 }
 .pill.open {
   color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 40%, transparent);
 }
 .pill.closed {
   color: var(--bad);
-  border-color: color-mix(in srgb, var(--bad) 40%, transparent);
-}
-.pill.connecting {
-  color: var(--warn);
 }
 
-button {
+button,
+select,
+input {
   font: inherit;
   color: var(--text);
-  background: var(--panel-2);
+}
+button,
+select {
+  background: var(--field);
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 6px 12px;
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+button {
   cursor: pointer;
 }
 button:hover:not(:disabled) {
   border-color: var(--primary);
 }
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.5;
   cursor: default;
 }
 button.primary {
   background: var(--primary);
   border-color: var(--primary);
-  color: #0b0d14;
-  font-weight: 600;
+  color: var(--on-primary);
 }
 button.on {
   border-color: var(--primary);
 }
-
-.banners {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+button.plain {
+  border: 0;
+  background: none;
+  padding: 0 6px;
 }
+button.inline {
+  margin-left: 8px;
+}
+
 .banner {
   position: relative;
-  padding: 8px 40px 8px 14px;
+  padding: 8px 36px 8px 12px;
   font-size: 13px;
+  border-bottom: 1px solid var(--line);
 }
 .banner ul {
   margin: 4px 0 0;
   padding-left: 18px;
 }
-.banner button {
+.banner .plain {
   position: absolute;
   top: 6px;
-  right: 10px;
-  padding: 0 8px;
+  right: 8px;
 }
 .banner.error {
-  background: color-mix(in srgb, var(--bad) 18%, var(--panel));
+  border-left: 4px solid var(--bad);
 }
 .banner.warn {
-  background: color-mix(in srgb, var(--warn) 16%, var(--panel));
+  border-left: 4px solid var(--warn);
 }
 .banner.info {
-  background: color-mix(in srgb, var(--primary) 14%, var(--panel));
+  border-left: 4px solid var(--primary);
 }
 
 .canvas {
@@ -138,65 +178,6 @@ button.on {
   flex: 1;
   min-height: 0;
 }
-
-.palette {
-  position: absolute;
-  z-index: 5;
-  top: 12px;
-  left: 12px;
-  width: 210px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px;
-  background: color-mix(in srgb, var(--panel) 94%, transparent);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  backdrop-filter: blur(6px);
-}
-.palette h2 {
-  margin: 0 0 2px;
-  font-size: 12px;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.palette button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-align: left;
-  padding: 6px 10px;
-}
-.palette small {
-  display: block;
-  color: var(--muted);
-  font-size: 11px;
-}
-.swatch {
-  width: 10px;
-  height: 28px;
-  border-radius: 4px;
-  background: var(--accent);
-  flex: none;
-}
-
-.json {
-  position: absolute;
-  z-index: 6;
-  right: 12px;
-  top: 12px;
-  width: min(420px, 45%);
-  height: 60%;
-  font: 12px/1.4 ui-monospace, Consolas, monospace;
-  color: var(--text);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 10px;
-  resize: none;
-}
-
 .empty {
   position: absolute;
   inset: 0;
@@ -208,19 +189,86 @@ button.on {
 .empty p {
   margin: 2px 0;
 }
-
-/* nodes */
-.node {
-  width: 230px;
+.json {
+  position: absolute;
+  z-index: 6;
+  right: 12px;
+  top: 12px;
+  width: min(420px, 45%);
+  height: 60%;
+  font: 12px/1.4 ui-monospace, Consolas, monospace;
+  color: var(--text);
   background: var(--panel);
   border: 1px solid var(--line);
-  border-top: 3px solid var(--accent);
-  border-radius: 10px;
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
+  border-radius: 6px;
+  padding: 8px;
+  resize: none;
+}
+
+/* palette: one button per family */
+.palette {
+  position: absolute;
+  z-index: 5;
+  top: 12px;
+  left: 12px;
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.palette h2 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.palette button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+.palette small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.swatch {
+  width: 6px;
+  align-self: stretch;
+  border-radius: 3px;
+  background: var(--cat);
+}
+.cat-input {
+  --cat: var(--cat-input);
+}
+.cat-output {
+  --cat: var(--cat-output);
+}
+.cat-processing {
+  --cat: var(--cat-processing);
+}
+.cat-condition {
+  --cat: var(--cat-condition);
+}
+.cat-trigger {
+  --cat: var(--cat-trigger);
+}
+
+/* blocks */
+.node {
+  width: 240px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--cat);
+  border-radius: 6px;
 }
 .node.selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+  outline: 2px solid var(--primary);
 }
 .node.failed {
   border-color: var(--bad);
@@ -228,72 +276,88 @@ button.on {
 .node header {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 8px 10px 0;
+  gap: 4px;
+  padding: 8px 10px 4px;
 }
-.node .kind {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
+.node select.kind {
+  width: 100%;
+  padding: 2px 6px;
+  color: var(--cat);
+  font-weight: 600;
 }
 .node-id {
-  font: inherit;
-  font-weight: 600;
-  color: var(--text);
-  background: transparent;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 4px;
+  background: none;
   padding: 1px 4px;
   margin-left: -4px;
+  font-weight: 600;
 }
 .node-id:hover,
 .node-id:focus {
   border-color: var(--line);
-  background: var(--panel-2);
+  background: var(--field);
   outline: none;
 }
+.ports {
+  display: flex;
+  justify-content: space-between;
+}
+.port {
+  position: relative;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.port.out {
+  text-align: right;
+}
 .node .body {
-  padding: 6px 10px;
+  padding: 4px 10px;
+}
+.node footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 8px;
+  min-height: 28px;
+}
+.node footer .full {
+  flex-basis: 100%;
 }
 .field {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   font-size: 12px;
 }
-.field span {
+.field > span {
   color: var(--muted);
 }
 .field input,
 .field select {
-  font: inherit;
-  color: var(--text);
-  background: var(--panel-2);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 4px 6px;
   width: 100%;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 6px;
 }
 .field input[type='range'] {
   padding: 0;
 }
-.hint {
-  color: var(--muted);
-}
-.warn {
-  color: var(--warn);
-}
-.node footer {
+.check {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 0 10px 8px;
-  min-height: 26px;
+  gap: 6px;
+  font-size: 12px;
 }
-.node footer .full {
-  flex-basis: 100%;
+.shortcut {
+  display: flex;
+  gap: 4px;
+}
+.shortcut input {
+  flex: 1;
 }
 .dot {
   width: 8px;
@@ -307,40 +371,59 @@ button.on {
 .dot.bad {
   background: var(--bad);
 }
+.lamp {
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.lamp.on {
+  color: var(--on-primary);
+  background: var(--cat-condition);
+  border-color: var(--cat-condition);
+}
 .meter {
   flex: 1;
   height: 6px;
-  background: var(--panel-2);
+  background: var(--field);
   border-radius: 3px;
   overflow: hidden;
 }
 .meter-fill {
   height: 100%;
-  background: linear-gradient(90deg, #22c55e, #84cc16 70%, #eab308);
+  background: var(--ok);
   transition: width 120ms linear;
 }
 .meter-fill.hot {
   background: var(--bad);
 }
 
+/* connection points and links take the colour of their flow */
 .react-flow__handle {
   width: 12px;
   height: 12px;
-  background: var(--accent, var(--primary));
-  border: 2px solid var(--bg);
+  border: 2px solid var(--panel);
+}
+.react-flow__handle.flow-audio {
+  background: var(--flow-audio);
+}
+.react-flow__handle.flow-condition {
+  background: var(--flow-condition);
+}
+.react-flow__handle.flow-action {
+  background: var(--flow-action);
+}
+.react-flow__edge.flow-audio .react-flow__edge-path {
+  stroke: var(--flow-audio);
+}
+.react-flow__edge.flow-condition .react-flow__edge-path {
+  stroke: var(--flow-condition);
+}
+.react-flow__edge.flow-action .react-flow__edge-path {
+  stroke: var(--flow-action);
+  stroke-dasharray: 6 4;
 }
 .react-flow__edge-path {
   stroke-width: 2;
-}
-
-.react-flow__edge-path {
-  stroke: #7d86a6;
-}
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke: var(--primary);
-}
-
-.banner button.inline {
-  position: static;
-  margin-left: 8px;
 }
