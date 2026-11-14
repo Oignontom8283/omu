@@ -10,6 +10,7 @@
 mod apps;
 mod com;
 mod devices;
+mod hotkey;
 mod loopback;
 mod stream;
 
@@ -60,6 +61,7 @@ impl Backend for WasapiBackend {
             devices: true,
             app_capture: true,
             virtual_devices: false,
+            hotkeys: true,
         }
     }
 
@@ -96,6 +98,14 @@ impl Backend for WasapiBackend {
             health: StreamHealth::new(),
             label: info.name,
         }))
+    }
+
+    fn open_hotkey(
+        &self,
+        combo: &crate::types::KeyCombo,
+        on_press: crate::hal::HotkeyCallback,
+    ) -> Result<Box<dyn crate::hal::Running>, HalError> {
+        hotkey::register(combo, on_press)
     }
 
     fn list_apps(&self) -> Result<Vec<AppInfo>, HalError> {
