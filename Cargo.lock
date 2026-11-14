@@ -2427,7 +2427,7 @@ dependencies = [
 
 [[package]]
 name = "omu"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "clap",
@@ -2449,7 +2449,7 @@ dependencies = [
 
 [[package]]
 name = "omu-gui"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "omu",
  "serde",
