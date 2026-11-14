@@ -29,12 +29,17 @@ dev target="all": (_cargo "build" replace_regex(target, "^(daemon|demon|server)(
 
 # Run a debug build: just run demon --demo     just run cli status     just run gui
 run target="demon" *args:
-    {{ if target == "cli" { "cargo run --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run --bin omu-gui --no-default-features --features gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --bin omu-daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
+    {{ if target == "cli" { "cargo run --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run --bin omu-gui --no-default-features --features gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --bin omu-daemon --no-default-features --features daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
 
-# The cargo command of a target (private)
+# The cargo command of a target (private). `all` builds the targets one after the other, each with exactly its own
+# features: cargo unifies the features of everything built by one command, so building them together would give the
+# command-line client the daemon's code (and size).
 [private]
 _cargo verb target:
-    cargo {{verb}} {{ if target == "all" { "--all-features" } else if target == "gui" { "--bin omu-gui --no-default-features --features gui" } else if target == "cli" { "--bin omu-cli --no-default-features --features cli" } else if target == "demon" { "--bin omu-daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") } }}
+    {{ if target == "all" { just_executable() + " _each " + quote(verb) } else if target == "gui" { "cargo " + verb + " --bin omu-gui --no-default-features --features gui" } else if target == "cli" { "cargo " + verb + " --bin omu-cli --no-default-features --features cli" } else if target == "demon" { "cargo " + verb + " --bin omu-daemon --no-default-features --features daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") } }}
+
+[private]
+_each verb: (_cargo verb "cli") (_cargo verb "demon") (_cargo verb "gui")
 
 # Run every test (Rust, every feature)
 test:

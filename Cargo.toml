@@ -104,12 +104,24 @@ tungstenite = "0.30"
 toml = "1.2"
 tauri-build = { version = "2", optional = true }
 
-# Release builds: link-time optimisation removes what each executable does not use. `panic = "abort"` is NOT used on
-# purpose: the audio thread catches a panicking block (catch_unwind) instead of taking the process down.
+# Release builds, as optimised as the language allows without tying the result to one machine:
+#  * fat link-time optimisation across every crate + one code-generation unit: the best inlining and dead-code
+#    removal (each executable keeps only what it uses: the CLI carries no audio engine, no server);
+#  * opt-level 3;
+#  * `panic = "unwind"` is kept on purpose: the audio thread contains a panicking block (catch_unwind) and the crash
+#    handler runs the cleanups while unwinding; `abort` would turn every bug into a dead program;
+#  * line tables are kept in the debug information (`.pdb` next to the executable on Windows) and symbols are not
+#    stripped: crash reports then show function, file and line. The debug information is not loaded at run time, so
+#    it costs disk space beside the executable, not speed or memory. Ship the `.pdb` files with the executables.
+# `-C target-cpu=native` is NOT set: it would make binaries that crash with an illegal instruction on older CPUs.
 [profile.release]
-lto = "thin"
+opt-level = 3
+lto = "fat"
 codegen-units = 1
-strip = "symbols"
+panic = "unwind"
+debug = "line-tables-only"
+strip = "none"
+incremental = false
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
