@@ -59,7 +59,15 @@ fn main() {
     )
     .unwrap();
 
-    // The daemon embeds the web panel built into ui/dist; the folder must exist even when the panel was not built
-    // (building the panel needs Node.js, building the daemon must not).
-    let _ = fs::create_dir_all(manifest.join("ui").join("dist"));
+    // The daemon embeds the web panel built into ui/dist: build it (with npm) whenever the daemon is built. The
+    // folder must exist for the embedding even when `OMU_SKIP_UI` skips the build.
+    if env::var_os("CARGO_FEATURE_DAEMON").is_some() {
+        panel::ensure_panel(&manifest.join("ui"), &path);
+    } else {
+        let _ = fs::create_dir_all(manifest.join("ui").join("dist"));
+    }
+}
+
+mod panel {
+    include!("build-support/panel.rs");
 }

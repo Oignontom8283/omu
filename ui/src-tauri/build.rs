@@ -26,5 +26,16 @@ fn main() {
     );
     env::set_var("TAURI_CONFIG", &config);
     println!("cargo:rustc-env=TAURI_CONFIG={config}");
+    // The window embeds the panel too: build it first (see build-support/panel.rs). Without the `custom-protocol`
+    // feature the window loads a development server instead and needs no build.
+    if env::var_os("CARGO_FEATURE_CUSTOM_PROTOCOL").is_some() {
+        panel::ensure_panel(&manifest.join(".."), &branding);
+    } else {
+        let _ = fs::create_dir_all(manifest.join("..").join("dist"));
+    }
     tauri_build::build();
+}
+
+mod panel {
+    include!("../../build-support/panel.rs");
 }
