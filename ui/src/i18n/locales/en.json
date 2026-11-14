@@ -113,9 +113,7 @@
   "status.actions": "{count} actions",
   "status.underruns": "Buffer underruns / overruns",
 
-  "node.nameChars": "Use letters, digits, - _ and . only",
-  "node.nameTaken": "This name is already used",
-  "node.nameHint": "Name of this block in the graph",
+  "node.nameHint": "Name of this block (free text: write what you like)",
   "node.addInput": "Add an input",
   "node.removeInput": "Remove this input",
   "node.summed": "Several links on this input: they are added together",
@@ -151,5 +149,8 @@
   "field.hold": "Stays true for (ms)",
   "field.after": "True after (ms)",
   "node.addCondition": "Add an “else if”",
-  "node.removeCondition": "Remove the last “else if”"
+  "node.removeCondition": "Remove the last “else if”",
+  "node.namePlaceholder": "Block name",
+  "node.idLabel": "id:",
+  "node.unnamed": "(unnamed block)"
 }

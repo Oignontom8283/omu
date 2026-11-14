@@ -1,7 +1,7 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useEditor } from '../context.ts';
-import { KINDS_BY_CATEGORY, MAX_BRANCHES, MAX_ENTRIES, branchCount, categoryOf, entryCount, entryHandles, hasEntries, levelDb, linksPerEntry, meterFill, portsOf, type PortMeta } from '../graph.ts';
+import { KINDS_BY_CATEGORY, MAX_BRANCHES, MAX_ENTRIES, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { DeviceRef, LogicOp, NodeSpec, NodeType } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
@@ -216,28 +216,23 @@ function Branches({ spec }: { spec: Of<'branch'> | Of<'select'> }) {
   );
 }
 
-function IdField({ id }: { id: string }) {
-  const { rename } = useEditor();
+/**
+ * The name people give a block: free text, kept with the graph, and separate from the block's identifier (which the
+ * links use and which never changes). A block without a name shows an empty field; one made by hand under a chosen
+ * identifier shows that identifier in grey as a hint.
+ */
+function NameField({ spec }: { spec: NodeSpec }) {
+  const { setDisplay } = useEditor();
   const t = useT();
-  const [draft, setDraft] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const commit = () => {
-    setError(draft !== null && draft !== id ? rename(id, draft) : null);
-    setDraft(null);
-  };
   return (
-    <>
-      <input
-        className="node-id nodrag"
-        value={draft ?? id}
-        spellCheck={false}
-        title={t('node.nameHint')}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-      />
-      {error && <small className="warn">{t(error)}</small>}
-    </>
+    <input
+      className="node-id nodrag"
+      value={spec.display ?? ''}
+      placeholder={isGeneratedId(spec.id) ? t('node.namePlaceholder') : spec.id}
+      spellCheck={false}
+      title={`${t('node.nameHint')} · ${t('node.idLabel')} ${spec.id}`}
+      onChange={(e) => setDisplay(spec.id, e.target.value)}
+    />
   );
 }
 
@@ -343,7 +338,7 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
             </option>
           ))}
         </select>
-        <IdField id={spec.id} />
+        <NameField spec={spec} />
       </header>
       <div className="ports">
         <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} />)}</div>

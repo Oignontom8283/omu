@@ -5,6 +5,10 @@ import {
   KINDS_BY_CATEGORY,
   NODE_TYPES,
   PORTS,
+  isGeneratedId,
+  namedProblem,
+  nameOf,
+  newId,
   branchCount,
   entryPortOf,
   portsOf,
@@ -203,7 +207,7 @@ test('changing a block into a branching one keeps the links that still fit', () 
   assert.equal(asNot.length, 0, 'sounds cannot enter a condition block');
 });
 
-test('connection rules: flows must match, outputs go to inputs, one edge per plain input', () => {
+test('connection rules: flows must match, outputs go to inputs, one edge per condition input', () => {
   const flow = toFlow(gated, {});
   const link = (source: string, target: string, sh: string, th: string) => canConnect(flow.nodes, flow.edges, { source, target, sourceHandle: sh, targetHandle: th });
   assert.equal(link('key', 'gate', 'pressed', 'open'), false, 'an action cannot open a gate: it needs a condition');
@@ -211,7 +215,7 @@ test('connection rules: flows must match, outputs go to inputs, one edge per pla
   assert.equal(link('on', 'gate', 'value', 'open'), false, 'duplicate');
   assert.equal(link('mic', 'app', 'in', 'out'), false, 'a virtual microphone sends nothing');
   assert.equal(link('gate', 'gate', 'out', 'in'), false, 'no loop on one block');
-  assert.equal(link('app', 'mic', 'out', 'in'), false, 'the microphone input is taken');
+  assert.equal(link('app', 'mic', 'out', 'in'), true, 'a second sound into the microphone is allowed: the sounds are added');
   // several triggers may drive one variable
   const more: GraphSpec = { ...gated, nodes: [...gated.nodes, { id: 'k2', type: 'hotkey', keys: 'F9' }] };
   const f2 = toFlow(more, {});
@@ -347,7 +351,7 @@ test('a saved place that makes no sense is ignored, and the points never go belo
   assert.equal(entryCount([{ target: 'other', targetHandle: 'in#9' }], 'mix', 'in', undefined), 2, 'another block does not count');
 });
 
-test('connecting into a point of a multi input works, the same source twice does not', () => {
+test('connecting into a point of the mixer works, the same source twice does not', () => {
   const nodes = [
     { id: 'a', spec: { id: 'a', type: 'app_capture', target: { pid: 1 } } as const },
     { id: 'b', spec: { id: 'b', type: 'app_capture', target: { pid: 2 } } as const },
@@ -356,8 +360,70 @@ test('connecting into a point of a multi input works, the same source twice does
   const edges = [{ id: 'x', source: 'a', target: 'mix', sourceHandle: 'out', targetHandle: 'in' }];
   assert.ok(canConnect(nodes, edges, { source: 'b', target: 'mix', sourceHandle: 'out', targetHandle: 'in#2' }));
   assert.ok(!canConnect(nodes, edges, { source: 'a', target: 'mix', sourceHandle: 'out', targetHandle: 'in#2' }), 'no duplicate link');
-  // a single input still takes one link only
+  // any sound input adds the sounds that reach it, a gain's too
   const gain = [...nodes, { id: 'g', spec: { id: 'g', type: 'gain', db: 0 } as const }];
   const one = [{ id: 'y', source: 'a', target: 'g', sourceHandle: 'out', targetHandle: 'in' }];
-  assert.ok(!canConnect(gain, one, { source: 'b', target: 'g', sourceHandle: 'out', targetHandle: 'in' }));
+  assert.ok(canConnect(gain, one, { source: 'b', target: 'g', sourceHandle: 'out', targetHandle: 'in' }));
+});
+
+test('a new block gets a random identifier, never the same twice, and a hand-made one is left alone', () => {
+  const ids = Array.from({ length: 200 }, () => newId());
+  assert.equal(new Set(ids).size, 200);
+  for (const id of ids) {
+    assert.match(id, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    assert.ok(isGeneratedId(id));
+    assert.match(id, /^[A-Za-z0-9._-]+$/, 'accepted by the daemon as an identifier');
+  }
+  assert.ok(!isGeneratedId('mic'));
+  assert.ok(!isGeneratedId('output_discord'));
+});
+
+test('the name people see is the display name; a chosen identifier stands in for it, a random one does not', () => {
+  assert.equal(nameOf({ id: 'x', display: 'Micro du stream' }), 'Micro du stream');
+  assert.equal(nameOf({ id: 'mon_micro' }), 'mon_micro');
+  assert.equal(nameOf({ id: newId() }), '');
+  assert.equal(nameOf({ id: 'a', display: '   ' }), 'a', 'a blank name is no name');
+  const id = newId();
+  const nodes = [{ id, display: 'Micro' }, { id: newId() }, { id: 'out', display: 'Sortie' }];
+  assert.equal(namedProblem(`nodes "${id}" and "out" use the same device`, nodes, '(?)'), 'nodes "Micro" and "Sortie" use the same device');
+  assert.equal(namedProblem(`node "${nodes[1].id}" has no port`, nodes, '(?)'), 'node "(?)" has no port');
+  assert.equal(namedProblem('nothing to rename', nodes, '(?)'), 'nothing to rename');
+});
+
+test('the display name travels with the block and a graph without one stays as it is', () => {
+  const g: GraphSpec = {
+    nodes: [
+      { id: 'app', type: 'app_capture', target: { pid: 1 } },
+      { id: 'c3a4', display: "Mon micro : l'original", type: 'virtual_mic', name: 'Stream' },
+    ],
+    edges: [{ from: { node: 'app', port: 'out' }, to: { node: 'c3a4', port: 'in' } }],
+  };
+  const flow = toFlow(g, {});
+  assert.deepEqual(fromFlow(flow.nodes, flow.edges), g);
+  assert.equal('display' in fromFlow(flow.nodes, flow.edges).nodes[0], false, 'no empty property is invented');
+});
+
+test('every sound input takes several links; a condition input only when it combines them', () => {
+  const nodes = [
+    { id: 'a', spec: { id: 'a', type: 'app_capture', target: { pid: 1 } } as const },
+    { id: 'b', spec: { id: 'b', type: 'app_capture', target: { pid: 2 } } as const },
+    { id: 'v', spec: { id: 'v', type: 'variable', initial: true } as const },
+    { id: 'w', spec: { id: 'w', type: 'variable', initial: true } as const },
+    { id: 'mic', spec: { id: 'mic', type: 'virtual_mic', name: 'M' } as const },
+    { id: 'gate', spec: { id: 'gate', type: 'gate' } as const },
+    { id: 'all', spec: { id: 'all', type: 'all' } as const },
+  ];
+  const edges = [
+    { id: '1', source: 'a', target: 'mic', sourceHandle: 'out', targetHandle: 'in' },
+    { id: '2', source: 'v', target: 'gate', sourceHandle: 'value', targetHandle: 'open' },
+    { id: '3', source: 'v', target: 'all', sourceHandle: 'value', targetHandle: 'in' },
+  ];
+  const can = (source: string, sh: string, target: string, th: string) => canConnect(nodes, edges, { source, target, sourceHandle: sh, targetHandle: th });
+  assert.ok(can('b', 'out', 'mic', 'in'), 'a second sound into a microphone: they are added');
+  assert.ok(!can('a', 'out', 'mic', 'in'), 'but the same one twice is a mistake');
+  assert.ok(!can('w', 'value', 'gate', 'open'), 'two conditions on one gate input would be ambiguous');
+  assert.ok(can('w', 'value', 'all', 'in'), 'unless the block combines them');
+  // the + for extra input points stays where it was designed: the mixer, `all` and `any`
+  for (const type of ['gain', 'virtual_mic', 'gate', 'branch', 'delay'] as const) assert.equal(entryPortOf(defaultKind(type)), undefined, type);
+  assert.equal(entryPortOf({ type: 'mixer' })?.name, 'in');
 });

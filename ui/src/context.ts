@@ -10,8 +10,8 @@ export type EditorContext = {
   update: (id: string, kind: NodeKind) => void;
   /** Makes a block another kind of its family (the drop-down): settings reset, links follow where they still fit. */
   changeKind: (id: string, type: NodeType) => void;
-  /** Renames a block (its name appears in the graph's edges). Returns the translation key of the error when refused. */
-  rename: (id: string, next: string) => string | null;
+  /** Gives a block the name people see (free text; empty text means no name). Its identifier never changes. */
+  setDisplay: (id: string, text: string) => void;
   /** Shows `count` input points on a block that sums its inputs (never fewer than it has links on). */
   setInputs: (id: string, count: number) => void;
 };
