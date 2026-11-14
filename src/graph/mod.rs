@@ -9,7 +9,7 @@
 //! * no duplicate edge, no cycle (a feedback loop needs an explicit delay block, which does not exist yet);
 //! * two sinks may not use the same device, and two virtual microphones may not share a name.
 
-use crate::types::{DeviceRef, EdgeSpec, GraphSpec, NodeId, NodeKind, PortDirection};
+use crate::types::{DeviceRef, EdgeSpec, GraphSpec, KeyCombo, NodeId, NodeKind, PortDirection};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
@@ -41,6 +41,12 @@ pub enum GraphError {
     SameVirtualName(NodeId, NodeId),
     #[error("virtual microphone {0:?} has an empty name")]
     EmptyVirtualName(NodeId),
+    #[error("shortcut of node {0:?} is not valid: {1}")]
+    BadShortcut(NodeId, String),
+    #[error("nodes {0:?} and {1:?} use the same shortcut ({2}): it can only trigger one place")]
+    SameShortcut(NodeId, NodeId, String),
+    #[error("timer {0:?} fires every {1} ms: use at least 10 ms")]
+    TimerTooFast(NodeId, u32),
 }
 
 /// A validated graph: node indices follow `spec.nodes`, `order` is a valid evaluation order.
@@ -179,6 +185,7 @@ pub fn validate(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
 fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
     let mut devices: Vec<(&NodeId, &DeviceRef)> = vec![];
     let mut virtual_names: HashMap<String, &NodeId> = HashMap::new();
+    let mut shortcuts: HashMap<String, &NodeId> = HashMap::new();
     for node in &spec.nodes {
         match &node.kind {
             NodeKind::DeviceRender { device } => {
@@ -186,6 +193,22 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
                     errors.push(GraphError::SameDevice((*other).clone(), node.id.clone()));
                 }
                 devices.push((&node.id, device));
+            }
+            NodeKind::Hotkey { keys } => match KeyCombo::parse(keys) {
+                Err(e) => errors.push(GraphError::BadShortcut(node.id.clone(), e)),
+                Ok(combo) => {
+                    let normal = combo.to_string();
+                    if let Some(other) = shortcuts.insert(normal.clone(), &node.id) {
+                        errors.push(GraphError::SameShortcut(
+                            other.clone(),
+                            node.id.clone(),
+                            normal,
+                        ));
+                    }
+                }
+            },
+            NodeKind::Timer { interval_ms } if *interval_ms < 10 => {
+                errors.push(GraphError::TimerTooFast(node.id.clone(), *interval_ms));
             }
             NodeKind::VirtualMic { name } => {
                 if name.trim().is_empty() {
@@ -399,6 +422,146 @@ mod tests {
         assert!(e.contains(&GraphError::SameDevice("r1".into(), "r2".into())));
         assert!(e.contains(&GraphError::SameVirtualName("v1".into(), "v2".into())));
         assert!(e.contains(&GraphError::EmptyVirtualName("v3".into())));
+    }
+
+    #[test]
+    fn the_example_chain_of_a_key_a_variable_and_a_gate_is_valid() {
+        let spec = GraphSpec {
+            nodes: vec![
+                node("key", NodeKind::Hotkey { keys: "F8".into() }),
+                node("mute", NodeKind::Variable { initial: true }),
+                node("app", app()),
+                node("gate", NodeKind::Gate),
+                node("mic", mic("M")),
+            ],
+            edges: vec![
+                edge("key", "pressed", "mute", "toggle"),
+                edge("mute", "value", "gate", "open"),
+                edge("app", "out", "gate", "in"),
+                edge("gate", "out", "mic", "in"),
+            ],
+        };
+        let v = validate(&spec).unwrap();
+        let pos = |name: &str| {
+            v.order
+                .iter()
+                .position(|&i| v.spec.nodes[i].id.0 == name)
+                .unwrap()
+        };
+        assert!(pos("key") < pos("mute") && pos("mute") < pos("gate") && pos("gate") < pos("mic"));
+    }
+
+    #[test]
+    fn flows_of_different_types_do_not_connect() {
+        let spec = GraphSpec {
+            nodes: vec![
+                node("key", NodeKind::Hotkey { keys: "F8".into() }),
+                node("gate", NodeKind::Gate),
+                node("app", app()),
+                node("var", NodeKind::Variable { initial: false }),
+            ],
+            edges: vec![
+                edge("key", "pressed", "gate", "open"), // an action into a condition input
+                edge("app", "out", "var", "toggle"),    // audio into an action input
+            ],
+        };
+        let e = validate(&spec).unwrap_err();
+        assert_eq!(
+            e.iter()
+                .filter(|x| matches!(x, GraphError::TypeMismatch { .. }))
+                .count(),
+            2,
+            "{e:?}"
+        );
+    }
+
+    #[test]
+    fn several_triggers_may_toggle_one_variable_but_one_condition_drives_a_gate() {
+        let triggers = |n: usize| GraphSpec {
+            nodes: (0..n)
+                .map(|i| {
+                    node(
+                        &format!("k{i}"),
+                        NodeKind::Hotkey {
+                            keys: format!("F{}", i + 1),
+                        },
+                    )
+                })
+                .chain([node("var", NodeKind::Variable { initial: false })])
+                .collect(),
+            edges: (0..n)
+                .map(|i| edge(&format!("k{i}"), "pressed", "var", "toggle"))
+                .collect(),
+        };
+        assert!(validate(&triggers(3)).is_ok());
+        let two_conditions = GraphSpec {
+            nodes: vec![
+                node("a", NodeKind::Variable { initial: true }),
+                node("b", NodeKind::Variable { initial: true }),
+                node("gate", NodeKind::Gate),
+            ],
+            edges: vec![
+                edge("a", "value", "gate", "open"),
+                edge("b", "value", "gate", "open"),
+            ],
+        };
+        let e = validate(&two_conditions).unwrap_err();
+        assert!(e.contains(&GraphError::FanIn("gate".into(), "open".into())));
+    }
+
+    #[test]
+    fn shortcuts_and_timers_are_checked() {
+        let spec = GraphSpec {
+            nodes: vec![
+                node(
+                    "a",
+                    NodeKind::Hotkey {
+                        keys: "ctrl+f8".into(),
+                    },
+                ),
+                node(
+                    "b",
+                    NodeKind::Hotkey {
+                        keys: "Ctrl+F8".into(),
+                    },
+                ),
+                node(
+                    "c",
+                    NodeKind::Hotkey {
+                        keys: "Ctrl".into(),
+                    },
+                ),
+                node("t", NodeKind::Timer { interval_ms: 2 }),
+            ],
+            edges: vec![],
+        };
+        let e = validate(&spec).unwrap_err();
+        assert!(
+            e.iter().any(
+                |x| matches!(x, GraphError::SameShortcut(a, b, _) if a.0 == "a" && b.0 == "b")
+            ),
+            "{e:?}"
+        );
+        assert!(e
+            .iter()
+            .any(|x| matches!(x, GraphError::BadShortcut(n, _) if n.0 == "c")));
+        assert!(e.iter().any(|x| matches!(x, GraphError::TimerTooFast(..))));
+    }
+
+    #[test]
+    fn a_condition_loop_is_a_cycle_too() {
+        use crate::types::LogicOp;
+        let spec = GraphSpec {
+            nodes: vec![
+                node("a", NodeKind::Logic { op: LogicOp::Not }),
+                node("b", NodeKind::Logic { op: LogicOp::Not }),
+            ],
+            edges: vec![edge("a", "out", "b", "a"), edge("b", "out", "a", "a")],
+        };
+        assert!(validate(&spec)
+            .unwrap_err()
+            .iter()
+            .any(|x| matches!(x, GraphError::Cycle(_))));
     }
 
     #[test]
