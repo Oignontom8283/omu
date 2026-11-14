@@ -4,9 +4,10 @@
 
 use super::{
     AppInfo, Backend, Capabilities, CaptureCallback, CaptureStream, DeviceInfo, Direction,
-    HalError, RenderCallback, RenderStream, Running, StreamHealth, VirtualDeviceProvider,
+    HalError, HotkeyCallback, RenderCallback, RenderStream, Running, StreamHealth,
+    VirtualDeviceProvider,
 };
-use crate::types::{AppTarget, AudioFormat, DeviceRef};
+use crate::types::{AppTarget, AudioFormat, DeviceRef, KeyCombo};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -51,6 +52,8 @@ struct Shared {
     healths: Vec<Arc<StreamHealth>>,
     /// When false, sinks throw away what they receive instead of recording it (long-running demos).
     discard: bool,
+    /// Registered keyboard shortcuts, by normalised text ("Ctrl+F8").
+    hotkeys: HashMap<String, Arc<HotkeyCallback>>,
 }
 
 /// The simulated backend. Cloning shares the same world.
@@ -99,6 +102,21 @@ impl SimBackend {
             },
         );
         recording
+    }
+
+    /// Presses a keyboard shortcut: calls the callback registered for it, if any. Returns whether one was.
+    pub fn press(&self, keys: &str) -> bool {
+        let Ok(combo) = KeyCombo::parse(keys) else {
+            return false;
+        };
+        let callback = self
+            .shared
+            .lock()
+            .unwrap()
+            .hotkeys
+            .get(&combo.to_string())
+            .cloned();
+        callback.map(|cb| cb()).is_some()
     }
 
     /// Makes the sinks opened from now on discard their audio instead of recording it (for demos that run for
@@ -268,6 +286,19 @@ impl RenderStream for SimRender {
     }
 }
 
+struct HotkeyGuard {
+    shared: Arc<Mutex<Shared>>,
+    key: String,
+}
+
+impl Running for HotkeyGuard {}
+
+impl Drop for HotkeyGuard {
+    fn drop(&mut self) {
+        self.shared.lock().unwrap().hotkeys.remove(&self.key);
+    }
+}
+
 impl Backend for SimBackend {
     fn name(&self) -> &str {
         "simulated"
@@ -278,6 +309,7 @@ impl Backend for SimBackend {
             devices: true,
             app_capture: true,
             virtual_devices: true,
+            hotkeys: true,
         }
     }
 
@@ -325,6 +357,25 @@ impl Backend for SimBackend {
             sink,
             health,
             discard,
+        }))
+    }
+
+    fn open_hotkey(
+        &self,
+        combo: &KeyCombo,
+        on_press: HotkeyCallback,
+    ) -> Result<Box<dyn Running>, HalError> {
+        let key = combo.to_string();
+        let mut s = self.shared.lock().unwrap();
+        if s.hotkeys.contains_key(&key) {
+            return Err(HalError::Busy(format!(
+                "the shortcut {key} is already used by another program"
+            )));
+        }
+        s.hotkeys.insert(key.clone(), Arc::new(on_press));
+        Ok(Box::new(HotkeyGuard {
+            shared: self.shared.clone(),
+            key,
         }))
     }
 
@@ -479,6 +530,29 @@ mod tests {
         assert_eq!(*count.lock().unwrap(), frozen);
         assert!(health.has_failed() && health.error().as_deref() == Some("unplugged"));
         drop(running);
+    }
+
+    #[test]
+    fn shortcuts_fire_while_registered_and_cannot_be_registered_twice() {
+        let sim = SimBackend::new();
+        let count = Arc::new(Mutex::new(0));
+        let c2 = count.clone();
+        let combo = KeyCombo::parse("ctrl+f8").unwrap();
+        let guard = sim
+            .open_hotkey(&combo, Box::new(move || *c2.lock().unwrap() += 1))
+            .unwrap();
+        assert!(sim.press("Ctrl+F8"));
+        assert!(!sim.press("f8"), "another shortcut is not this one");
+        assert_eq!(*count.lock().unwrap(), 1);
+        assert!(
+            matches!(sim.open_hotkey(&combo, Box::new(|| {})), Err(HalError::Busy(m)) if m.contains("already used"))
+        );
+        drop(guard);
+        assert!(!sim.press("Ctrl+F8"), "released");
+        assert!(
+            sim.open_hotkey(&combo, Box::new(|| {})).is_ok(),
+            "free again"
+        );
     }
 
     #[test]

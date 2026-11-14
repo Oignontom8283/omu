@@ -17,7 +17,7 @@ pub mod sim;
 #[cfg(all(windows, feature = "engine"))]
 pub mod wasapi;
 
-use crate::types::{AppTarget, AudioFormat, DeviceRef};
+use crate::types::{AppTarget, AudioFormat, DeviceRef, KeyCombo};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -72,6 +72,8 @@ pub struct Capabilities {
     pub devices: bool,
     pub app_capture: bool,
     pub virtual_devices: bool,
+    /// Global keyboard shortcuts (the `Hotkey` trigger).
+    pub hotkeys: bool,
 }
 
 /// Live status of a stream, shared between its real-time thread and the supervisor.
@@ -120,6 +122,8 @@ impl StreamHealth {
 pub type CaptureCallback = Box<dyn FnMut(&[f32]) + Send>;
 /// Fills the frames to play (interleaved, in the stream's format). Runs on a real-time thread.
 pub type RenderCallback = Box<dyn FnMut(&mut [f32]) + Send>;
+/// Called each time a global keyboard shortcut is pressed.
+pub type HotkeyCallback = Box<dyn Fn() + Send + Sync>;
 
 /// A running stream. Dropping it stops the stream and joins its thread.
 pub trait Running: Send {}
@@ -150,6 +154,16 @@ pub trait Backend: Send + Sync {
         Err(HalError::Unsupported(
             "capturing an application's sound".into(),
         ))
+    }
+    /// Registers a global keyboard shortcut: `on_press` is called (from the backend's own thread) each time it is
+    /// pressed, whichever program has the focus. The shortcut is released when the returned guard is dropped. Fails
+    /// when another program already owns the shortcut.
+    fn open_hotkey(
+        &self,
+        _combo: &KeyCombo,
+        _on_press: HotkeyCallback,
+    ) -> Result<Box<dyn Running>, HalError> {
+        Err(HalError::Unsupported("global keyboard shortcuts".into()))
     }
     /// Captures the sound of an application (and its child processes) before it reaches any device.
     fn open_app_capture(&self, _target: &AppTarget) -> Result<Box<dyn CaptureStream>, HalError> {

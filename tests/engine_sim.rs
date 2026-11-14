@@ -357,3 +357,121 @@ fn stopping_silences_everything_and_the_engine_can_restart() {
     .len()
         > frozen + 24_000));
 }
+
+/// The example of the design: a key press (a trigger's action) toggles a variable (a condition) that opens or closes
+/// a gate on the audio, all through the real engine.
+#[test]
+fn a_shortcut_mutes_and_unmutes_the_microphone_through_a_variable_and_a_gate() {
+    use omu::types::NodeState;
+    let sim = SimBackend::new();
+    sim.add_app(1, "chrome.exe", SimSource::tone(1000.0));
+    let e = engine(&sim);
+    let spec = GraphSpec {
+        nodes: vec![
+            node("app", app_node()),
+            node(
+                "key",
+                NodeKind::Hotkey {
+                    keys: "Ctrl+F8".into(),
+                },
+            ),
+            node("on", NodeKind::Variable { initial: true }),
+            node("gate", NodeKind::Gate),
+            node("mic", NodeKind::VirtualMic { name: "G".into() }),
+        ],
+        edges: vec![
+            EdgeSpec {
+                from: PortRef::new("key", "pressed"),
+                to: PortRef::new("on", "toggle"),
+            },
+            EdgeSpec {
+                from: PortRef::new("on", "value"),
+                to: PortRef::new("gate", "open"),
+            },
+            edge("app", "gate"),
+            edge("gate", "mic"),
+        ],
+    };
+    e.apply(validate(&spec).unwrap());
+    std::thread::sleep(Duration::from_millis(1500));
+    let level_after = |ms: u64| {
+        let start = sim_recording(&sim, "virtual:G").len();
+        std::thread::sleep(Duration::from_millis(ms));
+        let rec = sim_recording(&sim, "virtual:G");
+        rms(&left(&rec[start..]))
+    };
+    assert!(level_after(600) > 0.2, "open at first: the tone passes");
+    let status = e.status();
+    let on = status.nodes.iter().find(|n| n.id.0 == "on").unwrap();
+    assert_eq!(on.active, Some(true));
+    assert!(
+        status.nodes.iter().all(|n| n.state == NodeState::Running),
+        "{status:?}"
+    );
+
+    assert!(sim.press("ctrl+f8"), "the shortcut is registered");
+    std::thread::sleep(Duration::from_millis(300)); // the gate fades, the bridges drain
+    assert!(level_after(600) < 0.01, "muted by the key");
+    let status = e.status();
+    assert_eq!(
+        status.nodes.iter().find(|n| n.id.0 == "on").unwrap().active,
+        Some(false)
+    );
+    assert_eq!(
+        status
+            .nodes
+            .iter()
+            .find(|n| n.id.0 == "key")
+            .unwrap()
+            .events,
+        1
+    );
+
+    assert!(sim.press("Ctrl+F8"));
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(level_after(600) > 0.2, "unmuted by the second press");
+}
+
+#[test]
+fn a_shortcut_that_is_taken_fails_only_its_block() {
+    use omu::hal::Backend as _;
+    use omu::types::{KeyCombo, NodeState};
+    let sim = SimBackend::new();
+    sim.add_app(1, "chrome.exe", SimSource::tone(440.0));
+    // another program already owns Ctrl+F9
+    let _other = sim
+        .open_hotkey(&KeyCombo::parse("Ctrl+F9").unwrap(), Box::new(|| {}))
+        .unwrap();
+    let e = engine(&sim);
+    let spec = GraphSpec {
+        nodes: vec![
+            node("app", app_node()),
+            node(
+                "key",
+                NodeKind::Hotkey {
+                    keys: "Ctrl+F9".into(),
+                },
+            ),
+            node("mic", NodeKind::VirtualMic { name: "T".into() }),
+        ],
+        edges: vec![edge("app", "mic")],
+    };
+    e.apply(validate(&spec).unwrap());
+    std::thread::sleep(Duration::from_millis(800));
+    let st = e.status();
+    let get = |id: &str| {
+        st.nodes
+            .iter()
+            .find(|n| n.id.0 == id)
+            .unwrap()
+            .state
+            .clone()
+    };
+    assert!(
+        matches!(get("key"), NodeState::Failed(m) if m.contains("already used")),
+        "{:?}",
+        get("key")
+    );
+    assert_eq!(get("app"), NodeState::Running);
+    assert_eq!(get("mic"), NodeState::Running);
+}

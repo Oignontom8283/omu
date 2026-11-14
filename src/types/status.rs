@@ -22,6 +22,12 @@ pub struct NodeStatus {
     pub overruns: u64,
     pub fill_ms: f32,
     pub frames: u64,
+    /// For a block that holds a yes/no (a variable, a detector, a gate, logic): its value now.
+    #[serde(default)]
+    pub active: Option<bool>,
+    /// Actions a block has sent (a trigger) since the graph started.
+    #[serde(default)]
+    pub events: u64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -51,6 +57,8 @@ mod tests {
                     overruns: 0,
                     fill_ms: 24.5,
                     frames: 480,
+                    active: Some(true),
+                    events: 3,
                 },
                 NodeStatus {
                     id: "mic".into(),
@@ -60,6 +68,8 @@ mod tests {
                     overruns: 2,
                     fill_ms: 0.0,
                     frames: 0,
+                    active: None,
+                    events: 0,
                 },
             ],
         };
@@ -77,6 +87,8 @@ mod tests {
             overruns: 0,
             fill_ms: 0.0,
             frames: 0,
+            active: None,
+            events: 0,
         };
         let v = serde_json::to_value(&node).unwrap();
         assert_eq!(v["state"], "failed");

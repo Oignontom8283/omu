@@ -5,15 +5,17 @@
 //! does not interrupt the audio of the other nodes.
 
 use super::bridge::{sink_bridge, source_bridge, BridgeStats, SinkProducer, SourceConsumer};
-use super::plan::{Meter, NodeOp, Plan, PlanNode};
+use super::plan::{Meter, NodeOp, Plan, PlanNode, Port, Wire};
 use super::runtime::{GraphThread, RuntimeStats, ThreadInit};
 use crate::graph::ValidGraph;
 use crate::hal::{
     Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider,
 };
-use crate::types::{EngineStatus, NodeId, NodeKind, NodeState, NodeStatus};
+use crate::types::{
+    EngineStatus, KeyCombo, NodeId, NodeKind, NodeState, NodeStatus, ENGINE_SAMPLE_RATE,
+};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -46,6 +48,8 @@ impl Default for EngineConfig {
 enum Io {
     Source(Arc<Mutex<SourceConsumer>>),
     Sink(Arc<Mutex<SinkProducer>>),
+    /// Actions counted by the system's keyboard shortcut callback.
+    Trigger(Arc<AtomicU32>),
 }
 
 struct Resource {
@@ -168,11 +172,12 @@ impl Engine {
                             0.0,
                             0,
                         ),
-                        (None, None) if n.kind.is_source() || n.kind.is_sink() => {
+                        (None, None) if n.kind.needs_stream() => {
                             (NodeState::Failed("starting".into()), 0, 0, 0.0, 0)
                         }
                         _ => (NodeState::Running, 0, 0, 0.0, 0),
                     };
+                let meter = st.meters.get(&n.id);
                 NodeStatus {
                     id: n.id.clone(),
                     state,
@@ -181,6 +186,8 @@ impl Engine {
                     overruns,
                     fill_ms,
                     frames,
+                    active: meter.and_then(|m| m.condition()),
+                    events: meter.map_or(0, |m| m.events()),
                 }
             })
             .collect();
@@ -274,9 +281,7 @@ impl Inner {
 
         // 2. Open the streams that are missing (and due).
         for node in &desired.spec.nodes {
-            if !(node.kind.is_source() || node.kind.is_sink())
-                || st.resources.contains_key(&node.id)
-            {
+            if !node.kind.needs_stream() || st.resources.contains_key(&node.id) {
                 continue;
             }
             if st.failures.get(&node.id).is_some_and(|f| f.retry_at > now) {
@@ -347,17 +352,38 @@ impl Inner {
             .iter()
             .map(|&idx| {
                 let spec = &graph.spec.nodes[idx];
+                let cycle_frames = self.cfg.cycle_frames as u64;
                 let op = match (&spec.kind, resources.get(&spec.id).map(|r| &r.io)) {
                     (_, Some(Io::Source(c))) => NodeOp::Source(c.clone()),
                     (_, Some(Io::Sink(p))) => NodeOp::Sink(p.clone()),
+                    (_, Some(Io::Trigger(t))) => NodeOp::Trigger(t.clone()),
                     (k, None) if k.is_source() => NodeOp::SilentSource,
                     (k, None) if k.is_sink() => NodeOp::DiscardSink,
+                    // a shortcut that could not be registered never fires
+                    (NodeKind::Hotkey { .. }, None) => NodeOp::Trigger(Arc::new(AtomicU32::new(0))),
                     (NodeKind::Gain { db }, _) => NodeOp::Gain(Plan::gain(*db)),
+                    (NodeKind::Gate, _) => NodeOp::Gate(Plan::gate()),
+                    (NodeKind::Variable { initial }, _) => NodeOp::Variable { state: *initial },
+                    (NodeKind::Level { threshold_db }, _) => NodeOp::Level {
+                        threshold: Plan::level_threshold(*threshold_db),
+                        hold_left: 0,
+                    },
+                    (NodeKind::Logic { op }, _) => NodeOp::Logic(*op),
+                    (NodeKind::Timer { interval_ms }, _) => NodeOp::Timer {
+                        interval_frames: (*interval_ms as u64 * ENGINE_SAMPLE_RATE as u64 / 1000)
+                            .max(cycle_frames),
+                        elapsed: 0,
+                    },
                     _ => NodeOp::Mixer,
                 };
                 let inputs = graph
                     .incoming(idx)
-                    .map(|e| position[graph.edge_nodes[e].0])
+                    .filter_map(|e| {
+                        Port::from_name(&graph.spec.edges[e].to.port).map(|port| Wire {
+                            from: position[graph.edge_nodes[e].0],
+                            port,
+                        })
+                    })
                     .collect();
                 let meter: Arc<Meter> = Arc::default();
                 meters.insert(spec.id.clone(), meter.clone());
@@ -392,7 +418,28 @@ impl Inner {
                 provider.available().map_err(describe)?;
                 self.start_sink(kind, provider.create_microphone(name).map_err(describe)?)
             }
-            NodeKind::Gain { .. } | NodeKind::Mixer => Err("not a device node".into()),
+            NodeKind::Hotkey { keys } => {
+                let combo = KeyCombo::parse(keys)?;
+                let counter = Arc::new(AtomicU32::new(0));
+                let c2 = counter.clone();
+                let running = self
+                    .backend
+                    .open_hotkey(
+                        &combo,
+                        Box::new(move || {
+                            c2.fetch_add(1, Ordering::AcqRel);
+                        }),
+                    )
+                    .map_err(describe)?;
+                Ok(Resource {
+                    kind: kind.clone(),
+                    io: Io::Trigger(counter),
+                    health: StreamHealth::new(),
+                    stats: Arc::default(),
+                    _running: running,
+                })
+            }
+            _ => Err("this block needs nothing from the system".into()),
         }
     }
 
