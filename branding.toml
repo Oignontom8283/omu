@@ -1,0 +1,16 @@
+# Single source of truth for everything that carries the product's name.
+# Read at COMPILE TIME by build.rs: values become `const`s of the `branding` module, nothing is looked up at run time.
+# Cargo's own names (package, binaries) cannot be variables: they are listed in Cargo.toml and must be changed there
+# too when the product is renamed.
+
+display_name = "Omu"                              # shown in windows, messages, installers
+slug = "omu"                                      # short identifier: file names, paths, ids
+cli_executable = "omu"                            # command-line client (without .exe)
+daemon_executable = "omud"                        # background process (without .exe)
+app_id = "io.github.oignontom8283.omu"            # reverse-DNS application id (Tauri, registry, autostart)
+data_dir_name = "Omu"                             # folder under %APPDATA% / XDG data dir
+env_prefix = "OMU"                                # prefix of environment variables (OMU_LOG, ...)
+single_instance_name = "Omu-Daemon"               # mutex / lock name
+virtual_manufacturer = "Omu"                      # USB manufacturer string of virtual devices (shown by Windows)
+virtual_vendor_id = 0x1209                        # USB vendor id (pid.codes test range: replace before any release)
+virtual_product_id = 0x0001                       # USB product id (idem)
