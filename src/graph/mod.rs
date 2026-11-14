@@ -5,11 +5,14 @@
 //!
 //! * node ids are non-empty, made of letters, digits, `-`, `_`, `.`, and unique;
 //! * an edge goes from an existing output port to an existing input port of the same type;
-//! * an input port takes one edge, except a `multi` input (the mixer's);
+//! * an input port takes one edge, except a `multi` input (the mixer's, the `all` and `any` conditions');
 //! * no duplicate edge, no cycle (a feedback loop needs an explicit delay block, which does not exist yet);
 //! * two sinks may not use the same device, and two virtual microphones may not share a name.
 
-use crate::types::{DeviceRef, EdgeSpec, GraphSpec, KeyCombo, NodeId, NodeKind, PortDirection};
+use crate::types::{
+    DeviceRef, EdgeSpec, GraphSpec, KeyCombo, NodeId, NodeKind, PortDirection, MAX_BRANCHES,
+    MAX_DELAY_MS, MAX_WAIT_MS,
+};
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
@@ -47,6 +50,12 @@ pub enum GraphError {
     SameShortcut(NodeId, NodeId, String),
     #[error("timer {0:?} fires every {1} ms: use at least 10 ms")]
     TimerTooFast(NodeId, u32),
+    #[error("block {0:?} has {1} conditions: use between 1 and {max}", max = MAX_BRANCHES)]
+    BadBranches(NodeId, u32),
+    #[error("delay {0:?} is {1} ms: the longest is {max} ms", max = MAX_DELAY_MS)]
+    DelayTooLong(NodeId, u32),
+    #[error("block {0:?} waits {1} ms: the longest is {max} ms", max = MAX_WAIT_MS)]
+    WaitTooLong(NodeId, u32),
 }
 
 /// A validated graph: node indices follow `spec.nodes`, `order` is a valid evaluation order.
@@ -96,7 +105,7 @@ pub fn validate(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
 
     let mut edge_nodes = vec![];
     let mut seen_edges: HashSet<&EdgeSpec> = HashSet::new();
-    let mut fan_in: HashMap<(usize, &str), usize> = HashMap::new();
+    let mut fan_in: HashMap<(usize, String), usize> = HashMap::new();
     for edge in &spec.edges {
         let (Some(&from), Some(&to)) = (index.get(&edge.from.node), index.get(&edge.to.node))
         else {
@@ -153,7 +162,7 @@ pub fn validate(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
             ));
             continue;
         }
-        let count = fan_in.entry((to, tp.name)).or_insert(0);
+        let count = fan_in.entry((to, tp.name.clone())).or_insert(0);
         *count += 1;
         if *count == 2 && !tp.multi {
             errors.push(GraphError::FanIn(
@@ -210,6 +219,17 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
             },
             NodeKind::Timer { interval_ms } if *interval_ms < 10 => {
                 errors.push(GraphError::TimerTooFast(node.id.clone(), *interval_ms));
+            }
+            NodeKind::Branch { branches } | NodeKind::Select { branches }
+                if !(1..=MAX_BRANCHES).contains(branches) =>
+            {
+                errors.push(GraphError::BadBranches(node.id.clone(), *branches));
+            }
+            NodeKind::Delay { ms } if *ms > MAX_DELAY_MS => {
+                errors.push(GraphError::DelayTooLong(node.id.clone(), *ms));
+            }
+            NodeKind::Hold { ms } | NodeKind::After { ms } if *ms > MAX_WAIT_MS => {
+                errors.push(GraphError::WaitTooLong(node.id.clone(), *ms));
             }
             NodeKind::VirtualSpeaker { name } => {
                 if name.trim().is_empty() {
@@ -460,7 +480,7 @@ mod tests {
         let k = NodeKind::VirtualSpeaker { name: "x".into() };
         assert_eq!(k.category(), crate::types::Category::Input);
         assert!(k.is_source() && k.needs_stream());
-        assert_eq!(k.output_type(), Some(crate::types::PortType::Audio));
+        assert_eq!(k.output_types(), vec![crate::types::PortType::Audio]);
         assert!(k.port("out").is_some() && k.port("in").is_none());
     }
 
@@ -602,6 +622,91 @@ mod tests {
             .unwrap_err()
             .iter()
             .any(|x| matches!(x, GraphError::Cycle(_))));
+    }
+
+    #[test]
+    fn a_branch_routes_a_sound_by_conditions_and_every_output_can_be_used() {
+        let spec = GraphSpec {
+            nodes: vec![
+                node("app", app()),
+                node("v", NodeKind::Variable { initial: true }),
+                node("w", NodeKind::Variable { initial: false }),
+                node("br", NodeKind::Branch { branches: 2 }),
+                node("m1", mic("One")),
+                node("m2", mic("Two")),
+                node("m3", mic("Else")),
+            ],
+            edges: vec![
+                edge("app", "out", "br", "in"),
+                edge("v", "value", "br", "when1"),
+                edge("w", "value", "br", "when2"),
+                edge("br", "out1", "m1", "in"),
+                edge("br", "out2", "m2", "in"),
+                edge("br", "else", "m3", "in"),
+            ],
+        };
+        assert!(validate(&spec).is_ok());
+        // a third condition does not exist on a block with two
+        let mut bad = spec.clone();
+        bad.edges.push(edge("v", "value", "br", "when3"));
+        assert!(validate(&bad)
+            .unwrap_err()
+            .iter()
+            .any(|e| matches!(e, GraphError::UnknownPort { port, .. } if port == "when3")));
+        // a sound cannot be wired where a condition is expected
+        let mut wrong = spec.clone();
+        wrong.edges.push(edge("app", "out", "br", "when2"));
+        assert!(validate(&wrong)
+            .unwrap_err()
+            .iter()
+            .any(|e| matches!(e, GraphError::TypeMismatch { .. })));
+    }
+
+    #[test]
+    fn conditions_that_combine_take_many_links_and_not_takes_one() {
+        let vars = |n: usize| -> Vec<NodeSpec> {
+            (0..n)
+                .map(|i| node(&format!("v{i}"), NodeKind::Variable { initial: false }))
+                .collect()
+        };
+        let into = |kind: NodeKind, links: usize| {
+            let mut nodes = vars(links);
+            nodes.push(node("c", kind));
+            GraphSpec {
+                edges: (0..links)
+                    .map(|i| edge(&format!("v{i}"), "value", "c", "in"))
+                    .collect(),
+                nodes,
+            }
+        };
+        assert!(validate(&into(NodeKind::All, 3)).is_ok());
+        assert!(validate(&into(NodeKind::Any, 3)).is_ok());
+        assert!(validate(&into(NodeKind::Not, 1)).is_ok());
+        assert!(validate(&into(NodeKind::Not, 2))
+            .unwrap_err()
+            .contains(&GraphError::FanIn("c".into(), "in".into())));
+    }
+
+    #[test]
+    fn the_settings_of_the_new_blocks_have_limits() {
+        let spec = GraphSpec {
+            nodes: vec![
+                node("b0", NodeKind::Branch { branches: 0 }),
+                node("s99", NodeKind::Select { branches: 99 }),
+                node("d", NodeKind::Delay { ms: 60_000 }),
+                node("h", NodeKind::Hold { ms: 10_000_000 }),
+                node("ok1", NodeKind::Branch { branches: 16 }),
+                node("ok2", NodeKind::Delay { ms: 5_000 }),
+                node("ok3", NodeKind::After { ms: 0 }),
+            ],
+            edges: vec![],
+        };
+        let e = validate(&spec).unwrap_err();
+        assert_eq!(e.len(), 4, "{e:?}");
+        assert!(e.contains(&GraphError::BadBranches("b0".into(), 0)));
+        assert!(e.contains(&GraphError::BadBranches("s99".into(), 99)));
+        assert!(e.contains(&GraphError::DelayTooLong("d".into(), 60_000)));
+        assert!(e.contains(&GraphError::WaitTooLong("h".into(), 10_000_000)));
     }
 
     #[test]

@@ -10,7 +10,7 @@ pub use devices::{AppInfo, Capabilities, DeviceInfo, Direction};
 pub use format::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 pub use keys::{Key, KeyCombo, Modifiers};
 pub use node::{
-    AppTarget, Category, DeviceRef, EdgeSpec, GraphSpec, LogicOp, NodeId, NodeKind, NodeSpec,
-    PortDirection, PortRef, PortSpec, PortType,
+    port_number, AppTarget, Category, DeviceRef, EdgeSpec, GraphSpec, LogicOp, NodeId, NodeKind,
+    NodeSpec, PortDirection, PortRef, PortSpec, PortType, MAX_BRANCHES, MAX_DELAY_MS, MAX_WAIT_MS,
 };
 pub use status::{EngineStatus, NodeState, NodeStatus};

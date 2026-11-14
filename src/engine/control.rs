@@ -428,13 +428,39 @@ impl Inner {
                             .max(cycle_frames),
                         elapsed: 0,
                     },
+                    (NodeKind::Branch { branches }, _) => NodeOp::Branch {
+                        gains: Plan::fades(*branches),
+                    },
+                    (NodeKind::Select { branches }, _) => {
+                        Plan::select(*branches, self.cfg.cycle_frames)
+                    }
+                    (NodeKind::Delay { ms }, _) => Plan::delay(*ms),
+                    (NodeKind::Not, _) => NodeOp::Not,
+                    (NodeKind::All, _) => NodeOp::All,
+                    (NodeKind::Any, _) => NodeOp::Any,
+                    (NodeKind::Hold { ms }, _) => NodeOp::Hold {
+                        cycles: Plan::cycles(*ms, self.cfg.cycle_frames),
+                        left: 0,
+                    },
+                    (NodeKind::After { ms }, _) => NodeOp::After {
+                        cycles: Plan::cycles(*ms, self.cfg.cycle_frames),
+                        seen: 0,
+                    },
+                    (NodeKind::Change, _) => NodeOp::Change { prev: None },
+                    // every other kind has been handled above (streams, triggers and the blocks); what is left is the mixer
                     _ => NodeOp::Mixer,
                 };
                 let inputs = graph
                     .incoming(idx)
                     .filter_map(|e| {
-                        Port::from_name(&graph.spec.edges[e].to.port).map(|port| Wire {
-                            from: position[graph.edge_nodes[e].0],
+                        let edge = &graph.spec.edges[e];
+                        let source = graph.edge_nodes[e].0;
+                        Port::from_name(&edge.to.port).map(|port| Wire {
+                            from: position[source],
+                            out: graph.spec.nodes[source]
+                                .kind
+                                .output_index(&edge.from.port)
+                                .unwrap_or(0),
                             port,
                         })
                     })

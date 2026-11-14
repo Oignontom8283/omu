@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { FALLBACK, pickLanguage, placeholders, sortedLanguages, translate, type Dictionaries } from './core.ts';
-import { KINDS_BY_CATEGORY, PORTS, CATEGORIES } from '../graph.ts';
+import { KINDS_BY_CATEGORY, PORTS, CATEGORIES, portsOf } from '../graph.ts';
 
 const dir = join(import.meta.dirname, 'locales');
 const dictionaries: Dictionaries = Object.fromEntries(
@@ -44,7 +44,9 @@ test('every block, family, port and flow the editor shows has a text', () => {
     needed.push(`category.${c}`, `category.${c}.hint`);
     for (const t of KINDS_BY_CATEGORY[c]) needed.push(`kind.${t}`, `kind.${t}.hint`);
   }
-  for (const ports of Object.values(PORTS)) for (const port of ports) needed.push(`port.${port.name}`, `flow.${port.flow}`);
+  // the ports of every block, and of the blocks that branch with several conditions
+  const shown = [...Object.values(PORTS), portsOf({ type: 'branch', branches: 3 }), portsOf({ type: 'select', branches: 3 })];
+  for (const ports of shown) for (const port of ports) needed.push(port.label, `flow.${port.flow}`);
   for (const key of needed) assert.ok(key in english, `missing in English: ${key}`);
 });
 

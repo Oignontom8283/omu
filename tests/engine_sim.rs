@@ -536,3 +536,106 @@ fn without_a_virtual_device_provider_the_virtual_speaker_node_fails_cleanly() {
         other => panic!("expected a failure, got {other:?}"),
     }
 }
+
+fn link(a: &str, ap: &str, b: &str, bp: &str) -> EdgeSpec {
+    EdgeSpec {
+        from: PortRef::new(a, ap),
+        to: PortRef::new(b, bp),
+    }
+}
+
+/// app --> branch (one condition, driven by a variable) -- out1 --> mic "One"; else --> mic "Two"
+fn branch_graph(variable_on: bool) -> GraphSpec {
+    let mic = |name: &str| NodeKind::VirtualMic { name: name.into() };
+    GraphSpec {
+        nodes: vec![
+            node("app", app_node()),
+            node(
+                "switch",
+                NodeKind::Variable {
+                    initial: variable_on,
+                },
+            ),
+            node("br", NodeKind::Branch { branches: 1 }),
+            node("one", mic("One")),
+            node("two", mic("Two")),
+        ],
+        edges: vec![
+            link("app", "out", "br", "in"),
+            link("switch", "value", "br", "when1"),
+            link("br", "out1", "one", "in"),
+            link("br", "else", "two", "in"),
+        ],
+    }
+}
+
+#[test]
+fn a_branch_sends_a_real_stream_where_its_condition_says() {
+    for (variable_on, to_one) in [(true, true), (false, false)] {
+        let sim = SimBackend::new();
+        sim.add_app(1234, "chrome.exe", SimSource::tone(1000.0));
+        let e = engine(&sim);
+        e.apply(validate(&branch_graph(variable_on)).unwrap());
+        std::thread::sleep(Duration::from_millis(2500));
+        let status = e.status();
+        drop(e);
+        for n in &status.nodes {
+            assert_eq!(n.state, NodeState::Running, "{}", n.id);
+        }
+        let level = |name: &str| {
+            let l = left(&sim_recording(&sim, name));
+            rms(&l[l.len() / 2..])
+        };
+        let (one, two) = (level("virtual:One"), level("virtual:Two"));
+        let (heard, silent) = if to_one { (one, two) } else { (two, one) };
+        assert!(
+            heard > 0.3,
+            "the sound goes where the condition says: {one} / {two}"
+        );
+        assert!(silent < 0.01, "and nowhere else: {one} / {two}");
+    }
+}
+
+#[test]
+fn a_change_block_between_two_conditions_works_in_the_real_engine() {
+    // hotkey-less version: a timer toggles a variable, a change block watches it and the actions set/clear another
+    // variable that gates the sound: after a while the gate has opened at least once
+    let sim = SimBackend::new();
+    sim.add_app(1234, "chrome.exe", SimSource::tone(1000.0));
+    let e = engine(&sim);
+    let spec = GraphSpec {
+        nodes: vec![
+            node("app", app_node()),
+            node("t", NodeKind::Timer { interval_ms: 500 }),
+            node("v", NodeKind::Variable { initial: false }),
+            node("ch", NodeKind::Change),
+            node("w", NodeKind::Variable { initial: false }),
+            node("not", NodeKind::Not),
+            node("gate", NodeKind::Gate),
+            node("mic", NodeKind::VirtualMic { name: "Out".into() }),
+        ],
+        edges: vec![
+            link("t", "tick", "v", "toggle"),
+            link("v", "value", "ch", "in"),
+            link("ch", "rise", "w", "set"),
+            link("ch", "fall", "w", "clear"),
+            link("w", "value", "not", "in"),
+            link("not", "out", "gate", "open"),
+            link("app", "out", "gate", "in"),
+            link("gate", "out", "mic", "in"),
+        ],
+    };
+    e.apply(validate(&spec).unwrap());
+    std::thread::sleep(Duration::from_millis(3500));
+    let status = e.status();
+    drop(e);
+    let n = |id: &str| status.nodes.iter().find(|n| n.id.0 == id).unwrap();
+    assert!(n("ch").events >= 2, "the change block fired: {status:?}");
+    assert!(n("t").events >= 4, "{status:?}");
+    // the sound passes while w is false and stops while it is true: both must have happened
+    let l = left(&sim_recording(&sim, "virtual:Out"));
+    let tail = &l[48_000..];
+    let loud = tail.chunks(4_800).filter(|c| rms(c) > 0.2).count();
+    let quiet = tail.chunks(4_800).filter(|c| rms(c) < 0.02).count();
+    assert!(loud > 3 && quiet > 3, "loud {loud}, quiet {quiet}");
+}
