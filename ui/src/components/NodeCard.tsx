@@ -1,12 +1,13 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { useEffect, useState } from 'react';
 import { useEditor } from '../context.ts';
-import { KINDS_BY_CATEGORY, PORTS, categoryOf, levelDb, meterFill, multiHandles, type PortMeta } from '../graph.ts';
+import { KINDS_BY_CATEGORY, MAX_ENTRIES, PORTS, categoryOf, entryCount, entryHandles, hasEntries, levelDb, linksPerEntry, meterFill, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { DeviceRef, LogicOp, NodeSpec, NodeType } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
 
-export type OmuNode = Node<{ spec: NodeSpec }, 'omu'>;
+/** `inputs`: how many input points the block shows, for a block that sums its inputs (the mixer). */
+export type OmuNode = Node<{ spec: NodeSpec; inputs?: number }, 'omu'>;
 
 type Of<T extends NodeType> = Extract<NodeSpec, { type: T }>;
 
@@ -185,32 +186,57 @@ function IdField({ id }: { id: string }) {
   );
 }
 
-/** One port: a label and the connection point (coloured by the flow it carries). */
-function PortRow({ port, node }: { port: PortMeta; node: string }) {
+/**
+ * The sound input of a block that sums: as many connection points as the user added with the "+" (each takes any
+ * number of links, which are added together), and a "×" to take the last one away when nothing is linked to it.
+ */
+function EntriesRow({ port, node, asked }: { port: PortMeta; node: string; asked: number | undefined }) {
   const t = useT();
-  const isInput = port.dir === 'in';
+  const { setInputs } = useEditor();
   const edges = useEdges();
   const updateInternals = useUpdateNodeInternals();
-  // an input that takes any number of links shows one connection point per link, and a free one after them
-  const handles = isInput && port.multi ? multiHandles(edges, node, port.name) : null;
-  const key = handles?.join(' ');
+  const count = entryCount(edges, node, port.name, asked);
+  const links = linksPerEntry(edges, node, port.name);
+  const handles = entryHandles(port.name, count);
   useEffect(() => {
-    if (key) updateInternals(node);
-  }, [key, node, updateInternals]);
-  if (handles) {
-    return (
-      <>
-        {handles.map((h, i) => (
-          <div key={h} className="port in" title={t(`flow.${port.flow}`)}>
+    updateInternals(node);
+  }, [count, node, updateInternals]);
+  return (
+    <>
+      {handles.map((h, i) => {
+        const n = i + 1;
+        const last = n === count;
+        return (
+          <div key={h} className="port in entry" title={t(`flow.${port.flow}`)}>
             <Handle id={h} type="target" position={Position.Left} className={`flow-${port.flow}`} />
             <span>
-              {t(`port.${port.name}`)} {i + 1}
+              {t(`port.${port.name}`)} {n}
             </span>
+            {(links.get(n) ?? 0) > 1 && (
+              <small className="sum" title={t('node.summed')}>
+                ×{links.get(n)}
+              </small>
+            )}
+            {last && count > 1 && !links.has(n) && (
+              <button className="mini nodrag" title={t('node.removeInput')} aria-label={t('node.removeInput')} onClick={() => setInputs(node, count - 1)}>
+                ×
+              </button>
+            )}
           </div>
-        ))}
-      </>
-    );
-  }
+        );
+      })}
+      <button className="mini add nodrag" title={t('node.addInput')} aria-label={t('node.addInput')} disabled={count >= MAX_ENTRIES} onClick={() => setInputs(node, count + 1)}>
+        +
+      </button>
+    </>
+  );
+}
+
+/** One port: a label and the connection point (coloured by the flow it carries). */
+function PortRow({ port, node, inputs }: { port: PortMeta; node: string; inputs: number | undefined }) {
+  const t = useT();
+  const isInput = port.dir === 'in';
+  if (hasEntries(port)) return <EntriesRow port={port} node={node} asked={inputs} />;
   return (
     <div className={`port ${isInput ? 'in' : 'out'}`} title={t(`flow.${port.flow}`)}>
       <Handle id={port.name} type={isInput ? 'target' : 'source'} position={isInput ? Position.Left : Position.Right} className={`flow-${port.flow}`} />
@@ -262,8 +288,8 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
         <IdField id={spec.id} />
       </header>
       <div className="ports">
-        <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} node={id} />)}</div>
-        <div>{ports.filter((q) => q.dir === 'out').map((q) => <PortRow key={q.name} port={q} node={id} />)}</div>
+        <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} />)}</div>
+        <div>{ports.filter((q) => q.dir === 'out').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} />)}</div>
       </div>
       <div className="body">
         <Params spec={spec} />

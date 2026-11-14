@@ -62,7 +62,7 @@
   "kind.virtual_mic.hint": "Un micro que d’autres programmes peuvent choisir",
   "kind.virtual_speaker.hint": "Une sortie où d’autres programmes peuvent jouer ; vous recevez ce qu’ils jouent",
   "kind.gain.hint": "Plus fort ou moins fort",
-  "kind.mixer.hint": "Additionne plusieurs sons",
+  "kind.mixer.hint": "Additionne des sons : ajoute des entrées avec +, ou relie plusieurs sons à une même entrée",
   "kind.gate.hint": "Ne laisse passer le son que si sa condition est vraie",
   "kind.variable.hint": "Un oui/non que les actions modifient",
   "kind.level.hint": "Vrai tant que le son est assez fort",
@@ -115,5 +115,8 @@
 
   "node.nameChars": "Uniquement lettres, chiffres, - _ et .",
   "node.nameTaken": "Ce nom est déjà utilisé",
-  "node.nameHint": "Nom de ce bloc dans le graphe"
+  "node.nameHint": "Nom de ce bloc dans le graphe",
+  "node.addInput": "Ajouter une entrée",
+  "node.removeInput": "Retirer cette entrée",
+  "node.summed": "Plusieurs liens sur cette entrée : ils sont additionnés"
 }

@@ -62,7 +62,7 @@
   "kind.virtual_mic.hint": "A microphone other programs can pick",
   "kind.virtual_speaker.hint": "An output other programs can play into; you get what they play",
   "kind.gain.hint": "Louder or quieter",
-  "kind.mixer.hint": "Adds several sounds together",
+  "kind.mixer.hint": "Adds sounds together: add inputs with +, or link several sounds to one input",
   "kind.gate.hint": "Lets the sound through only while its condition is true",
   "kind.variable.hint": "A yes/no that actions change",
   "kind.level.hint": "True while the sound is loud enough",
@@ -115,5 +115,8 @@
 
   "node.nameChars": "Use letters, digits, - _ and . only",
   "node.nameTaken": "This name is already used",
-  "node.nameHint": "Name of this block in the graph"
+  "node.nameHint": "Name of this block in the graph",
+  "node.addInput": "Add an input",
+  "node.removeInput": "Remove this input",
+  "node.summed": "Several links on this input: they are added together"
 }
