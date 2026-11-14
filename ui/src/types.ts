@@ -75,5 +75,10 @@ export type SystemInfo = {
   crash_report?: string | null;
 };
 
-export type Layout = Record<string, { x: number; y: number }>;
+/**
+ * How the editor draws one block: where it is and, for a block that sums its inputs (the mixer), how many input points
+ * it shows and which point each link is on. None of this is part of the audio graph.
+ */
+export type NodeLayout = { x: number; y: number; inputs?: number; slots?: Record<string, number> };
+export type Layout = Record<string, NodeLayout>;
 export type ValidateResult = { ok: boolean; errors: string[] };

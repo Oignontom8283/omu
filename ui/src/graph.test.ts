@@ -6,7 +6,9 @@ import {
   NODE_TYPES,
   PORTS,
   canConnect,
-  multiHandles,
+  entryCount,
+  entryHandles,
+  layoutOf,
   canonical,
   categoryOf,
   comboFromEvent,
@@ -202,32 +204,64 @@ test('a virtual speaker is an input: it sends audio, and its name survives the r
   assert.deepEqual(fromFlow(flow.nodes, flow.edges), g);
 });
 
-test('a multi input gets one connection point per link, plus a free one; the daemon still sees the port `in`', () => {
-  const g: GraphSpec = {
-    nodes: [
-      { id: 'a', type: 'app_capture', target: { pid: 1 } },
-      { id: 'b', type: 'app_capture', target: { pid: 2 } },
-      { id: 'c', type: 'app_capture', target: { pid: 3 } },
-      { id: 'mix', type: 'mixer' },
-    ],
-    edges: [
-      { from: { node: 'a', port: 'out' }, to: { node: 'mix', port: 'in' } },
-      { from: { node: 'b', port: 'out' }, to: { node: 'mix', port: 'in' } },
-      { from: { node: 'c', port: 'out' }, to: { node: 'mix', port: 'in' } },
-    ],
-  };
-  const flow = toFlow(g, {});
-  assert.deepEqual(flow.edges.map((e) => e.targetHandle), ['in', 'in#2', 'in#3']);
-  assert.deepEqual(multiHandles(flow.edges, 'mix', 'in'), ['in', 'in#2', 'in#3', 'in#4']);
-  assert.deepEqual(fromFlow(flow.nodes, flow.edges), g, 'the daemon only ever sees `in`');
-  // an empty mixer shows a single free point; after a link in the middle goes away, the free point fills the hole
-  assert.deepEqual(multiHandles([], 'mix', 'in'), ['in']);
-  assert.deepEqual(multiHandles(flow.edges.filter((e) => e.targetHandle !== 'in#2'), 'mix', 'in'), ['in', 'in#2', 'in#3']);
-  // another block's points are not counted
-  assert.deepEqual(multiHandles(flow.edges, 'other', 'in'), ['in']);
+const mixerOf = (n: number): GraphSpec => ({
+  nodes: [
+    ...Array.from({ length: n }, (_, i) => ({ id: `s${i + 1}`, type: 'app_capture' as const, target: { pid: i + 1 } })),
+    { id: 'mix', type: 'mixer' },
+  ],
+  edges: Array.from({ length: n }, (_, i) => ({ from: { node: `s${i + 1}`, port: 'out' }, to: { node: 'mix', port: 'in' } })),
 });
 
-test('connecting into a free point of a multi input works, the same source twice does not', () => {
+test('a mixer starts with two input points, and links without a saved place take the first point with no link', () => {
+  const empty = toFlow(mixerOf(0), {});
+  assert.equal(empty.nodes.find((n) => n.id === 'mix')?.inputs, 2);
+  assert.deepEqual(entryHandles('in', 2), ['in', 'in#2']);
+
+  const g = mixerOf(3);
+  const flow = toFlow(g, {});
+  assert.deepEqual(flow.edges.map((e) => e.targetHandle), ['in', 'in#2', 'in#3']);
+  assert.equal(flow.nodes.find((n) => n.id === 'mix')?.inputs, 3, 'a point for every link at least');
+  assert.deepEqual(fromFlow(flow.nodes, flow.edges), g, 'the daemon only ever sees `in`');
+  // only the sound input of the mixer has points to add; a variable's actions are one point that takes many links
+  assert.equal(toFlow(g, {}).nodes.find((n) => n.id === 's1')?.inputs, undefined);
+});
+
+test('several links can stay on one point: the saved places are kept', () => {
+  const g = mixerOf(3);
+  const layout = {
+    mix: { x: 0, y: 0, inputs: 2, slots: { 's1.out->mix.in': 1, 's2.out->mix.in': 1, 's3.out->mix.in': 2 } },
+  };
+  const flow = toFlow(g, layout);
+  assert.deepEqual(flow.edges.map((e) => e.targetHandle), ['in', 'in', 'in#2']);
+  assert.equal(flow.nodes.find((n) => n.id === 'mix')?.inputs, 2);
+  assert.deepEqual(fromFlow(flow.nodes, flow.edges), g, 'still three links into `in` for the daemon');
+  // what is saved is what is shown
+  const saved = layoutOf(flow.nodes, flow.edges);
+  assert.equal(saved.mix.inputs, 2);
+  assert.deepEqual(saved.mix.slots, layout.mix.slots);
+  assert.deepEqual(toFlow(g, saved).edges, flow.edges);
+});
+
+test('a new link goes to the first free point, the rest of the saved places stay', () => {
+  const g = mixerOf(3);
+  const layout = { mix: { x: 0, y: 0, inputs: 3, slots: { 's1.out->mix.in': 2, 's3.out->mix.in': 3 } } };
+  // s2 has no saved place (made from the command line): the only point without a link is the first
+  assert.deepEqual(toFlow(g, layout).edges.map((e) => e.targetHandle), ['in#2', 'in', 'in#3']);
+});
+
+test('a saved place that makes no sense is ignored, and the points never go below the links', () => {
+  const g = mixerOf(2);
+  const layout = { mix: { x: 0, y: 0, inputs: 1, slots: { 's1.out->mix.in': 0, 's2.out->mix.in': 5 } } };
+  const flow = toFlow(g, layout);
+  assert.deepEqual(flow.edges.map((e) => e.targetHandle), ['in', 'in#5']);
+  assert.equal(flow.nodes.find((n) => n.id === 'mix')?.inputs, 5, 'the point with a link is always there');
+  assert.equal(entryCount([], 'mix', 'in', undefined), 2);
+  assert.equal(entryCount([], 'mix', 'in', 0), 1, 'at least one');
+  assert.equal(entryCount([], 'mix', 'in', 999), 32, 'not unlimited');
+  assert.equal(entryCount([{ target: 'other', targetHandle: 'in#9' }], 'mix', 'in', undefined), 2, 'another block does not count');
+});
+
+test('connecting into a point of a multi input works, the same source twice does not', () => {
   const nodes = [
     { id: 'a', spec: { id: 'a', type: 'app_capture', target: { pid: 1 } } as const },
     { id: 'b', spec: { id: 'b', type: 'app_capture', target: { pid: 2 } } as const },

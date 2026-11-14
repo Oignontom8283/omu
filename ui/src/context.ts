@@ -12,6 +12,8 @@ export type EditorContext = {
   changeKind: (id: string, type: NodeType) => void;
   /** Renames a block (its name appears in the graph's edges). Returns the translation key of the error when refused. */
   rename: (id: string, next: string) => string | null;
+  /** Shows `count` input points on a block that sums its inputs (never fewer than it has links on). */
+  setInputs: (id: string, count: number) => void;
 };
 
 export const Editor = createContext<EditorContext | null>(null);

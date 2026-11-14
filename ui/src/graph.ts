@@ -2,7 +2,7 @@
 // the editor's nodes and edges, layout, change detection, connection rules. No React here: it is unit-tested with Node.
 // The ports mirror src/types/node.rs of the daemon (the daemon validates again when a graph is applied).
 
-import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKind, NodeSpec, NodeType } from './types.ts';
+import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKind, NodeLayout, NodeSpec, NodeType } from './types.ts';
 
 export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean };
 
@@ -43,8 +43,11 @@ export function categoryOf(type: NodeType): Category {
 }
 
 /**
- * An input that sums or collects (the mixer's, a variable's actions) takes as many links as wanted: the editor shows one
- * connection point per link plus a free one, named `in`, `in#2`, `in#3`... For the daemon they are all the port `in`.
+ * An input that sums or collects (the mixer's, a variable's actions) takes as many links as wanted on one connection
+ * point, and they are added together on their own.
+ *
+ * A sound input has a second way to be used: a block that sums sounds can show several input points (a button adds
+ * one), which is only clearer to look at, named `in`, `in#2`, `in#3`... For the daemon they are all the port `in`.
  */
 export function baseHandle(handle: string): string {
   return handle.split('#')[0];
@@ -53,6 +56,15 @@ export function baseHandle(handle: string): string {
 export function portOf(type: NodeType, name: string): PortMeta | undefined {
   return PORTS[type].find((q) => q.name === baseHandle(name));
 }
+
+/** Whether the editor lets the user add input points to this port (the sound input of the mixer). */
+export function hasEntries(port: PortMeta): boolean {
+  return port.dir === 'in' && port.multi && port.flow === 'audio';
+}
+
+/** The input points a new block starts with, and the fewest one can be left with. */
+export const DEFAULT_ENTRIES = 2;
+export const MAX_ENTRIES = 32;
 
 function handleNumber(handle: string): number {
   const n = Number(handle.split('#')[1]);
@@ -63,14 +75,33 @@ function handleName(port: string, number: number): string {
   return number === 1 ? port : `${port}#${number}`;
 }
 
-/** The connection points to show for a multi input: those that have a link, and one more that is free. */
-export function multiHandles(edges: { target: string; targetHandle?: string | null }[], node: string, port: string): string[] {
-  const used = edges
-    .filter((e) => e.target === node && e.targetHandle && baseHandle(e.targetHandle) === port)
-    .map((e) => handleNumber(e.targetHandle as string));
-  let free = 1;
-  while (used.includes(free)) free++;
-  return [...new Set([...used, free])].sort((a, b) => a - b).map((n) => handleName(port, n));
+type EdgeEnds = { target: string; targetHandle?: string | null };
+
+/** How many links end on each input point of `port` of block `node` (by point number). */
+export function linksPerEntry(edges: EdgeEnds[], node: string, port: string): Map<number, number> {
+  const counts = new Map<number, number>();
+  for (const e of edges) {
+    if (e.target !== node || !e.targetHandle || baseHandle(e.targetHandle) !== port) continue;
+    const n = handleNumber(e.targetHandle);
+    counts.set(n, (counts.get(n) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** How many input points to show: those asked for, and never fewer than the highest one that has a link. */
+export function entryCount(edges: EdgeEnds[], node: string, port: string, asked: number | undefined): number {
+  const highest = Math.max(0, ...linksPerEntry(edges, node, port).keys());
+  const wanted = Number.isInteger(asked) ? (asked as number) : DEFAULT_ENTRIES;
+  return Math.min(MAX_ENTRIES, Math.max(1, wanted, highest));
+}
+
+/** The names of the connection points of a port that has `count` of them. */
+export function entryHandles(port: string, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => handleName(port, i + 1));
+}
+
+export function entryNumber(handle: string): number {
+  return handleNumber(handle);
 }
 
 export function defaultKind(type: NodeType): NodeKind {
@@ -116,7 +147,8 @@ export function idBase(type: NodeType): string {
   return type.replace('_', '-');
 }
 
-export type FlowNode = { id: string; position: { x: number; y: number }; spec: NodeSpec };
+/** A block of the editor. `inputs` is how many input points it shows, for the blocks that can show several. */
+export type FlowNode = { id: string; position: { x: number; y: number }; spec: NodeSpec; inputs?: number };
 export type FlowEdge = { id: string; source: string; target: string; sourceHandle: string; targetHandle: string };
 
 export function edgeId(e: EdgeSpec): string {
@@ -150,7 +182,7 @@ export const ROW_HEIGHT = 230;
 export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; edges: FlowEdge[] } {
   const depth = depths(graph);
   const rowsInColumn = new Map<number, number>();
-  const nodes = graph.nodes.map((spec) => {
+  const nodes: FlowNode[] = graph.nodes.map((spec) => {
     let position = layout[spec.id];
     if (!position) {
       const col = depth.get(spec.id) ?? 0;
@@ -160,19 +192,41 @@ export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; e
     }
     return { id: spec.id, position: { x: position.x, y: position.y }, spec };
   });
-  // each link into a multi input gets its own connection point, in the order of the links
-  const taken = new Map<string, number>();
-  const edges = graph.edges.map((e) => {
-    let targetHandle = e.to.port;
-    const input = graph.nodes.find((n) => n.id === e.to.node);
-    if (input && portOf(input.type, e.to.port)?.multi) {
-      const key = `${e.to.node}.${e.to.port}`;
-      const number = (taken.get(key) ?? 0) + 1;
-      taken.set(key, number);
-      targetHandle = handleName(e.to.port, number);
+  const edges = graph.edges.map((e) => ({ id: edgeId(e), source: e.from.node, target: e.to.node, sourceHandle: e.from.port, targetHandle: e.to.port }));
+
+  // On a sound input that shows several points, each link goes to the point it was left on; a link without one
+  // (made from the command line, or before the layout was saved) takes the first point that has no link yet.
+  const slotOf = (e: FlowEdge): number => {
+    const n = layout[e.target]?.slots?.[e.id];
+    return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= MAX_ENTRIES ? (n as number) : 0;
+  };
+  const entryPort = (e: FlowEdge): boolean => {
+    const type = graph.nodes.find((n) => n.id === e.target)?.type;
+    const port = type && portOf(type, e.targetHandle);
+    return !!port && hasEntries(port);
+  };
+  const used = new Map<string, Set<number>>();
+  const slots = new Map<string, number>();
+  for (const e of edges.filter(entryPort)) {
+    const n = slotOf(e);
+    if (n) {
+      slots.set(e.id, n);
+      used.set(e.target, (used.get(e.target) ?? new Set()).add(n));
     }
-    return { id: edgeId(e), source: e.from.node, target: e.to.node, sourceHandle: e.from.port, targetHandle };
-  });
+  }
+  for (const e of edges.filter((x) => entryPort(x) && !slots.has(x.id))) {
+    const taken = used.get(e.target) ?? new Set<number>();
+    let n = 1;
+    while (taken.has(n)) n++;
+    slots.set(e.id, n);
+    used.set(e.target, taken.add(n));
+  }
+  for (const e of edges) if (slots.has(e.id)) e.targetHandle = handleName(e.targetHandle, slots.get(e.id) as number);
+
+  for (const n of nodes) {
+    const port = PORTS[n.spec.type].find(hasEntries);
+    if (port) n.inputs = entryCount(edges, n.id, port.name, layout[n.id]?.inputs);
+  }
   return { nodes, edges };
 }
 
@@ -193,8 +247,19 @@ export function canonical(graph: GraphSpec): string {
   return JSON.stringify({ nodes, edges });
 }
 
-export function positionsOf(nodes: FlowNode[]): Layout {
-  return Object.fromEntries(nodes.map((n) => [n.id, { x: Math.round(n.position.x), y: Math.round(n.position.y) }]));
+/** What the daemon is asked to remember about the drawing: places, and for each summing block its points and links. */
+export function layoutOf(nodes: FlowNode[], edges: FlowEdge[]): Layout {
+  return Object.fromEntries(
+    nodes.map((n) => {
+      const entry: NodeLayout = { x: Math.round(n.position.x), y: Math.round(n.position.y) };
+      const port = PORTS[n.spec.type].find(hasEntries);
+      if (port) {
+        entry.inputs = entryCount(edges, n.id, port.name, n.inputs);
+        entry.slots = Object.fromEntries(edges.filter((e) => e.target === n.id).map((e) => [e.id, entryNumber(e.targetHandle)]));
+      }
+      return [n.id, entry];
+    }),
+  );
 }
 
 /** The flow carried by an edge, from the block it starts at. */

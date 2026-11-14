@@ -316,6 +316,25 @@ button.inline {
 .port.out {
   text-align: right;
 }
+.port.entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.port .sum {
+  color: var(--text);
+  font-weight: 600;
+}
+.mini {
+  padding: 0 6px;
+  line-height: 16px;
+  font-size: 12px;
+  min-width: 0;
+}
+.mini.add {
+  margin: 2px 10px;
+  align-self: flex-start;
+}
 .node .body {
   padding: 4px 10px;
 }

@@ -28,7 +28,8 @@ import {
   flowOfEdge,
   fromFlow,
   idBase,
-  positionsOf,
+  layoutOf,
+  MAX_ENTRIES,
   toFlow,
   uniqueId,
 } from './graph.ts';
@@ -78,20 +79,37 @@ export function App() {
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
 
+  // Saves where the blocks are and how their links are laid out, a moment after the last change (what is saved is read
+  // when the moment comes, so a change made in between is included).
   const saveLayout = useCallback(
-    (list = nodesRef.current) => {
+    (list?: OmuNode[]) => {
       if (layoutTimer.current) clearTimeout(layoutTimer.current);
       layoutTimer.current = setTimeout(() => {
-        daemon.layoutSet(positionsOf(list.map((n) => ({ id: n.id, position: n.position, spec: n.data.spec })))).catch(() => undefined);
+        const shown = list ?? nodesRef.current;
+        const flowNodes = shown.map((n) => ({ id: n.id, position: n.position, spec: n.data.spec, inputs: n.data.inputs }));
+        daemon.layoutSet(layoutOf(flowNodes, edgesRef.current.map(asEdge))).catch(() => undefined);
       }, 500);
     },
     [daemon],
   );
 
+  // The drawing as last shown or saved: when what is on screen differs (a link moved to another point, a point added,
+  // a block renamed), it is saved. Nothing is saved before the first graph is shown, so an empty editor never
+  // overwrites a saved layout.
+  const savedLayout = useRef<string | null>(null);
+  useEffect(() => {
+    if (savedLayout.current === null) return;
+    const now = JSON.stringify(layoutOf(nodes.map((n) => ({ id: n.id, position: n.position, spec: n.data.spec, inputs: n.data.inputs })), edges.map(asEdge)));
+    if (now === savedLayout.current) return;
+    savedLayout.current = now;
+    saveLayout();
+  }, [nodes, edges, saveLayout]);
+
   const show = useCallback(
     (g: GraphSpec, layout: Layout) => {
       const f = toFlow(g, layout);
-      setNodes(f.nodes.map((n) => ({ id: n.id, type: 'omu', position: n.position, data: { spec: n.spec } })));
+      savedLayout.current = JSON.stringify(layoutOf(f.nodes, f.edges));
+      setNodes(f.nodes.map((n) => ({ id: n.id, type: 'omu', position: n.position, data: { spec: n.spec, inputs: n.inputs } })));
       setEdges(f.edges.map((e) => ({ ...e })));
       setApplied(g);
     },
@@ -208,7 +226,7 @@ export function App() {
   const autoLayout = () => {
     const f = toFlow(graph, {});
     setNodes((list) => list.map((n) => ({ ...n, position: f.nodes.find((x) => x.id === n.id)?.position ?? n.position })));
-    saveLayout(f.nodes.map((n) => ({ id: n.id, type: 'omu', position: n.position, data: { spec: n.spec } })));
+    saveLayout();
     window.setTimeout(() => void flow.fitView({ duration: 300, padding: 0.2 }), 50);
   };
 
@@ -237,16 +255,19 @@ export function App() {
       apps,
       devices,
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
-      update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...kind } } } : n))),
+      update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...kind } } } : n))),
       changeKind: (id: string, type: NodeType) => {
         const plain = nodesRef.current.map((n) => ({ id: n.id, spec: n.data.spec }));
         setEdges(edgesAfterKindChange(plain, edgesRef.current.map(asEdge), id, type));
         setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...defaultKind(type) } } } : n)));
       },
+      setInputs: (id: string, count: number) => {
+        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, inputs: Math.max(1, Math.min(MAX_ENTRIES, count)) } } : n)));
+      },
       rename: (id: string, next: string) => {
         if (!ID_PATTERN.test(next)) return 'node.nameChars';
         if (nodesRef.current.some((n) => n.id === next)) return 'node.nameTaken';
-        setNodes((list) => list.map((n) => (n.id === id ? { ...n, id: next, data: { spec: { ...n.data.spec, id: next } } } : n)));
+        setNodes((list) => list.map((n) => (n.id === id ? { ...n, id: next, data: { ...n.data, spec: { ...n.data.spec, id: next } } } : n)));
         setEdges((list) =>
           list.map((e) => {
             const source = e.source === id ? next : e.source;
