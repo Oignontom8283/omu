@@ -42,7 +42,9 @@ default = ["daemon", "cli"]
 # the audio engine and the platform backends (heavy: real-time code, Windows API bindings)
 engine = ["dep:rtrb", "dep:windows", "dep:windows-core"]
 # the daemon: control server (HTTP + WebSocket) and the embedded web panel
-daemon = ["engine", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed", "dep:getrandom", "dep:clap"]
+daemon = ["engine", "logging", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed", "dep:getrandom", "dep:clap"]
+# logs (file, console, in-memory ring) and the Windows crash handlers; without it only the panic hook and the macros exist
+logging = ["dep:tracing-subscriber", "dep:tracing-appender", "dep:windows"]
 # the command-line client
 cli = ["client", "dep:clap"]
 # what any client needs to talk to a daemon (the CLI, a Tauri window): protocol + HTTP client
@@ -50,12 +52,15 @@ client = ["dep:ureq"]
 # the desktop window: the panel embedded in a Tauri window that talks to the daemon through the client. `custom-protocol`
 # is Tauri's own switch for "serve the panel from inside the executable" (without it the window would load a
 # development server's address and stay blank).
-gui = ["client", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol"]
+gui = ["client", "logging", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["std", "fmt", "env-filter", "registry", "tracing-log", "ansi"] }
+tracing-appender = { version = "0.2", optional = true }
 rtrb = { version = "0.4", optional = true }
 dirs = "7.0"
 tokio = { version = "1.54", optional = true, features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
@@ -76,6 +81,11 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_Media_KernelStreaming",
     "Win32_Media_Multimedia",
     "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Kernel",
+    "Win32_System_Memory",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Diagnostics_ToolHelp",
