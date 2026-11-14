@@ -500,12 +500,14 @@ mod tests {
             nodes: vec![
                 NodeSpec {
                     id: "app".into(),
+                    display: None,
                     kind: NodeKind::AppCapture {
                         target: AppTarget::ProcessName("a.exe".into()),
                     },
                 },
                 NodeSpec {
                     id: "mic".into(),
+                    display: None,
                     kind: NodeKind::VirtualMic { name: "Mic".into() },
                 },
             ],
@@ -599,10 +601,12 @@ mod tests {
             nodes: vec![
                 NodeSpec {
                     id: "a b".into(),
+                    display: None,
                     kind: NodeKind::Mixer,
                 },
                 NodeSpec {
                     id: "a b".into(),
+                    display: None,
                     kind: NodeKind::Mixer,
                 },
             ],
@@ -717,10 +721,12 @@ mod tests {
             nodes: vec![
                 NodeSpec {
                     id: "in".into(),
+                    display: None,
                     kind: NodeKind::VirtualSpeaker { name: "Spk".into() },
                 },
                 NodeSpec {
                     id: "out".into(),
+                    display: None,
                     kind: NodeKind::DeviceRender {
                         device: DeviceRef::Name(target.into()),
                     },
@@ -762,12 +768,14 @@ mod tests {
         let mut g = chain(); // app -> virtual mic named "Mic"
         g.nodes.push(NodeSpec {
             id: "rec".into(),
+            display: None,
             kind: NodeKind::DeviceCapture {
                 device: DeviceRef::Name("Microphone (Mic)".into()),
             },
         });
         g.nodes.push(NodeSpec {
             id: "spk".into(),
+            display: None,
             kind: NodeKind::DeviceRender {
                 device: DeviceRef::Default,
             },
@@ -788,12 +796,14 @@ mod tests {
         let mut ok = chain();
         ok.nodes.push(NodeSpec {
             id: "rec".into(),
+            display: None,
             kind: NodeKind::DeviceCapture {
                 device: DeviceRef::Name("Real".into()),
             },
         });
         ok.nodes.push(NodeSpec {
             id: "spk".into(),
+            display: None,
             kind: NodeKind::DeviceRender {
                 device: DeviceRef::Default,
             },

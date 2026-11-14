@@ -95,12 +95,14 @@ fn an_applications_sound_reaches_a_virtual_cable() {
         nodes: vec![
             NodeSpec {
                 id: "app".into(),
+                display: None,
                 kind: NodeKind::AppCapture {
                     target: AppTarget::Pid(tone.0.id()),
                 },
             },
             NodeSpec {
                 id: "cable".into(),
+                display: None,
                 kind: NodeKind::DeviceRender {
                     device: DeviceRef::Name("Voicemeeter Input".into()),
                 },

@@ -62,16 +62,19 @@ fn the_engines_audio_comes_out_of_a_virtual_microphone() {
         nodes: vec![
             NodeSpec {
                 id: "app".into(),
+                display: None,
                 kind: NodeKind::AppCapture {
                     target: AppTarget::ProcessName("tone.exe".into()),
                 },
             },
             NodeSpec {
                 id: "vol".into(),
+                display: None,
                 kind: NodeKind::Gain { db: -12.0 },
             },
             NodeSpec {
                 id: "mic".into(),
+                display: None,
                 kind: NodeKind::VirtualMic { name: NAME.into() },
             },
         ],
