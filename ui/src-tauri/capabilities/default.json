@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "What the panel's window may do: the basic window functions. Talking to the daemon goes through the app's own commands.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

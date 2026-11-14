@@ -7,6 +7,7 @@ const STRINGS: &[&str] = &[
     "slug",
     "cli_executable",
     "daemon_executable",
+    "gui_executable",
     "app_id",
     "data_dir_name",
     "env_prefix",

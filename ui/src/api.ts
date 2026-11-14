@@ -6,6 +6,11 @@ import type { AppInfo, DeviceInfo, EngineStatus, GraphSpec, Layout, SystemInfo, 
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
+/** True when the panel runs inside the desktop window (Tauri) instead of a browser. */
+export const IN_DESKTOP_WINDOW = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+
+type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+
 export class RpcError extends Error {
   code: number;
   data: unknown;
@@ -55,15 +60,46 @@ export class Rpc {
 
   constructor(private token: string) {}
 
+  // Desktop window: the app's own commands carry the requests (see ui/src-tauri); nothing is pushed to the page, so
+  // the status and graph events are made by polling.
+  private invoke: Invoke | null = null;
+  private poll: ReturnType<typeof setInterval> | null = null;
+  private lastGraph = '';
+
   start(): void {
     this.stopped = false;
-    this.connect();
+    if (IN_DESKTOP_WINDOW) void this.startDesktop();
+    else this.connect();
   }
 
   stop(): void {
     this.stopped = true;
     if (this.retry) clearTimeout(this.retry);
+    if (this.poll) clearInterval(this.poll);
     this.socket?.close();
+  }
+
+  private async startDesktop(): Promise<void> {
+    const { invoke } = await import('@tauri-apps/api/core');
+    this.invoke = invoke as Invoke;
+    let tick = 0;
+    const once = async () => {
+      try {
+        const status = await this.request<unknown>('engine.status');
+        if (this.state !== 'open') this.set('open');
+        this.events.forEach((h) => h('engine.status', status));
+        if (tick++ % 8 === 0) {
+          const graph = JSON.stringify(await this.request<unknown>('graph.get'));
+          if (this.lastGraph && graph !== this.lastGraph) this.events.forEach((h) => h('graph.changed', JSON.parse(graph)));
+          this.lastGraph = graph;
+        }
+      } catch {
+        if (this.state !== 'closed') this.set('closed');
+      }
+    };
+    this.set('connecting');
+    await once();
+    this.poll = setInterval(() => void once(), 250);
   }
 
   onEvent(h: EventHandler): () => void {
@@ -120,6 +156,14 @@ export class Rpc {
   }
 
   request<T>(method: string, params?: unknown): Promise<T> {
+    if (this.invoke) {
+      return this.invoke('rpc', { method, params: params ?? null }).then(
+        (r) => r as T,
+        (e: { code?: number; message?: string; data?: unknown }) => {
+          throw new RpcError(e?.code ?? -1, e?.message ?? String(e), e?.data);
+        },
+      );
+    }
     return new Promise<T>((resolve, reject) => {
       if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
         reject(new Error('not connected to the daemon'));
@@ -148,3 +192,9 @@ export const api = (rpc: Rpc) => ({
 
 export const EVENT_STATUS = 'engine.status';
 export const EVENT_GRAPH = 'graph.changed';
+
+/** Desktop window only: starts the daemon that sits next to the window's executable. */
+export async function startDaemon(): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('launch_daemon');
+}

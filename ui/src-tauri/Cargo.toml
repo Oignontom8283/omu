@@ -1,0 +1,44 @@
+[package]
+name = "omu-gui"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Desktop window of omu: the web panel in its own window, talking to the daemon through the shared client"
+repository = "https://github.com/Oignontom8283/omu"
+license-file = "../../LICENSE"
+publish = false
+
+# The third executable (`omu-gui`). It contains no audio code and no server: like the command line it only needs the
+# protocol and the client of the `omu` library, so it is built with `default-features = false, features = ["client"]`.
+[lib]
+name = "omu_gui"
+path = "src/lib.rs"
+
+[[bin]]
+name = "omu-gui"
+path = "src/main.rs"
+
+[features]
+# Use the panel embedded in the executable. `tauri build` turns this on; without it Tauri loads the development
+# server's address (`devUrl`) and the window stays blank, which is wrong for a plain `cargo build`. Turn it off
+# (`--no-default-features`) only to develop the panel with hot reload (`just ui-hot`).
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+omu = { path = "../..", default-features = false, features = ["client"] }
+tauri = { version = "2", features = [] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+toml = "1.2"
+
+[dev-dependencies]
+# the tests start a (simulated) daemon
+omu = { path = "../..", features = ["daemon"] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
