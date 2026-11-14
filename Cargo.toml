@@ -80,5 +80,6 @@ toml = "1.2"
 unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
 
-# This repository is its own workspace root (the Tauri crate will join it as a member).
+# This repository is its own workspace root; the desktop window is a member (it needs no audio code).
 [workspace]
+members = ["ui/src-tauri"]
