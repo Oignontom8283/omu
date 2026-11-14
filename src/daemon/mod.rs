@@ -6,6 +6,7 @@
 //! * the network part (HTTP, WebSocket, the web panel) lives in the sibling modules and only forwards messages here.
 
 pub mod auth;
+pub mod instance;
 pub mod launch;
 pub mod server;
 pub mod store;

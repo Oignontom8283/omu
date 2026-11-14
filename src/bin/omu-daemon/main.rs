@@ -2,6 +2,7 @@
 //! See `omu-daemon --help`.
 
 use clap::Parser;
+use omu::daemon::instance;
 use omu::daemon::launch::{serve, Options, DEFAULT_LISTEN};
 use omu::diagnostics::{self, Settings};
 use std::net::SocketAddr;
@@ -67,19 +68,29 @@ fn crash_on_purpose(kind: &str) {
 fn main() -> std::process::ExitCode {
     let args = Args::parse();
     let data_dir = args.data_dir.unwrap_or_else(omu::discovery::data_dir);
-    let diag = diagnostics::init(Settings {
+    let mut diag = diagnostics::init(Settings {
         program: omu::branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),
         dialog: true,
         console_log: !args.quiet,
-        track_session: true,
     });
+    // One daemon at a time: the real audio system is shared by the whole machine, a simulated one by its data folder.
+    let scope = if args.demo {
+        instance::Scope::Folder(&data_dir)
+    } else {
+        instance::Scope::Machine
+    };
+    let _instance = match instance::acquire(scope, &data_dir) {
+        Ok(lock) => lock,
+        Err(message) => diagnostics::fail(&message, 2),
+    };
+    let previous = diag.track_session();
     let mut opts = Options::new(data_dir);
     opts.listen = args.listen;
     opts.allowed_origins = args.allow_origin;
     opts.restore = !args.no_restore;
     opts.demo = args.demo;
-    opts.previous_session = diag.previous.clone();
+    opts.previous_session = previous;
     let loopback = opts.listen.ip().is_loopback();
     let crash_test = args.crash_test;
 

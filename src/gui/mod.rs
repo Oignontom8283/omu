@@ -66,6 +66,16 @@ pub fn call(method: &str, params: Value) -> Result<Value, IpcError> {
 
 /// Starts the daemon executable that sits next to this one, detached (it keeps running when the window closes).
 pub fn start_daemon() -> Result<(), String> {
+    // one daemon at a time: if one runs, it is the one the window will talk to
+    if let Some(d) = crate::discovery::Discovery::read(&data_dir()) {
+        if crate::diagnostics::session::pid_alive(d.pid) {
+            tracing::info!(
+                pid = d.pid,
+                "a daemon is already running; not starting another"
+            );
+            return Ok(());
+        }
+    }
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     start_daemon_from(exe.parent().ok_or("this program has no folder")?)
 }

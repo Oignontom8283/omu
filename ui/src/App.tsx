@@ -22,6 +22,7 @@ import {
   canonical,
   categoryOf,
   defaultKind,
+  baseHandle,
   edgeId,
   edgesAfterKindChange,
   flowOfEdge,
@@ -193,7 +194,7 @@ export function App() {
   const onConnect = useCallback(
     (c: FlowConnection) => {
       setEdges((list) => {
-        const id = edgeId({ from: { node: c.source, port: c.sourceHandle ?? '' }, to: { node: c.target, port: c.targetHandle ?? '' } });
+        const id = edgeId({ from: { node: c.source, port: c.sourceHandle ?? '' }, to: { node: c.target, port: baseHandle(c.targetHandle ?? '') } });
         return addEdge({ ...c, id }, list);
       });
     },

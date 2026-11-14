@@ -6,6 +6,7 @@ import {
   NODE_TYPES,
   PORTS,
   canConnect,
+  multiHandles,
   canonical,
   categoryOf,
   comboFromEvent,
@@ -199,4 +200,44 @@ test('a virtual speaker is an input: it sends audio, and its name survives the r
   };
   const flow = toFlow(g, {});
   assert.deepEqual(fromFlow(flow.nodes, flow.edges), g);
+});
+
+test('a multi input gets one connection point per link, plus a free one; the daemon still sees the port `in`', () => {
+  const g: GraphSpec = {
+    nodes: [
+      { id: 'a', type: 'app_capture', target: { pid: 1 } },
+      { id: 'b', type: 'app_capture', target: { pid: 2 } },
+      { id: 'c', type: 'app_capture', target: { pid: 3 } },
+      { id: 'mix', type: 'mixer' },
+    ],
+    edges: [
+      { from: { node: 'a', port: 'out' }, to: { node: 'mix', port: 'in' } },
+      { from: { node: 'b', port: 'out' }, to: { node: 'mix', port: 'in' } },
+      { from: { node: 'c', port: 'out' }, to: { node: 'mix', port: 'in' } },
+    ],
+  };
+  const flow = toFlow(g, {});
+  assert.deepEqual(flow.edges.map((e) => e.targetHandle), ['in', 'in#2', 'in#3']);
+  assert.deepEqual(multiHandles(flow.edges, 'mix', 'in'), ['in', 'in#2', 'in#3', 'in#4']);
+  assert.deepEqual(fromFlow(flow.nodes, flow.edges), g, 'the daemon only ever sees `in`');
+  // an empty mixer shows a single free point; after a link in the middle goes away, the free point fills the hole
+  assert.deepEqual(multiHandles([], 'mix', 'in'), ['in']);
+  assert.deepEqual(multiHandles(flow.edges.filter((e) => e.targetHandle !== 'in#2'), 'mix', 'in'), ['in', 'in#2', 'in#3']);
+  // another block's points are not counted
+  assert.deepEqual(multiHandles(flow.edges, 'other', 'in'), ['in']);
+});
+
+test('connecting into a free point of a multi input works, the same source twice does not', () => {
+  const nodes = [
+    { id: 'a', spec: { id: 'a', type: 'app_capture', target: { pid: 1 } } as const },
+    { id: 'b', spec: { id: 'b', type: 'app_capture', target: { pid: 2 } } as const },
+    { id: 'mix', spec: { id: 'mix', type: 'mixer' } as const },
+  ];
+  const edges = [{ id: 'x', source: 'a', target: 'mix', sourceHandle: 'out', targetHandle: 'in' }];
+  assert.ok(canConnect(nodes, edges, { source: 'b', target: 'mix', sourceHandle: 'out', targetHandle: 'in#2' }));
+  assert.ok(!canConnect(nodes, edges, { source: 'a', target: 'mix', sourceHandle: 'out', targetHandle: 'in#2' }), 'no duplicate link');
+  // a single input still takes one link only
+  const gain = [...nodes, { id: 'g', spec: { id: 'g', type: 'gain', db: 0 } as const }];
+  const one = [{ id: 'y', source: 'a', target: 'g', sourceHandle: 'out', targetHandle: 'in' }];
+  assert.ok(!canConnect(gain, one, { source: 'b', target: 'g', sourceHandle: 'out', targetHandle: 'in' }));
 });
