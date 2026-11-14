@@ -5,7 +5,7 @@
 //! audio driver of ours is involved. This module is the server side and the device: the audio flows through
 //! [`uac2::Uac2Streams`].
 //!
-//! Vendored from the MIT-licensed `usbip-audio` project (commit 58032ab, see `third_party/usbip-audio/LICENSE`),
+//! Vendored from the MIT-licensed `usbip-audio` project (commit 58032ab, see `usbip-audio.MIT.txt` and `README.md` in this folder),
 //! with these changes: the Windows timer resolution calls use the `windows` crate; the server reports whether a
 //! device is currently attached ([`Server::is_attached`]); the UAC1 speaker and the `usbip.exe` helper were left out
 //! (the attach tool lives in [`super::tool`]); the integration tests became [`protocol_tests`].
