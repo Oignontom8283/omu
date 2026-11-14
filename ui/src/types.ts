@@ -8,6 +8,7 @@ export const PRODUCT_NAME: string = __PRODUCT_NAME__;
 
 export type AppTarget = { pid: number } | { process_name: string };
 export type DeviceRef = 'default' | { id: string } | { name: string };
+export type LogicOp = 'and' | 'or' | 'xor' | 'not';
 
 export type NodeKind =
   | { type: 'app_capture'; target: AppTarget }
@@ -15,9 +16,20 @@ export type NodeKind =
   | { type: 'device_render'; device: DeviceRef }
   | { type: 'virtual_mic'; name: string }
   | { type: 'gain'; db: number }
-  | { type: 'mixer' };
+  | { type: 'mixer' }
+  | { type: 'gate' }
+  | { type: 'variable'; initial: boolean }
+  | { type: 'level'; threshold_db: number }
+  | { type: 'logic'; op: LogicOp }
+  | { type: 'hotkey'; keys: string }
+  | { type: 'timer'; interval_ms: number };
 
 export type NodeType = NodeKind['type'];
+/** The five families of blocks. */
+export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigger';
+/** The three kinds of flow between blocks. */
+export type FlowType = 'audio' | 'condition' | 'action';
+
 export type NodeSpec = { id: string } & NodeKind;
 export type PortRef = { node: string; port: string };
 export type EdgeSpec = { from: PortRef; to: PortRef };
@@ -32,6 +44,10 @@ export type NodeStatus = {
   overruns: number;
   fill_ms: number;
   frames: number;
+  /** For a block holding a yes/no: its value now. */
+  active?: boolean | null;
+  /** Actions a block has sent. */
+  events?: number;
 };
 export type EngineStatus = { running: boolean; cycles: number; late_cycles: number; nodes: NodeStatus[] };
 
@@ -51,7 +67,7 @@ export type SystemInfo = {
   protocol_version: number;
   platform: string;
   backend: string;
-  capabilities: { devices: boolean; app_capture: boolean; virtual_devices: boolean };
+  capabilities: { devices: boolean; app_capture: boolean; virtual_devices: boolean; hotkeys?: boolean };
   virtual_microphones: ProviderInfo | null;
 };
 

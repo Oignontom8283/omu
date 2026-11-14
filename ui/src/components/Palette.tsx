@@ -1,17 +1,19 @@
-import { KINDS, NODE_TYPES } from '../graph.ts';
-import type { NodeType } from '../types.ts';
+import { CATEGORIES } from '../graph.ts';
+import { useT } from '../i18n/index.tsx';
+import type { Category } from '../types.ts';
 
-/** The nodes that can be added to the graph. */
-export function Palette({ onAdd }: { onAdd: (type: NodeType) => void }) {
+/** One button per family of blocks: the block is added with the family's first kind, and its drop-down changes it. */
+export function Palette({ onAdd }: { onAdd: (category: Category) => void }) {
+  const t = useT();
   return (
     <aside className="palette">
-      <h2>Add</h2>
-      {NODE_TYPES.map((t) => (
-        <button key={t} onClick={() => onAdd(t)} title={KINDS[t].hint} style={{ ['--accent' as string]: KINDS[t].color }}>
+      <h2>{t('app.add')}</h2>
+      {CATEGORIES.map((c) => (
+        <button key={c} className={`cat-${c}`} onClick={() => onAdd(c)} title={t(`category.${c}.hint`)}>
           <span className="swatch" />
           <span>
-            {KINDS[t].label}
-            <small>{KINDS[t].hint}</small>
+            {t(`category.${c}`)}
+            <small>{t(`category.${c}.hint`)}</small>
           </span>
         </button>
       ))}

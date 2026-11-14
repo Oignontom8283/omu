@@ -1,36 +1,55 @@
-// Pure graph logic of the editor: the kinds of nodes, conversion between the daemon's graph and the editor's
-// nodes/edges, automatic layout, change detection, connection rules. No React here: it is unit-tested with Node.
+// Pure logic of the editor: the families and kinds of blocks, their ports, conversion between the daemon's graph and
+// the editor's nodes and edges, layout, change detection, connection rules. No React here: it is unit-tested with Node.
+// The ports mirror src/types/node.rs of the daemon (the daemon validates again when a graph is applied).
 
-import type { DeviceRef, EdgeSpec, GraphSpec, Layout, NodeKind, NodeSpec, NodeType } from './types.ts';
+import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKind, NodeSpec, NodeType } from './types.ts';
 
-export type KindMeta = {
-  label: string;
-  hint: string;
-  /** Accent colour of the node. */
-  color: string;
-  hasInput: boolean;
-  hasOutput: boolean;
-  /** The input accepts several incoming edges (they are summed). */
-  multiInput: boolean;
+export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean };
+
+const p = (name: string, dir: 'in' | 'out', flow: FlowType, multi = false): PortMeta => ({ name, dir, flow, multi });
+
+/** The ports of each kind of block, inputs first. */
+export const PORTS: Record<NodeType, PortMeta[]> = {
+  app_capture: [p('out', 'out', 'audio')],
+  device_capture: [p('out', 'out', 'audio')],
+  device_render: [p('in', 'in', 'audio')],
+  virtual_mic: [p('in', 'in', 'audio')],
+  gain: [p('in', 'in', 'audio'), p('out', 'out', 'audio')],
+  mixer: [p('in', 'in', 'audio', true), p('out', 'out', 'audio')],
+  gate: [p('in', 'in', 'audio'), p('open', 'in', 'condition'), p('out', 'out', 'audio')],
+  variable: [p('set', 'in', 'action', true), p('clear', 'in', 'action', true), p('toggle', 'in', 'action', true), p('value', 'out', 'condition')],
+  level: [p('in', 'in', 'audio'), p('active', 'out', 'condition')],
+  logic: [p('a', 'in', 'condition'), p('b', 'in', 'condition'), p('out', 'out', 'condition')],
+  hotkey: [p('pressed', 'out', 'action')],
+  timer: [p('tick', 'out', 'action')],
 };
 
-export const KINDS: Record<NodeType, KindMeta> = {
-  app_capture: { label: 'Application', hint: 'Sound of one program', color: '#4cc9f0', hasInput: false, hasOutput: true, multiInput: false },
-  device_capture: { label: 'Microphone', hint: 'A recording device', color: '#80ed99', hasInput: false, hasOutput: true, multiInput: false },
-  device_render: { label: 'Speakers', hint: 'A playback device', color: '#f8961e', hasInput: true, hasOutput: false, multiInput: false },
-  virtual_mic: { label: 'Virtual mic', hint: 'A microphone other programs can use', color: '#f72585', hasInput: true, hasOutput: false, multiInput: false },
-  gain: { label: 'Gain', hint: 'Louder or quieter', color: '#b5179e', hasInput: true, hasOutput: true, multiInput: false },
-  mixer: { label: 'Mixer', hint: 'Adds several sounds together', color: '#ffd166', hasInput: true, hasOutput: true, multiInput: true },
+export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger'];
+
+/** The kinds of each family, in the order of the drop-down. */
+export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
+  input: ['app_capture', 'device_capture'],
+  output: ['virtual_mic', 'device_render'],
+  processing: ['gain', 'mixer', 'gate'],
+  condition: ['variable', 'level', 'logic'],
+  trigger: ['hotkey', 'timer'],
 };
 
-export const NODE_TYPES = Object.keys(KINDS) as NodeType[];
+export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
+
+export function categoryOf(type: NodeType): Category {
+  return CATEGORIES.find((c) => KINDS_BY_CATEGORY[c].includes(type)) as Category;
+}
+
+export function portOf(type: NodeType, name: string): PortMeta | undefined {
+  return PORTS[type].find((q) => q.name === name);
+}
 
 export function defaultKind(type: NodeType): NodeKind {
   switch (type) {
     case 'app_capture':
       return { type, target: { process_name: '' } };
     case 'device_capture':
-      return { type, device: 'default' };
     case 'device_render':
       return { type, device: 'default' };
     case 'virtual_mic':
@@ -38,7 +57,18 @@ export function defaultKind(type: NodeType): NodeKind {
     case 'gain':
       return { type, db: 0 };
     case 'mixer':
+    case 'gate':
       return { type };
+    case 'variable':
+      return { type, initial: true };
+    case 'level':
+      return { type, threshold_db: -40 };
+    case 'logic':
+      return { type, op: 'and' };
+    case 'hotkey':
+      return { type, keys: '' };
+    case 'timer':
+      return { type, interval_ms: 1000 };
   }
 }
 
@@ -82,7 +112,9 @@ export function depths(graph: GraphSpec): Map<string, number> {
 }
 
 export const COLUMN_WIDTH = 300;
-export const ROW_HEIGHT = 190;
+/** Room left for the palette that floats over the top left of the canvas. */
+export const LEFT_MARGIN = 250;
+export const ROW_HEIGHT = 230;
 
 /** Places the nodes that have no saved position; saved positions are kept. */
 export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; edges: FlowEdge[] } {
@@ -94,7 +126,7 @@ export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; e
       const col = depth.get(spec.id) ?? 0;
       const row = rowsInColumn.get(col) ?? 0;
       rowsInColumn.set(col, row + 1);
-      position = { x: 40 + col * COLUMN_WIDTH, y: 40 + row * ROW_HEIGHT };
+      position = { x: LEFT_MARGIN + col * COLUMN_WIDTH, y: 40 + row * ROW_HEIGHT };
     }
     return { id: spec.id, position: { x: position.x, y: position.y }, spec };
   });
@@ -129,22 +161,31 @@ export function positionsOf(nodes: FlowNode[]): Layout {
   return Object.fromEntries(nodes.map((n) => [n.id, { x: Math.round(n.position.x), y: Math.round(n.position.y) }]));
 }
 
+/** The flow carried by an edge, from the block it starts at. */
+export function flowOfEdge(nodes: { id: string; spec: NodeSpec }[], edge: { source: string; sourceHandle: string | null | undefined }): FlowType | undefined {
+  const from = nodes.find((n) => n.id === edge.source);
+  return from && edge.sourceHandle ? portOf(from.spec.type, edge.sourceHandle)?.flow : undefined;
+}
+
 /**
- * Whether the editor may create the connection (the daemon validates again when the graph is applied):
- * output -> input, no loop on one node, no duplicate, and one edge per input except on a mixer.
+ * Whether the editor may create the connection (the daemon validates again when the graph is applied): from an output
+ * to an input of the same flow, no loop on one block, no loop through the graph, no duplicate, and one edge per input
+ * except on the inputs that sum or collect (the mixer's, the actions of a variable).
  */
 export function canConnect(
   nodes: { id: string; spec: NodeSpec }[],
   edges: FlowEdge[],
   c: { source: string; target: string; sourceHandle: string | null; targetHandle: string | null },
 ): boolean {
-  if (c.source === c.target) return false;
-  if (c.sourceHandle !== 'out' || c.targetHandle !== 'in') return false;
+  if (c.source === c.target || !c.sourceHandle || !c.targetHandle) return false;
   const from = nodes.find((n) => n.id === c.source);
   const to = nodes.find((n) => n.id === c.target);
-  if (!from || !to || !KINDS[from.spec.type].hasOutput || !KINDS[to.spec.type].hasInput) return false;
-  if (edges.some((e) => e.source === c.source && e.target === c.target)) return false;
-  if (!KINDS[to.spec.type].multiInput && edges.some((e) => e.target === c.target)) return false;
+  if (!from || !to) return false;
+  const out = portOf(from.spec.type, c.sourceHandle);
+  const input = portOf(to.spec.type, c.targetHandle);
+  if (!out || !input || out.dir !== 'out' || input.dir !== 'in' || out.flow !== input.flow) return false;
+  if (edges.some((e) => e.source === c.source && e.sourceHandle === c.sourceHandle && e.target === c.target && e.targetHandle === c.targetHandle)) return false;
+  if (!input.multi && edges.some((e) => e.target === c.target && e.targetHandle === c.targetHandle)) return false;
   // a path from the target back to the source would close a loop
   const next = new Map<string, string[]>();
   for (const e of edges) next.set(e.source, [...(next.get(e.source) ?? []), e.target]);
@@ -160,6 +201,42 @@ export function canConnect(
   return true;
 }
 
+/**
+ * The edges after block `id` changes to kind `to` (its ports change). An edge keeps its port when the new kind has one
+ * of that name and flow; otherwise it moves to the new kind's first port of the same direction and flow (a keyboard
+ * shortcut becoming a timer keeps its link: `pressed` -> `tick`); if there is none, the edge is dropped.
+ */
+export function edgesAfterKindChange(
+  nodes: { id: string; spec: NodeSpec }[],
+  edges: FlowEdge[],
+  id: string,
+  to: NodeType,
+): FlowEdge[] {
+  const typeOf = (nodeId: string) => nodes.find((n) => n.id === nodeId)?.spec.type;
+  const out: FlowEdge[] = [];
+  for (const e of edges) {
+    const fromType = typeOf(e.source);
+    const toType = typeOf(e.target);
+    if (!fromType || !toType) continue;
+    let { sourceHandle, targetHandle } = e;
+    const flow = portOf(fromType, e.sourceHandle)?.flow;
+    if (e.source === id) {
+      const same = portOf(to, sourceHandle);
+      const moved = same && same.dir === 'out' && same.flow === flow ? same : PORTS[to].find((q) => q.dir === 'out' && q.flow === flow);
+      if (!moved) continue;
+      sourceHandle = moved.name;
+    }
+    if (e.target === id) {
+      const same = portOf(to, targetHandle);
+      const moved = same && same.dir === 'in' && same.flow === flow ? same : PORTS[to].find((q) => q.dir === 'in' && q.flow === flow);
+      if (!moved) continue;
+      targetHandle = moved.name;
+    }
+    out.push({ ...e, sourceHandle, targetHandle, id: edgeId({ from: { node: e.source, port: sourceHandle }, to: { node: e.target, port: targetHandle } }) });
+  }
+  return out;
+}
+
 export function deviceLabel(d: DeviceRef): string {
   return d === 'default' ? 'default' : 'id' in d ? d.id : d.name;
 }
@@ -172,4 +249,17 @@ export function levelDb(peak: number): number {
 /** Position 0..1 of a level on a meter that spans -60..0 dB. */
 export function meterFill(peak: number): number {
   return (levelDb(peak) + 60) / 60;
+}
+
+/** `Ctrl+Shift+F8` from a keyboard event (the shortcut field uses it); `null` for a lone modifier key. */
+export function comboFromEvent(e: { key: string; code: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }): string | null {
+  const named: Record<string, string> = { ' ': 'Space', Escape: 'Escape', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Insert: 'Insert', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' };
+  let key: string | null = null;
+  if (/^F\d{1,2}$/.test(e.key)) key = e.key;
+  else if (e.key in named) key = named[e.key];
+  else if (/^Numpad\d$/.test(e.code)) key = `Num${e.code.slice(6)}`;
+  else if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
+  else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
+  if (!key) return null;
+  return [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Win', key].filter(Boolean).join('+');
 }
