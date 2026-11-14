@@ -7,25 +7,28 @@ description = "Audio routing daemon with a node-graph: capture an application's 
 repository = "https://github.com/Oignontom8283/omu"
 license-file = "LICENSE"
 publish = false
+default-run = "omu-daemon"
 
 # One library holds every component (modules = folders of src/); each binary is a thin entry point:
 #
-#   omud   the daemon: owns the audio engine, serves the control protocol        (feature `daemon`)
-#   omu    the command-line client of the daemon                                 (feature `cli`)
-#   ui     (to come) the Tauri window, a separate crate that depends on this library with
-#          `default-features = false, features = ["client"]`: like `omu`, it only needs the protocol and the client.
+#   omu-daemon   the daemon: owns the audio engine, serves the control protocol  (feature `daemon`)
+#   omu-cli      the command-line client of the daemon                           (feature `cli`)
+#   omu-gui      the desktop window (crate `ui/src-tauri`, a workspace member that depends on this library with
+#                `default-features = false, features = ["client"]`: like the command line, it only needs the client)
+#
+# `cargo run` starts the daemon (`default-run`); `cargo run --bin omu-cli` and `cargo run -p omu-gui` the others.
 [lib]
 name = "omu"
 path = "src/lib.rs"
 
 [[bin]]
-name = "omud"
-path = "src/bin/omud/main.rs"
+name = "omu-daemon"
+path = "src/bin/omu-daemon/main.rs"
 required-features = ["daemon"]
 
 [[bin]]
-name = "omu"
-path = "src/bin/omu/main.rs"
+name = "omu-cli"
+path = "src/bin/omu-cli/main.rs"
 required-features = ["cli"]
 
 [features]

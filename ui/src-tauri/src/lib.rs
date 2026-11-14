@@ -67,9 +67,13 @@ pub fn start_daemon() -> Result<(), String> {
     start_daemon_from(exe.parent().ok_or("this program has no folder")?)
 }
 
-/// Starts `omud` from folder `dir`.
+/// Starts the daemon executable from folder `dir`.
 pub fn start_daemon_from(dir: &std::path::Path) -> Result<(), String> {
-    let daemon = dir.join(format!("omud{}", std::env::consts::EXE_SUFFIX));
+    let daemon = dir.join(format!(
+        "{}{}",
+        omu::branding::DAEMON_EXECUTABLE,
+        std::env::consts::EXE_SUFFIX
+    ));
     if !daemon.exists() {
         return Err(format!(
             "{} not found next to this program",
@@ -147,11 +151,14 @@ mod tests {
 
     #[test]
     fn the_daemon_executable_is_looked_for_in_the_given_folder() {
-        // an empty folder has no omud: the error says where it looked (and nothing is started)
+        // an empty folder has no daemon: the error says where it looked (and nothing is started)
         let dir = std::env::temp_dir().join(format!("omu-gui-empty-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let e = start_daemon_from(&dir).unwrap_err();
-        assert!(e.contains("omud") && e.contains("not found"), "{e}");
+        assert!(
+            e.contains(omu::branding::DAEMON_EXECUTABLE) && e.contains("not found"),
+            "{e}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

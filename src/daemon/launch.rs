@@ -1,5 +1,5 @@
 //! Starting a daemon: choosing the audio backend, restoring the saved graph, opening the control port, publishing
-//! the discovery file. Shared by the `omud` binary and by the tests that exercise the whole HTTP stack.
+//! the discovery file. Shared by the `omu-daemon` binary and by the tests that exercise the whole HTTP stack.
 
 use super::server::{self, ServerConfig};
 use super::store::Store;
