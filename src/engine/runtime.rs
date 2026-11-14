@@ -18,6 +18,8 @@ pub struct RuntimeStats {
     pub late_cycles: AtomicU64,
     /// Times the timer had to be re-synchronised after a long stall.
     pub resyncs: AtomicU64,
+    /// Times a block panicked while processing (the plan was dropped; the supervisor builds a new one).
+    pub panics: AtomicU64,
 }
 
 pub struct GraphThread {
@@ -113,11 +115,11 @@ fn run(
             }
         }
         if let Some(plan) = current.as_mut() {
-            // A panic in a block must not take the process down: the plan is dropped and the thread keeps its
-            // timer (a bad plan is replaced by the supervisor).
-            let ok =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| plan.process())).is_ok();
-            if !ok {
+            // A panic in a block must not take the process down: it is reported (crash report, log), the plan is
+            // dropped and the thread keeps its timer; the supervisor sees the counter and builds a new plan.
+            // Nothing here may log or allocate on the normal path: only the panic path does.
+            if crate::diagnostics::contained(|| plan.process()).is_err() {
+                stats.panics.fetch_add(1, Ordering::Relaxed);
                 current = None;
             }
         }
@@ -143,5 +145,58 @@ fn run(
                 std::hint::spin_loop();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::plan::{Meter, NodeOp, PlanNode};
+
+    fn plan_of(op: NodeOp) -> Box<Plan> {
+        Box::new(Plan::new(
+            vec![PlanNode {
+                id: "x".into(),
+                op,
+                inputs: vec![],
+                meter: Arc::<Meter>::default(),
+            }],
+            480,
+        ))
+    }
+
+    fn wait_until(what: &str, mut ok: impl FnMut() -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !ok() {
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn a_block_that_panics_is_counted_and_the_thread_keeps_running_for_the_next_plan() {
+        let mut thread = GraphThread::spawn(480, None);
+        let stats = thread.stats.clone();
+        assert!(thread.send(plan_of(NodeOp::Panic)).is_ok());
+        wait_until("the panic to be counted", || {
+            stats.panics.load(Ordering::Relaxed) == 1
+        });
+        // the bad plan is gone: the thread idles but still paces cycles
+        let cycles = stats.cycles.load(Ordering::Relaxed);
+        wait_until("more cycles", || {
+            stats.cycles.load(Ordering::Relaxed) > cycles + 3
+        });
+        assert!(!thread.is_finished());
+        // a new plan runs normally
+        assert!(thread.send(plan_of(NodeOp::SilentSource)).is_ok());
+        let cycles = stats.cycles.load(Ordering::Relaxed);
+        wait_until("cycles with the new plan", || {
+            stats.cycles.load(Ordering::Relaxed) > cycles + 3
+        });
+        assert_eq!(
+            stats.panics.load(Ordering::Relaxed),
+            1,
+            "the new plan does not panic"
+        );
     }
 }

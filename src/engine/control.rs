@@ -73,6 +73,8 @@ struct State {
     resources: HashMap<NodeId, Resource>,
     failures: HashMap<NodeId, Failure>,
     graph_thread: Option<GraphThread>,
+    /// Panics of the graph thread already answered with a new plan.
+    panics_handled: u64,
     meters: HashMap<NodeId, Arc<Meter>>,
 }
 
@@ -106,11 +108,29 @@ impl Engine {
         let supervisor = std::thread::Builder::new()
             .name("engine-supervisor".into())
             .spawn(move || {
+                // Late cycles are reported at most every few seconds: they come in bursts.
+                let (mut late_seen, mut late_logged_at) = (0u64, Instant::now());
                 while !stop2.load(Ordering::Relaxed) {
                     std::thread::sleep(Duration::from_millis(250));
                     let Some(inner) = weak.upgrade() else { return };
                     if inner.needs_attention() {
                         inner.reconcile();
+                    }
+                    let late = inner
+                        .lock()
+                        .graph_thread
+                        .as_ref()
+                        .map(|t| t.stats.late_cycles.load(Ordering::Relaxed));
+                    if let Some(late) = late {
+                        if late > late_seen && late_logged_at.elapsed() > Duration::from_secs(5) {
+                            tracing::warn!(
+                                new = late - late_seen,
+                                total = late,
+                                "the graph thread was late: the system did not schedule it in time (audio may glitch)"
+                            );
+                            late_seen = late;
+                            late_logged_at = Instant::now();
+                        }
                     }
                 }
             })
@@ -125,6 +145,11 @@ impl Engine {
     /// Makes `graph` the running graph. Devices that cannot be opened do not make this fail: their node reports
     /// [`NodeState::Failed`], stays silent, and is retried.
     pub fn apply(&self, graph: ValidGraph) {
+        tracing::info!(
+            nodes = graph.spec.nodes.len(),
+            edges = graph.spec.edges.len(),
+            "applying graph"
+        );
         self.inner.lock().desired = Some(graph);
         self.inner.reconcile();
     }
@@ -132,6 +157,9 @@ impl Engine {
     /// Stops everything and forgets the graph.
     pub fn stop(&self) {
         let mut st = self.inner.lock();
+        if st.desired.is_some() || !st.resources.is_empty() {
+            tracing::info!(streams = st.resources.len(), "stopping the engine");
+        }
         st.desired = None;
         st.graph_thread = None;
         st.resources.clear();
@@ -234,6 +262,10 @@ impl Inner {
         st.resources.values().any(|r| r.health.has_failed())
             || st.failures.values().any(|f| f.retry_at <= now)
             || st.graph_thread.as_ref().is_some_and(|t| t.is_finished())
+            || st
+                .graph_thread
+                .as_ref()
+                .is_some_and(|t| t.stats.panics.load(Ordering::Relaxed) > st.panics_handled)
             || (!desired.spec.nodes.is_empty() && st.graph_thread.is_none())
     }
 
@@ -267,6 +299,7 @@ impl Inner {
             keep
         });
         for (id, message) in broken {
+            tracing::warn!(node = %id.0, "stream broke: {message}; will reopen it");
             let backoff = self.cfg.retry_initial;
             st.failures.insert(
                 id,
@@ -289,16 +322,24 @@ impl Inner {
             }
             match self.open_node(&node.kind) {
                 Ok(resource) => {
-                    st.failures.remove(&node.id);
+                    if st.failures.remove(&node.id).is_some() {
+                        tracing::info!(node = %node.id.0, "stream recovered");
+                    } else {
+                        tracing::info!(node = %node.id.0, kind = ?node.kind, "stream started");
+                    }
                     st.resources.insert(node.id.clone(), resource);
                 }
                 Err(message) => {
-                    let backoff = st
-                        .failures
-                        .get(&node.id)
-                        .map_or(self.cfg.retry_initial, |f| {
-                            (f.backoff * 2).min(self.cfg.retry_max)
-                        });
+                    let known = st.failures.get(&node.id);
+                    let backoff = known.map_or(self.cfg.retry_initial, |f| {
+                        (f.backoff * 2).min(self.cfg.retry_max)
+                    });
+                    // the first failure (or a different one) is a warning; the retries of the same one are not news
+                    if known.is_none_or(|f| f.message != message) {
+                        tracing::warn!(node = %node.id.0, retry_in_ms = backoff.as_millis() as u64, "cannot open the stream: {message}");
+                    } else {
+                        tracing::debug!(node = %node.id.0, "still cannot open the stream: {message}");
+                    }
                     st.failures.insert(
                         node.id.clone(),
                         Failure {
@@ -315,14 +356,29 @@ impl Inner {
         let (plan, meters) = self.build_plan(&desired, &st.resources);
         st.meters = meters;
         if st.graph_thread.as_ref().is_some_and(|t| t.is_finished()) {
+            tracing::error!("the graph thread ended unexpectedly; starting a new one");
             st.graph_thread = None;
+            st.panics_handled = 0;
         }
         let cfg = &self.cfg;
+        let handled = st.panics_handled;
         let thread = st
             .graph_thread
             .get_or_insert_with(|| GraphThread::spawn(cfg.cycle_frames, cfg.thread_init.clone()));
         thread.collect_garbage();
-        if thread.send(Box::new(plan)).is_err() {
+        let panics = thread.stats.panics.load(Ordering::Relaxed);
+        let sent = thread.send(Box::new(plan)).is_ok();
+        if panics > handled {
+            tracing::error!(
+                panics,
+                "a block panicked on the graph thread (crash report written); running a fresh plan"
+            );
+            st.panics_handled = panics;
+        }
+        if sent {
+            st.failures.remove(&NodeId("engine".into()));
+        } else {
+            tracing::warn!("the graph thread is not consuming plans; retrying");
             // The thread is stalled; the supervisor will try again.
             st.failures.insert(
                 NodeId("engine".into()),
@@ -332,8 +388,6 @@ impl Inner {
                     backoff: Duration::from_secs(1),
                 },
             );
-        } else {
-            st.failures.remove(&NodeId("engine".into()));
         }
     }
 
