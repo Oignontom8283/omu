@@ -9,12 +9,14 @@
 //! | [`graph`] | graph validation and ordering | |
 //! | [`dsp`] | allocation-free audio building blocks | |
 //! | [`hal`] | platform backend traits (+ simulated backend, + Windows backend) | |
+//! | [`protocol`] | JSON-RPC control protocol: envelopes, typed methods and events | |
 //! | `engine` | real-time engine: bridges, plan, graph thread, supervision | `engine` |
 
 pub mod branding;
 pub mod dsp;
 pub mod graph;
 pub mod hal;
+pub mod protocol;
 pub mod types;
 
 #[cfg(feature = "engine")]
