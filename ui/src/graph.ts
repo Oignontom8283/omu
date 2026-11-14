@@ -13,6 +13,7 @@ export const PORTS: Record<NodeType, PortMeta[]> = {
   app_capture: [p('out', 'out', 'audio')],
   device_capture: [p('out', 'out', 'audio')],
   device_render: [p('in', 'in', 'audio')],
+  virtual_speaker: [p('out', 'out', 'audio')],
   virtual_mic: [p('in', 'in', 'audio')],
   gain: [p('in', 'in', 'audio'), p('out', 'out', 'audio')],
   mixer: [p('in', 'in', 'audio', true), p('out', 'out', 'audio')],
@@ -28,7 +29,7 @@ export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'conditi
 
 /** The kinds of each family, in the order of the drop-down. */
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
-  input: ['app_capture', 'device_capture'],
+  input: ['app_capture', 'device_capture', 'virtual_speaker'],
   output: ['virtual_mic', 'device_render'],
   processing: ['gain', 'mixer', 'gate'],
   condition: ['variable', 'level', 'logic'],
@@ -53,6 +54,8 @@ export function defaultKind(type: NodeType): NodeKind {
     case 'device_render':
       return { type, device: 'default' };
     case 'virtual_mic':
+      return { type, name: 'Omu' };
+    case 'virtual_speaker':
       return { type, name: 'Omu' };
     case 'gain':
       return { type, db: 0 };

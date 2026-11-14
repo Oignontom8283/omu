@@ -245,7 +245,7 @@ export function App() {
     [edges, plainNodes],
   );
 
-  const noProvider = graph.nodes.some((n) => n.type === 'virtual_mic') && info !== null && !(info.virtual_microphones?.available ?? false);
+  const noProvider = graph.nodes.some((n) => n.type === 'virtual_mic' || n.type === 'virtual_speaker') && info !== null && !(info.virtual_microphones?.available ?? false);
   const connLabel = conn === 'open' ? 'app.connected' : conn === 'connecting' ? 'app.connecting' : 'app.disconnected';
 
   return (

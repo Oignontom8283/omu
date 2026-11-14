@@ -14,6 +14,7 @@ export type NodeKind =
   | { type: 'app_capture'; target: AppTarget }
   | { type: 'device_capture'; device: DeviceRef }
   | { type: 'device_render'; device: DeviceRef }
+  | { type: 'virtual_speaker'; name: string }
   | { type: 'virtual_mic'; name: string }
   | { type: 'gain'; db: number }
   | { type: 'mixer' }
