@@ -6,7 +6,13 @@ use std::time::{Duration, Instant};
 
 fn run(running: &Running, extra: &[&str]) -> Result<String, String> {
     let address = running.info.address.to_string();
-    let mut args: Vec<&str> = vec!["omu", "--address", &address, "--token", &running.info.token];
+    let mut args: Vec<&str> = vec![
+        "omu-cli",
+        "--address",
+        &address,
+        "--token",
+        &running.info.token,
+    ];
     args.extend_from_slice(extra);
     let mut out = vec![];
     execute(args, &mut out)
@@ -98,13 +104,20 @@ fn without_a_daemon_the_error_says_how_to_start_one() {
     let mut out = vec![];
     // nothing listens on this port
     let err = execute(
-        ["omu", "--address", "127.0.0.1:1", "--token", "x", "status"],
+        [
+            "omu-cli",
+            "--address",
+            "127.0.0.1:1",
+            "--token",
+            "x",
+            "status",
+        ],
         &mut out,
     )
     .unwrap_err()
     .to_string();
     assert!(
-        err.contains("cannot reach the daemon") && err.contains("omud"),
+        err.contains("cannot reach the daemon") && err.contains(omu::branding::DAEMON_EXECUTABLE),
         "{err}"
     );
 }

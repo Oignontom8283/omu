@@ -408,17 +408,17 @@ mod tests {
     #[test]
     fn help_succeeds_and_mistakes_fail_without_needing_a_daemon() {
         let mut out = vec![];
-        assert!(execute(["omu", "--help"], &mut out).is_ok());
+        assert!(execute(["omu-cli", "--help"], &mut out).is_ok());
         assert!(String::from_utf8(out).unwrap().contains("route"));
         let mut out = vec![];
         assert!(
-            execute(["omu", "route"], &mut out).is_err(),
+            execute(["omu-cli", "route"], &mut out).is_err(),
             "route needs --app"
         );
         let mut out = vec![];
         assert!(
             execute(
-                ["omu", "route", "--app", "x", "--mic", "a", "--device", "b"],
+                ["omu-cli", "route", "--app", "x", "--mic", "a", "--device", "b"],
                 &mut out
             )
             .is_err(),

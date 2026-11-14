@@ -3,9 +3,9 @@
 #
 # Three executables come out of this repository, one source tree. A TARGET is one of:
 #
-#   demon (or server)   omud      the daemon: audio engine, control server, web panel
-#   cli                 omu       the command-line client
-#   gui                 omu-gui   the desktop window
+#   demon (or server)   omu-daemon  the daemon: audio engine, control server, web panel
+#   cli                 omu-cli     the command-line client
+#   gui                 omu-gui     the desktop window
 #   all                           the three (the default of build and dev)
 #
 # `just build [target]` makes release builds, `just dev [target]` makes debug builds (fast to compile, with debug
@@ -29,12 +29,12 @@ dev target="all": (_cargo "build" replace_regex(target, "^(daemon|demon|server)(
 
 # Run a debug build: just run demon --demo     just run cli status     just run gui
 run target="demon" *args:
-    {{ if target == "cli" { "cargo run --bin omu --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run -p omu-gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --bin omud -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
+    {{ if target == "cli" { "cargo run --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run -p omu-gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --bin omu-daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
 
 # The cargo command of a target (private)
 [private]
 _cargo verb target:
-    cargo {{verb}} {{ if target == "all" { "--workspace" } else if target == "gui" { "-p omu-gui" } else if target == "cli" { "--bin omu --no-default-features --features cli" } else if target == "demon" { "--bin omud" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") } }}
+    cargo {{verb}} {{ if target == "all" { "--workspace" } else if target == "gui" { "-p omu-gui" } else if target == "cli" { "--bin omu-cli --no-default-features --features cli" } else if target == "demon" { "--bin omu-daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") } }}
 
 # Run every test (Rust, workspace)
 test:
@@ -74,7 +74,7 @@ ui-hot:
 
 # Try everything without real audio: the daemon with a simulated audio system, serving the panel
 demo:
-    cargo run --bin omud -- --demo
+    cargo run --bin omu-daemon -- --demo
 
 # Everything, Rust and web panel
 verify-all: verify ui-test
