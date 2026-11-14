@@ -1,0 +1,71 @@
+[package]
+name = "omu"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Audio routing daemon with a node-graph: capture an application's sound, process it, send it to a virtual microphone"
+repository = "https://github.com/Oignontom8283/omu"
+license-file = "LICENSE"
+publish = false
+
+# One library holds every component (modules = folders of src/); each binary is a thin entry point:
+#
+#   omud   the daemon: owns the audio engine, serves the control protocol        (feature `daemon`)
+#   omu    the command-line client of the daemon                                 (feature `cli`)
+#   ui     (to come) the Tauri window, a separate crate that depends on this library with
+#          `default-features = false, features = ["client"]`: like `omu`, it only needs the protocol and the client.
+[lib]
+name = "omu"
+path = "src/lib.rs"
+
+[[bin]]
+name = "omud"
+path = "src/bin/omud/main.rs"
+required-features = ["daemon"]
+
+[[bin]]
+name = "omu"
+path = "src/bin/omu/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["daemon", "cli"]
+# the audio engine and the platform backends (heavy: real-time code, Windows API bindings)
+engine = ["dep:rtrb", "dep:windows", "dep:windows-core"]
+daemon = ["engine"]
+# the command-line client (and, through `client`, what a GUI needs): protocol + client only
+cli = ["client"]
+client = []
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+rtrb = { version = "0.4", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", optional = true, features = [
+    "Win32_Foundation",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+    "Win32_Security",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
+windows-core = { version = "0.62", optional = true }
+
+[build-dependencies]
+toml = "1.2"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"
+
+# This repository is its own workspace root (the Tauri crate will join it as a member).
+[workspace]
