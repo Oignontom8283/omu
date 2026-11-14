@@ -9,14 +9,15 @@ license-file = "LICENSE"
 publish = false
 default-run = "omu-daemon"
 
-# One library holds every component (modules = folders of src/); each binary is a thin entry point:
+# One library holds every component (modules = folders of src/); each binary is a thin entry point. One package, three
+# targets:
 #
-#   omu-daemon   the daemon: owns the audio engine, serves the control protocol  (feature `daemon`)
-#   omu-cli      the command-line client of the daemon                           (feature `cli`)
-#   omu-gui      the desktop window (crate `ui/src-tauri`, a workspace member that depends on this library with
-#                `default-features = false, features = ["client"]`: like the command line, it only needs the client)
+#   omu-daemon   the daemon: owns the audio engine, serves the control protocol  (feature `daemon`, default)
+#   omu-cli      the command-line client of the daemon                           (feature `cli`, default)
+#   omu-gui      the desktop window (Tauri)                                      (feature `gui`, opt-in)
 #
-# `cargo run` starts the daemon (`default-run`); `cargo run --bin omu-cli` and `cargo run -p omu-gui` the others.
+# `gui` is opt-in only because it pulls Tauri, which takes a while to compile; everything else is the same package:
+# `cargo build --features gui`, `cargo run --bin omu-gui --features gui`, `cargo install --path . --bin omu-cli`.
 [lib]
 name = "omu"
 path = "src/lib.rs"
@@ -31,6 +32,11 @@ name = "omu-cli"
 path = "src/bin/omu-cli/main.rs"
 required-features = ["cli"]
 
+[[bin]]
+name = "omu-gui"
+path = "src/bin/omu-gui/main.rs"
+required-features = ["gui"]
+
 [features]
 default = ["daemon", "cli"]
 # the audio engine and the platform backends (heavy: real-time code, Windows API bindings)
@@ -41,6 +47,10 @@ daemon = ["engine", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed
 cli = ["client", "dep:clap"]
 # what any client needs to talk to a daemon (the CLI, a Tauri window): protocol + HTTP client
 client = ["dep:ureq"]
+# the desktop window: the panel embedded in a Tauri window that talks to the daemon through the client. `custom-protocol`
+# is Tauri's own switch for "serve the panel from inside the executable" (without it the window would load a
+# development server's address and stay blank).
+gui = ["client", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -55,6 +65,7 @@ rust-embed = { version = "8.14", optional = true, features = ["mime-guess"] }
 getrandom = { version = "0.4", optional = true }
 clap = { version = "4.6", optional = true, features = ["derive", "env"] }
 ureq = { version = "3.5", optional = true, default-features = false, features = ["json"] }
+tauri = { version = "2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", optional = true, features = [
@@ -81,6 +92,7 @@ tungstenite = "0.30"
 
 [build-dependencies]
 toml = "1.2"
+tauri-build = { version = "2", optional = true }
 
 # Release builds: link-time optimisation removes what each executable does not use. `panic = "abort"` is NOT used on
 # purpose: the audio thread catches a panicking block (catch_unwind) instead of taking the process down.
@@ -93,6 +105,5 @@ strip = "symbols"
 unsafe_op_in_unsafe_fn = "deny"
 unused_must_use = "deny"
 
-# This repository is its own workspace root; the desktop window is a member (it needs no audio code).
+# This repository is its own workspace root (the folder above it holds unrelated material).
 [workspace]
-members = ["ui/src-tauri"]
