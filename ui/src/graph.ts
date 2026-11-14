@@ -42,8 +42,35 @@ export function categoryOf(type: NodeType): Category {
   return CATEGORIES.find((c) => KINDS_BY_CATEGORY[c].includes(type)) as Category;
 }
 
+/**
+ * An input that sums or collects (the mixer's, a variable's actions) takes as many links as wanted: the editor shows one
+ * connection point per link plus a free one, named `in`, `in#2`, `in#3`... For the daemon they are all the port `in`.
+ */
+export function baseHandle(handle: string): string {
+  return handle.split('#')[0];
+}
+
 export function portOf(type: NodeType, name: string): PortMeta | undefined {
-  return PORTS[type].find((q) => q.name === name);
+  return PORTS[type].find((q) => q.name === baseHandle(name));
+}
+
+function handleNumber(handle: string): number {
+  const n = Number(handle.split('#')[1]);
+  return handle.includes('#') && n >= 2 ? n : 1;
+}
+
+function handleName(port: string, number: number): string {
+  return number === 1 ? port : `${port}#${number}`;
+}
+
+/** The connection points to show for a multi input: those that have a link, and one more that is free. */
+export function multiHandles(edges: { target: string; targetHandle?: string | null }[], node: string, port: string): string[] {
+  const used = edges
+    .filter((e) => e.target === node && e.targetHandle && baseHandle(e.targetHandle) === port)
+    .map((e) => handleNumber(e.targetHandle as string));
+  let free = 1;
+  while (used.includes(free)) free++;
+  return [...new Set([...used, free])].sort((a, b) => a - b).map((n) => handleName(port, n));
 }
 
 export function defaultKind(type: NodeType): NodeKind {
@@ -133,13 +160,19 @@ export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; e
     }
     return { id: spec.id, position: { x: position.x, y: position.y }, spec };
   });
-  const edges = graph.edges.map((e) => ({
-    id: edgeId(e),
-    source: e.from.node,
-    target: e.to.node,
-    sourceHandle: e.from.port,
-    targetHandle: e.to.port,
-  }));
+  // each link into a multi input gets its own connection point, in the order of the links
+  const taken = new Map<string, number>();
+  const edges = graph.edges.map((e) => {
+    let targetHandle = e.to.port;
+    const input = graph.nodes.find((n) => n.id === e.to.node);
+    if (input && portOf(input.type, e.to.port)?.multi) {
+      const key = `${e.to.node}.${e.to.port}`;
+      const number = (taken.get(key) ?? 0) + 1;
+      taken.set(key, number);
+      targetHandle = handleName(e.to.port, number);
+    }
+    return { id: edgeId(e), source: e.from.node, target: e.to.node, sourceHandle: e.from.port, targetHandle };
+  });
   return { nodes, edges };
 }
 
@@ -147,8 +180,8 @@ export function fromFlow(nodes: { spec: NodeSpec }[], edges: FlowEdge[]): GraphS
   return {
     nodes: nodes.map((n) => n.spec),
     edges: edges.map((e) => ({
-      from: { node: e.source, port: e.sourceHandle },
-      to: { node: e.target, port: e.targetHandle },
+      from: { node: e.source, port: baseHandle(e.sourceHandle) },
+      to: { node: e.target, port: baseHandle(e.targetHandle) },
     })),
   };
 }
@@ -187,7 +220,7 @@ export function canConnect(
   const out = portOf(from.spec.type, c.sourceHandle);
   const input = portOf(to.spec.type, c.targetHandle);
   if (!out || !input || out.dir !== 'out' || input.dir !== 'in' || out.flow !== input.flow) return false;
-  if (edges.some((e) => e.source === c.source && e.sourceHandle === c.sourceHandle && e.target === c.target && e.targetHandle === c.targetHandle)) return false;
+  if (edges.some((e) => e.source === c.source && e.sourceHandle === c.sourceHandle && e.target === c.target && baseHandle(e.targetHandle) === baseHandle(c.targetHandle as string))) return false;
   if (!input.multi && edges.some((e) => e.target === c.target && e.targetHandle === c.targetHandle)) return false;
   // a path from the target back to the source would close a loop
   const next = new Map<string, string[]>();

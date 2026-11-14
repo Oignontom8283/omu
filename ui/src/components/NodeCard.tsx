@@ -1,7 +1,7 @@
-import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
-import { useState } from 'react';
+import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
+import { useEffect, useState } from 'react';
 import { useEditor } from '../context.ts';
-import { KINDS_BY_CATEGORY, PORTS, categoryOf, levelDb, meterFill, type PortMeta } from '../graph.ts';
+import { KINDS_BY_CATEGORY, PORTS, categoryOf, levelDb, meterFill, multiHandles, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { DeviceRef, LogicOp, NodeSpec, NodeType } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
@@ -186,9 +186,31 @@ function IdField({ id }: { id: string }) {
 }
 
 /** One port: a label and the connection point (coloured by the flow it carries). */
-function PortRow({ port }: { port: PortMeta }) {
+function PortRow({ port, node }: { port: PortMeta; node: string }) {
   const t = useT();
   const isInput = port.dir === 'in';
+  const edges = useEdges();
+  const updateInternals = useUpdateNodeInternals();
+  // an input that takes any number of links shows one connection point per link, and a free one after them
+  const handles = isInput && port.multi ? multiHandles(edges, node, port.name) : null;
+  const key = handles?.join(' ');
+  useEffect(() => {
+    if (key) updateInternals(node);
+  }, [key, node, updateInternals]);
+  if (handles) {
+    return (
+      <>
+        {handles.map((h, i) => (
+          <div key={h} className="port in" title={t(`flow.${port.flow}`)}>
+            <Handle id={h} type="target" position={Position.Left} className={`flow-${port.flow}`} />
+            <span>
+              {t(`port.${port.name}`)} {i + 1}
+            </span>
+          </div>
+        ))}
+      </>
+    );
+  }
   return (
     <div className={`port ${isInput ? 'in' : 'out'}`} title={t(`flow.${port.flow}`)}>
       <Handle id={port.name} type={isInput ? 'target' : 'source'} position={isInput ? Position.Left : Position.Right} className={`flow-${port.flow}`} />
@@ -220,7 +242,7 @@ function Footer({ spec }: { spec: NodeSpec }) {
   );
 }
 
-export function NodeCard({ data, selected }: NodeProps<OmuNode>) {
+export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
   const { statusOf, changeKind } = useEditor();
   const t = useT();
   const spec = data.spec;
@@ -240,8 +262,8 @@ export function NodeCard({ data, selected }: NodeProps<OmuNode>) {
         <IdField id={spec.id} />
       </header>
       <div className="ports">
-        <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} />)}</div>
-        <div>{ports.filter((q) => q.dir === 'out').map((q) => <PortRow key={q.name} port={q} />)}</div>
+        <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} node={id} />)}</div>
+        <div>{ports.filter((q) => q.dir === 'out').map((q) => <PortRow key={q.name} port={q} node={id} />)}</div>
       </div>
       <div className="body">
         <Params spec={spec} />
