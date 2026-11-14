@@ -39,14 +39,26 @@ pub enum PortDirection {
     Output,
 }
 
-/// A port declared by a node kind.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A port declared by a node kind. Most kinds have fixed ports; the blocks that branch (`branch`, `select`) have as
+/// many as their `branches` setting says, so a port's name is owned text (`when2`, `out3`).
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PortSpec {
-    pub name: &'static str,
+    pub name: String,
     pub direction: PortDirection,
     pub ty: PortType,
-    /// An input that accepts several incoming edges (summed by the node itself, e.g. a mixer).
+    /// An input that accepts several incoming edges (combined by the node itself: summed by a mixer, or-ed...).
     pub multi: bool,
+}
+
+/// The most conditions a `branch` or `select` block can have.
+pub const MAX_BRANCHES: u32 = 16;
+/// The longest delay of a `delay` block, in milliseconds.
+pub const MAX_DELAY_MS: u32 = 5_000;
+/// The longest time a `hold` or `after` block can wait, in milliseconds.
+pub const MAX_WAIT_MS: u32 = 60_000;
+
+fn one() -> u32 {
+    1
 }
 
 /// One end of an edge: `{"node": "app", "port": "out"}`.
@@ -121,7 +133,7 @@ pub enum LogicOp {
     Not,
 }
 
-/// What a node does. Ports are fixed per kind ([`NodeKind::ports`]).
+/// What a node does. Its ports follow from its kind and settings ([`NodeKind::ports`]).
 ///
 /// Three kinds of flow connect them: continuous **audio**, a continuous **condition** (true or false, evaluated
 /// every cycle) and discrete **actions** (an event that happens once: a key press). A trigger sends actions; an
@@ -151,68 +163,146 @@ pub enum NodeKind {
     /// Processing: lets the audio through while its `open` condition is true (silence otherwise, with a short fade
     /// so that nothing clicks). Without a condition connected it is always open.
     Gate,
+    /// Processing: "if / else if / else" for sound. One sound goes in; it comes out of the output of the first
+    /// condition that is true (`out1` for `when1`, `out2` for `when2`...), or out of `else` when none is. The other
+    /// outputs are silent. `branches` is how many conditions there are (the `if` and the `else if`s).
+    Branch {
+        #[serde(default = "one")]
+        branches: u32,
+    },
+    /// Processing: the other way round: each condition has its own sound (`in1` for `when1`...), and the output is
+    /// the sound of the first condition that is true, or the `else` sound when none is.
+    Select {
+        #[serde(default = "one")]
+        branches: u32,
+    },
+    /// Processing: the sound, `ms` milliseconds later (to line a sound up with another, e.g. a camera).
+    Delay { ms: u32 },
     // ---- conditions
     /// Condition: a remembered yes/no. Actions change it: `set` makes it true, `clear` false, `toggle` flips it.
     Variable { initial: bool },
     /// Condition: true while the audio at its input is louder than a threshold (a simple voice detector); it stays
     /// true for a short time after the sound stops so that speech is not chopped.
     Level { threshold_db: f32 },
-    /// Condition: combines conditions (and, or, xor, not).
+    /// Condition: combines conditions (and, or, xor, not). Kept for graphs saved before the blocks below existed.
     Logic { op: LogicOp },
+    /// Condition: the opposite of its input.
+    Not,
+    /// Condition: true while every condition linked to its input is true (false when none is linked).
+    All,
+    /// Condition: true while at least one condition linked to its input is true.
+    Any,
+    /// Condition: true while its input is true, and for `ms` milliseconds after it stops being true.
+    Hold { ms: u32 },
+    /// Condition: true once its input has been true for `ms` milliseconds without a break (false again as soon as the
+    /// input is).
+    After { ms: u32 },
     // ---- triggers
     /// Trigger: sends an action each time the keyboard shortcut is pressed (works while another program has focus).
     Hotkey { keys: String },
     /// Trigger: sends an action every `interval_ms` milliseconds.
     Timer { interval_ms: u32 },
+    /// Trigger: watches a condition and sends an action when it becomes true (`rise`) and another when it becomes
+    /// false (`fall`).
+    Change,
 }
 
-const fn port(name: &'static str, direction: PortDirection, ty: PortType, multi: bool) -> PortSpec {
+use PortDirection::{Input, Output};
+use PortType::{Action, Audio, Condition};
+
+fn port(name: impl Into<String>, direction: PortDirection, ty: PortType, multi: bool) -> PortSpec {
     PortSpec {
-        name,
+        name: name.into(),
         direction,
         ty,
         multi,
     }
 }
-use PortDirection::{Input, Output};
-use PortType::{Action, Audio, Condition};
 
-const IN_AUDIO: PortSpec = port("in", Input, Audio, false);
-const IN_AUDIO_MULTI: PortSpec = port("in", Input, Audio, true);
-const OUT_AUDIO: PortSpec = port("out", Output, Audio, false);
-const IN_OPEN: PortSpec = port("open", Input, Condition, false);
-const IN_SET: PortSpec = port("set", Input, Action, true);
-const IN_CLEAR: PortSpec = port("clear", Input, Action, true);
-const IN_TOGGLE: PortSpec = port("toggle", Input, Action, true);
-const OUT_VALUE: PortSpec = port("value", Output, Condition, false);
-const OUT_ACTIVE: PortSpec = port("active", Output, Condition, false);
-const IN_A: PortSpec = port("a", Input, Condition, false);
-const IN_B: PortSpec = port("b", Input, Condition, false);
-const OUT_RESULT: PortSpec = port("out", Output, Condition, false);
-const OUT_PRESSED: PortSpec = port("pressed", Output, Action, false);
-const OUT_TICK: PortSpec = port("tick", Output, Action, false);
+/// The ports of a block that has `branches` conditions: the numbered names are `{base}1`, `{base}2`...
+fn numbered(
+    base: &str,
+    branches: u32,
+    direction: PortDirection,
+    ty: PortType,
+) -> impl Iterator<Item = PortSpec> + '_ {
+    (1..=branches.clamp(1, MAX_BRANCHES))
+        .map(move |n| port(format!("{base}{n}"), direction, ty, false))
+}
+
+/// The number the name of a numbered port ends with, when it is `base` followed by a number: `("when", "when3")`
+/// is `Some(3)`. Numbers start at 1.
+pub fn port_number(base: &str, name: &str) -> Option<u32> {
+    let n: u32 = name.strip_prefix(base)?.parse().ok()?;
+    (n >= 1 && name == format!("{base}{n}")).then_some(n)
+}
 
 impl NodeKind {
-    /// The ports of this kind of node.
-    pub fn ports(&self) -> &'static [PortSpec] {
+    /// The ports of this kind of node: the inputs first, then the outputs, in the order a block shows them.
+    pub fn ports(&self) -> Vec<PortSpec> {
+        let in_audio = || port("in", Input, Audio, false);
+        let out_audio = || port("out", Output, Audio, false);
+        let in_cond = |multi| port("in", Input, Condition, multi);
+        let out_cond = || port("out", Output, Condition, false);
         match self {
             NodeKind::AppCapture { .. }
             | NodeKind::DeviceCapture { .. }
-            | NodeKind::VirtualSpeaker { .. } => &[OUT_AUDIO],
-            NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => &[IN_AUDIO],
-            NodeKind::Gain { .. } => &[IN_AUDIO, OUT_AUDIO],
-            NodeKind::Mixer => &[IN_AUDIO_MULTI, OUT_AUDIO],
-            NodeKind::Gate => &[IN_AUDIO, IN_OPEN, OUT_AUDIO],
-            NodeKind::Variable { .. } => &[IN_SET, IN_CLEAR, IN_TOGGLE, OUT_VALUE],
-            NodeKind::Level { .. } => &[IN_AUDIO, OUT_ACTIVE],
-            NodeKind::Logic { .. } => &[IN_A, IN_B, OUT_RESULT],
-            NodeKind::Hotkey { .. } => &[OUT_PRESSED],
-            NodeKind::Timer { .. } => &[OUT_TICK],
+            | NodeKind::VirtualSpeaker { .. } => vec![out_audio()],
+            NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],
+            NodeKind::Gain { .. } | NodeKind::Delay { .. } => vec![in_audio(), out_audio()],
+            NodeKind::Mixer => vec![port("in", Input, Audio, true), out_audio()],
+            NodeKind::Gate => vec![
+                in_audio(),
+                port("open", Input, Condition, false),
+                out_audio(),
+            ],
+            NodeKind::Branch { branches } => [in_audio()]
+                .into_iter()
+                .chain(numbered("when", *branches, Input, Condition))
+                .chain(numbered("out", *branches, Output, Audio))
+                .chain([port("else", Output, Audio, false)])
+                .collect(),
+            NodeKind::Select { branches } => numbered("in", *branches, Input, Audio)
+                .chain(numbered("when", *branches, Input, Condition))
+                .chain([port("else", Input, Audio, false), out_audio()])
+                .collect(),
+            NodeKind::Variable { .. } => vec![
+                port("set", Input, Action, true),
+                port("clear", Input, Action, true),
+                port("toggle", Input, Action, true),
+                port("value", Output, Condition, false),
+            ],
+            NodeKind::Level { .. } => vec![in_audio(), port("active", Output, Condition, false)],
+            NodeKind::Logic { .. } => vec![
+                port("a", Input, Condition, false),
+                port("b", Input, Condition, false),
+                out_cond(),
+            ],
+            NodeKind::Not | NodeKind::Hold { .. } | NodeKind::After { .. } => {
+                vec![in_cond(false), out_cond()]
+            }
+            NodeKind::All | NodeKind::Any => vec![in_cond(true), out_cond()],
+            NodeKind::Hotkey { .. } => vec![port("pressed", Output, Action, false)],
+            NodeKind::Timer { .. } => vec![port("tick", Output, Action, false)],
+            NodeKind::Change => vec![
+                in_cond(false),
+                port("rise", Output, Action, false),
+                port("fall", Output, Action, false),
+            ],
         }
     }
 
-    pub fn port(&self, name: &str) -> Option<&'static PortSpec> {
-        self.ports().iter().find(|p| p.name == name)
+    pub fn port(&self, name: &str) -> Option<PortSpec> {
+        self.ports().into_iter().find(|p| p.name == name)
+    }
+
+    /// Where the output port `name` comes after the other outputs (0 for the first output). A block keeps one
+    /// result per output, and the engine finds the one an edge starts at by this number.
+    pub fn output_index(&self, name: &str) -> Option<usize> {
+        self.ports()
+            .into_iter()
+            .filter(|p| p.direction == Output)
+            .position(|p| p.name == name)
     }
 
     /// The family of this block.
@@ -222,11 +312,23 @@ impl NodeKind {
             | NodeKind::DeviceCapture { .. }
             | NodeKind::VirtualSpeaker { .. } => Category::Input,
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => Category::Output,
-            NodeKind::Gain { .. } | NodeKind::Mixer | NodeKind::Gate => Category::Processing,
-            NodeKind::Variable { .. } | NodeKind::Level { .. } | NodeKind::Logic { .. } => {
-                Category::Condition
+            NodeKind::Gain { .. }
+            | NodeKind::Mixer
+            | NodeKind::Gate
+            | NodeKind::Branch { .. }
+            | NodeKind::Select { .. }
+            | NodeKind::Delay { .. } => Category::Processing,
+            NodeKind::Variable { .. }
+            | NodeKind::Level { .. }
+            | NodeKind::Logic { .. }
+            | NodeKind::Not
+            | NodeKind::All
+            | NodeKind::Any
+            | NodeKind::Hold { .. }
+            | NodeKind::After { .. } => Category::Condition,
+            NodeKind::Hotkey { .. } | NodeKind::Timer { .. } | NodeKind::Change => {
+                Category::Trigger
             }
-            NodeKind::Hotkey { .. } | NodeKind::Timer { .. } => Category::Trigger,
         }
     }
 
@@ -247,12 +349,13 @@ impl NodeKind {
             || matches!(self, NodeKind::Hotkey { .. })
     }
 
-    /// The type of the flow this node sends, if it sends one (every kind has at most one output port).
-    pub fn output_type(&self) -> Option<PortType> {
+    /// The types of the flows this node sends, one per output port (empty for a block that only receives).
+    pub fn output_types(&self) -> Vec<PortType> {
         self.ports()
             .iter()
-            .find(|p| p.direction == Output)
+            .filter(|p| p.direction == Output)
             .map(|p| p.ty)
+            .collect()
     }
 }
 
@@ -330,17 +433,21 @@ mod tests {
     }
 
     #[test]
-    fn only_the_mixer_accepts_several_inputs() {
+    fn only_the_blocks_that_combine_accept_several_links_on_one_input() {
         let kinds = [
             NodeKind::Mixer,
+            NodeKind::All,
+            NodeKind::Any,
+            NodeKind::Not,
             NodeKind::Gain { db: 0.0 },
             NodeKind::VirtualMic { name: "x".into() },
+            NodeKind::Branch { branches: 2 },
         ];
         let multi = kinds
             .iter()
             .filter(|k| k.ports().iter().any(|p| p.multi))
             .count();
-        assert_eq!(multi, 1);
+        assert_eq!(multi, 3);
     }
 
     #[test]
@@ -395,6 +502,15 @@ mod tests {
             NodeKind::Logic { op: LogicOp::And },
             NodeKind::Hotkey { keys: "F8".into() },
             NodeKind::Timer { interval_ms: 1000 },
+            NodeKind::Branch { branches: 3 },
+            NodeKind::Select { branches: 2 },
+            NodeKind::Delay { ms: 40 },
+            NodeKind::Not,
+            NodeKind::All,
+            NodeKind::Any,
+            NodeKind::Hold { ms: 500 },
+            NodeKind::After { ms: 200 },
+            NodeKind::Change,
         ]
     }
 
@@ -415,22 +531,102 @@ mod tests {
     #[test]
     fn families_match_the_flows_they_send_and_receive() {
         for k in every_kind() {
+            let outputs = k.output_types();
+            let inputs: Vec<PortType> = k
+                .ports()
+                .iter()
+                .filter(|p| p.direction == PortDirection::Input)
+                .map(|p| p.ty)
+                .collect();
             match k.category() {
-                Category::Input => assert_eq!(k.output_type(), Some(PortType::Audio)),
-                Category::Output => assert_eq!(k.output_type(), None),
+                Category::Input => {
+                    assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Audio));
+                    assert!(inputs.is_empty(), "a source receives nothing");
+                }
+                Category::Output => assert!(outputs.is_empty()),
                 Category::Trigger => {
-                    assert_eq!(k.output_type(), Some(PortType::Action));
+                    assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Action));
                     assert!(
-                        k.ports()
-                            .iter()
-                            .all(|p| p.direction == PortDirection::Output),
-                        "a trigger receives nothing"
+                        inputs.iter().all(|t| *t == PortType::Condition),
+                        "a trigger starts from nothing or from a condition that changes"
                     );
                 }
-                Category::Condition => assert_eq!(k.output_type(), Some(PortType::Condition)),
-                Category::Processing => assert_eq!(k.output_type(), Some(PortType::Audio)),
+                Category::Condition => {
+                    assert!(
+                        !outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Condition)
+                    )
+                }
+                Category::Processing => {
+                    assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Audio))
+                }
             }
         }
+    }
+
+    #[test]
+    fn a_branch_has_one_when_and_one_output_per_condition_plus_an_else() {
+        let names = |k: &NodeKind, d: PortDirection| -> Vec<String> {
+            k.ports()
+                .into_iter()
+                .filter(|p| p.direction == d)
+                .map(|p| p.name)
+                .collect()
+        };
+        let one = NodeKind::Branch { branches: 1 };
+        assert_eq!(names(&one, Input), ["in", "when1"]);
+        assert_eq!(names(&one, Output), ["out1", "else"]);
+        let three = NodeKind::Branch { branches: 3 };
+        assert_eq!(names(&three, Input), ["in", "when1", "when2", "when3"]);
+        assert_eq!(names(&three, Output), ["out1", "out2", "out3", "else"]);
+        assert_eq!(three.output_index("out1"), Some(0));
+        assert_eq!(three.output_index("else"), Some(3));
+        assert_eq!(
+            three.output_index("in"),
+            None,
+            "an input has no output number"
+        );
+        // a select is the other way round: a sound per condition, one output
+        let select = NodeKind::Select { branches: 2 };
+        assert_eq!(
+            names(&select, Input),
+            ["in1", "in2", "when1", "when2", "else"]
+        );
+        assert_eq!(names(&select, Output), ["out"]);
+        assert!(select.port("when2").is_some() && select.port("when3").is_none());
+    }
+
+    #[test]
+    fn the_number_of_branches_is_always_sensible() {
+        // none or far too many cannot give a block with no ports or a thousand of them
+        assert_eq!(NodeKind::Branch { branches: 0 }.ports().len(), 4);
+        assert_eq!(
+            NodeKind::Select { branches: 9999 }.ports().len(),
+            2 * MAX_BRANCHES as usize + 2
+        );
+        // the number is optional in saved graphs: one condition
+        let k: NodeKind = serde_json::from_str(r#"{"type":"branch"}"#).unwrap();
+        assert_eq!(k, NodeKind::Branch { branches: 1 });
+    }
+
+    #[test]
+    fn numbered_ports_are_read_strictly() {
+        assert_eq!(port_number("when", "when1"), Some(1));
+        assert_eq!(port_number("when", "when12"), Some(12));
+        assert_eq!(port_number("when", "when0"), None);
+        assert_eq!(port_number("when", "when01"), None, "no leading zero");
+        assert_eq!(port_number("when", "when"), None);
+        assert_eq!(port_number("when", "whenx"), None);
+        assert_eq!(port_number("when", "in1"), None);
+        assert_eq!(port_number("in", "in2"), Some(2));
+    }
+
+    #[test]
+    fn a_change_block_turns_a_condition_into_two_actions() {
+        let c = NodeKind::Change;
+        assert_eq!(c.port("in").unwrap().ty, PortType::Condition);
+        assert_eq!(c.port("rise").unwrap().ty, PortType::Action);
+        assert_eq!(c.port("fall").unwrap().ty, PortType::Action);
+        assert_eq!(c.output_index("fall"), Some(1));
     }
 
     #[test]
@@ -455,7 +651,10 @@ mod tests {
         let needs: Vec<bool> = every_kind().iter().map(|k| k.needs_stream()).collect();
         assert_eq!(
             needs,
-            vec![true, true, true, true, false, false, false, false, false, false, true, false]
+            vec![
+                true, true, true, true, false, false, false, false, false, false, true, false,
+                false, false, false, false, false, false, false, false, false
+            ]
         );
     }
 }
