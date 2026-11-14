@@ -7,6 +7,7 @@ display_name = "Omu"                              # shown in windows, messages, 
 slug = "omu"                                      # short identifier: file names, paths, ids
 cli_executable = "omu"                            # command-line client (without .exe)
 daemon_executable = "omud"                        # background process (without .exe)
+gui_executable = "omu-gui"                        # desktop window (without .exe)
 app_id = "io.github.oignontom8283.omu"            # reverse-DNS application id (Tauri, registry, autostart)
 data_dir_name = "Omu"                             # folder under %APPDATA% / XDG data dir
 env_prefix = "OMU"                                # prefix of environment variables (OMU_LOG, ...)
