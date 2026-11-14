@@ -10,7 +10,9 @@
 
 use super::bridge::{SinkProducer, SourceConsumer};
 use crate::dsp::{add_into, db_to_linear, peak, SmoothedGain};
-use crate::types::{LogicOp, NodeId, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
+use crate::types::{
+    port_number, LogicOp, NodeId, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES, MAX_DELAY_MS,
+};
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -72,7 +74,7 @@ impl Meter {
     }
 }
 
-/// An input of a node, by name.
+/// An input of a node, by name. The numbered ones belong to the blocks that branch: `When(0)` is `when1`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Port {
     In,
@@ -82,10 +84,21 @@ pub enum Port {
     Toggle,
     A,
     B,
+    /// The condition of a branch (`when1`, `when2`...), counted from 0.
+    When(u8),
+    /// The sound of a branch of a `select` (`in1`, `in2`...), counted from 0.
+    Pick(u8),
+    /// The sound of a `select` when no condition is true.
+    Else,
 }
 
 impl Port {
     pub fn from_name(name: &str) -> Option<Port> {
+        let numbered = |base: &str| {
+            port_number(base, name)
+                .filter(|n| *n <= MAX_BRANCHES)
+                .map(|n| (n - 1) as u8)
+        };
         Some(match name {
             "in" => Port::In,
             "open" => Port::Open,
@@ -94,17 +107,28 @@ impl Port {
             "toggle" => Port::Toggle,
             "a" => Port::A,
             "b" => Port::B,
-            _ => return None,
+            "else" => Port::Else,
+            _ => {
+                return numbered("when")
+                    .map(Port::When)
+                    .or_else(|| numbered("in").map(Port::Pick))
+            }
         })
     }
 }
 
-/// An edge as the node at its end sees it: where it comes from (a position in the plan) and which input it enters.
+/// An edge as the node at its end sees it: where it comes from (a position in the plan and which of that node's
+/// outputs) and which input it enters.
 #[derive(Clone, Copy, Debug)]
 pub struct Wire {
     pub from: usize,
+    /// Which output of the source node: 0 for a block with one output.
+    pub out: usize,
     pub port: Port,
 }
+
+/// How many action outputs a node can have (a `change` block has two: it became true, it became false).
+const ACTION_OUTPUTS: usize = 2;
 
 pub enum NodeOp {
     /// Audio from a device (the lock is only ever taken by the graph thread).
@@ -119,6 +143,20 @@ pub enum NodeOp {
     Mixer,
     /// Audio gated by the condition at `open` (always open without one).
     Gate(SmoothedGain),
+    /// One sound to several outputs: `gains[k]` fades the output of condition `k`, the last one the `else`.
+    Branch {
+        gains: Vec<SmoothedGain>,
+    },
+    /// Several sounds to one output: `gains[k]` fades the sound of condition `k`, the last one the `else` sound.
+    Select {
+        gains: Vec<SmoothedGain>,
+        scratch: Vec<f32>,
+    },
+    /// The sound, later: a ring of samples that is read before it is written.
+    Delay {
+        line: Vec<f32>,
+        pos: usize,
+    },
     Variable {
         state: bool,
     },
@@ -127,6 +165,24 @@ pub enum NodeOp {
         hold_left: u32,
     },
     Logic(LogicOp),
+    Not,
+    All,
+    Any,
+    /// True while the input is, and `cycles` cycles after.
+    Hold {
+        cycles: u32,
+        left: u32,
+    },
+    /// True once the input has been true for `cycles` cycles in a row.
+    After {
+        cycles: u32,
+        seen: u32,
+    },
+    /// Sends an action when the input becomes true and another when it becomes false (`None`: nothing seen yet, so
+    /// the first cycle is not a change).
+    Change {
+        prev: Option<bool>,
+    },
     /// Actions counted by another thread (a keyboard shortcut) and handed over each cycle.
     Trigger(Arc<AtomicU32>),
     Timer {
@@ -141,6 +197,41 @@ pub enum NodeOp {
     Panic,
 }
 
+impl NodeOp {
+    /// How many sounds the node sends out (a buffer for each).
+    fn audio_outputs(&self) -> usize {
+        match self {
+            NodeOp::Source(_)
+            | NodeOp::SilentSource
+            | NodeOp::Gain(_)
+            | NodeOp::Mixer
+            | NodeOp::Gate(_)
+            | NodeOp::Select { .. }
+            | NodeOp::Delay { .. } => 1,
+            NodeOp::Branch { gains } => gains.len(),
+            #[cfg(test)]
+            NodeOp::Constant(_) => 1,
+            _ => 0,
+        }
+    }
+
+    /// Whether the node's yes/no is shown in the status.
+    fn has_condition(&self) -> bool {
+        matches!(
+            self,
+            NodeOp::Variable { .. }
+                | NodeOp::Logic(_)
+                | NodeOp::Level { .. }
+                | NodeOp::Gate(_)
+                | NodeOp::Not
+                | NodeOp::All
+                | NodeOp::Any
+                | NodeOp::Hold { .. }
+                | NodeOp::After { .. }
+        )
+    }
+}
+
 pub struct PlanNode {
     pub id: NodeId,
     pub op: NodeOp,
@@ -151,9 +242,41 @@ pub struct PlanNode {
 /// What a node produced this cycle.
 #[derive(Default)]
 struct Out {
-    audio: Vec<f32>,
+    /// One buffer per sound output.
+    audio: Vec<Vec<f32>>,
     cond: bool,
-    actions: u32,
+    /// One count per action output.
+    actions: [u32; ACTION_OUTPUTS],
+}
+
+/// The sound entering `port` of the node at `me`, or silence when nothing is linked.
+fn audio_of<'a>(
+    outs: &'a [Out],
+    silence: &'a [f32],
+    inputs: &[Wire],
+    port: Port,
+    me: usize,
+) -> &'a [f32] {
+    inputs
+        .iter()
+        .find(|w| w.port == port && w.from != me && w.from < outs.len())
+        .and_then(|w| outs[w.from].audio.get(w.out))
+        .map_or(silence, |a| &a[..])
+}
+
+/// The condition entering `port`: `None` when nothing is linked.
+fn cond_of(outs: &[Out], inputs: &[Wire], port: Port) -> Option<bool> {
+    inputs
+        .iter()
+        .find(|w| w.port == port)
+        .map(|w| outs[w.from].cond)
+}
+
+/// Which of the conditions `Port::When(0..branches)` is the first true one (`branches` itself when none is).
+fn first_true(outs: &[Out], inputs: &[Wire], branches: usize) -> usize {
+    (0..branches)
+        .find(|&k| cond_of(outs, inputs, Port::When(k as u8)).unwrap_or(false))
+        .unwrap_or(branches)
 }
 
 pub struct Plan {
@@ -168,21 +291,9 @@ impl Plan {
         let cycle_samples = cycle_frames * CH;
         let outs = nodes
             .iter()
-            .map(|n| match n.op {
-                NodeOp::Source(_)
-                | NodeOp::SilentSource
-                | NodeOp::Gain(_)
-                | NodeOp::Mixer
-                | NodeOp::Gate(_) => Out {
-                    audio: vec![0.0; cycle_samples],
-                    ..Default::default()
-                },
-                #[cfg(test)]
-                NodeOp::Constant(_) => Out {
-                    audio: vec![0.0; cycle_samples],
-                    ..Default::default()
-                },
-                _ => Out::default(),
+            .map(|n| Out {
+                audio: vec![vec![0.0; cycle_samples]; n.op.audio_outputs()],
+                ..Default::default()
             })
             .collect();
         Plan {
@@ -207,13 +318,46 @@ impl Plan {
         Plan::gain(0.0)
     }
 
+    /// The fades of a block with `branches` conditions: one per condition and one for the `else`, all closed (the
+    /// first cycle opens the one that applies).
+    pub fn fades(branches: u32) -> Vec<SmoothedGain> {
+        (0..=branches.clamp(1, MAX_BRANCHES))
+            .map(|_| Plan::gain(-120.0))
+            .collect()
+    }
+
+    /// A `select` block, with the room it needs to mix one cycle.
+    pub fn select(branches: u32, cycle_frames: usize) -> NodeOp {
+        NodeOp::Select {
+            gains: Plan::fades(branches),
+            scratch: vec![0.0; cycle_frames * CH],
+        }
+    }
+
+    /// A `delay` block of `ms` milliseconds.
+    pub fn delay(ms: u32) -> NodeOp {
+        let frames = (ms.min(MAX_DELAY_MS) as u64 * ENGINE_SAMPLE_RATE as u64 / 1000) as usize;
+        NodeOp::Delay {
+            line: vec![0.0; frames * CH],
+            pos: 0,
+        }
+    }
+
+    /// How many engine cycles last `ms` milliseconds, rounded up (zero for zero).
+    pub fn cycles(ms: u32, cycle_frames: usize) -> u32 {
+        let frames = ms as u64 * ENGINE_SAMPLE_RATE as u64 / 1000;
+        frames
+            .div_ceil(cycle_frames.max(1) as u64)
+            .min(u32::MAX as u64) as u32
+    }
+
     /// Threshold of a level detector, from decibels.
     pub fn level_threshold(db: f32) -> f32 {
         db_to_linear(db)
     }
 
     /// Continues the state of the nodes of `old` that exist, of the same kind, here: gains and gates do not jump, a
-    /// variable keeps its value, a level detector its hold, a timer its phase.
+    /// variable keeps its value, a level detector its hold, a timer its phase, a delay what it was holding back.
     pub fn inherit(&mut self, old: &Plan) {
         for node in &mut self.nodes {
             let Some(before) = old.nodes.iter().find(|n| n.id == node.id) else {
@@ -223,10 +367,26 @@ impl Plan {
                 (NodeOp::Gain(g), NodeOp::Gain(o)) | (NodeOp::Gate(g), NodeOp::Gate(o)) => {
                     g.start_from(o.current())
                 }
+                (NodeOp::Branch { gains }, NodeOp::Branch { gains: o })
+                | (NodeOp::Select { gains, .. }, NodeOp::Select { gains: o, .. }) => {
+                    // the first conditions keep their fade, so adding a condition changes nothing audible
+                    for (g, before) in gains.iter_mut().zip(o) {
+                        g.start_from(before.current());
+                    }
+                }
+                (NodeOp::Delay { line, pos }, NodeOp::Delay { line: o, pos: op }) => {
+                    if line.len() == o.len() {
+                        line.copy_from_slice(o);
+                        *pos = *op;
+                    }
+                }
                 (NodeOp::Variable { state }, NodeOp::Variable { state: o }) => *state = *o,
                 (NodeOp::Level { hold_left, .. }, NodeOp::Level { hold_left: o, .. }) => {
                     *hold_left = *o
                 }
+                (NodeOp::Hold { left, .. }, NodeOp::Hold { left: o, .. }) => *left = *o,
+                (NodeOp::After { seen, .. }, NodeOp::After { seen: o, .. }) => *seen = *o,
+                (NodeOp::Change { prev }, NodeOp::Change { prev: o }) => *prev = *o,
                 (NodeOp::Timer { elapsed, .. }, NodeOp::Timer { elapsed: o, .. }) => *elapsed = *o,
                 _ => {}
             }
@@ -239,65 +399,94 @@ impl Plan {
             (LEVEL_HOLD_MS as u64 * ENGINE_SAMPLE_RATE as u64 / 1000 / self.cycle_frames as u64)
                 .max(1) as u32;
         for i in 0..self.nodes.len() {
-            let mut audio = std::mem::take(&mut self.outs[i].audio);
-            let (mut cond, mut actions) = (false, 0u32);
+            let mut audios = std::mem::take(&mut self.outs[i].audio);
+            let (mut cond, mut actions) = (false, [0u32; ACTION_OUTPUTS]);
             let node = &mut self.nodes[i];
+            let (outs, silence) = (&self.outs[..], &self.silence[..]);
             let wire = |port: Port| node.inputs.iter().find(|w| w.port == port).copied();
-            let audio_in = |outs: &'_ [Out], port: Port| -> Option<usize> {
-                wire(port)
-                    .map(|w| w.from)
-                    .filter(|&j| j != i && j < outs.len())
-            };
+            let input_audio = |port: Port| audio_of(outs, silence, &node.inputs, port, i);
             match &mut node.op {
                 NodeOp::Source(consumer) => match consumer.try_lock() {
-                    Ok(mut c) => c.pull(&mut audio),
-                    Err(_) => audio.fill(0.0),
+                    Ok(mut c) => c.pull(&mut audios[0]),
+                    Err(_) => audios[0].fill(0.0),
                 },
-                NodeOp::SilentSource => audio.fill(0.0),
+                NodeOp::SilentSource => audios[0].fill(0.0),
                 #[cfg(test)]
-                NodeOp::Constant(v) => audio.fill(*v),
+                NodeOp::Constant(v) => audios[0].fill(*v),
                 #[cfg(test)]
                 NodeOp::Panic => panic!("test: a block panicked"),
                 NodeOp::Gain(g) => {
-                    let input = audio_in(&self.outs, Port::In)
-                        .map_or(&self.silence[..], |j| &self.outs[j].audio[..]);
-                    audio.copy_from_slice(input);
-                    g.apply(&mut audio, CH);
+                    audios[0].copy_from_slice(input_audio(Port::In));
+                    g.apply(&mut audios[0], CH);
                 }
                 NodeOp::Gate(g) => {
-                    let open = wire(Port::Open).is_none_or(|w| self.outs[w.from].cond);
+                    let open = wire(Port::Open).is_none_or(|w| outs[w.from].cond);
                     g.set_db(if open { 0.0 } else { -120.0 });
-                    let input = audio_in(&self.outs, Port::In)
-                        .map_or(&self.silence[..], |j| &self.outs[j].audio[..]);
-                    audio.copy_from_slice(input);
-                    g.apply(&mut audio, CH);
+                    audios[0].copy_from_slice(input_audio(Port::In));
+                    g.apply(&mut audios[0], CH);
                     cond = open;
                 }
                 NodeOp::Mixer => {
-                    audio.fill(0.0);
+                    audios[0].fill(0.0);
                     for w in node.inputs.iter().filter(|w| w.port == Port::In) {
-                        add_into(&mut audio, &self.outs[w.from].audio);
+                        if let Some(a) = outs[w.from].audio.get(w.out) {
+                            add_into(&mut audios[0], a);
+                        }
+                    }
+                }
+                NodeOp::Branch { gains } => {
+                    let chosen = first_true(outs, &node.inputs, gains.len() - 1);
+                    let input = input_audio(Port::In);
+                    for (k, (g, out)) in gains.iter_mut().zip(audios.iter_mut()).enumerate() {
+                        g.set_db(if k == chosen { 0.0 } else { -120.0 });
+                        out.copy_from_slice(input);
+                        g.apply(out, CH);
+                    }
+                }
+                NodeOp::Select { gains, scratch } => {
+                    let last = gains.len() - 1;
+                    let chosen = first_true(outs, &node.inputs, last);
+                    audios[0].fill(0.0);
+                    for (k, g) in gains.iter_mut().enumerate() {
+                        g.set_db(if k == chosen { 0.0 } else { -120.0 });
+                        let port = if k == last {
+                            Port::Else
+                        } else {
+                            Port::Pick(k as u8)
+                        };
+                        scratch.copy_from_slice(input_audio(port));
+                        g.apply(scratch, CH);
+                        add_into(&mut audios[0], scratch);
+                    }
+                }
+                NodeOp::Delay { line, pos } => {
+                    let input = input_audio(Port::In);
+                    if line.is_empty() {
+                        audios[0].copy_from_slice(input);
+                    } else {
+                        for (o, s) in audios[0].iter_mut().zip(input) {
+                            *o = std::mem::replace(&mut line[*pos], *s);
+                            *pos += 1;
+                            if *pos == line.len() {
+                                *pos = 0;
+                            }
+                        }
                     }
                 }
                 NodeOp::Sink(producer) => {
-                    let input = audio_in(&self.outs, Port::In)
-                        .map_or(&self.silence[..], |j| &self.outs[j].audio[..]);
+                    let input = input_audio(Port::In);
                     node.meter.record(input);
                     if let Ok(mut p) = producer.try_lock() {
                         p.push(input);
                     }
                 }
-                NodeOp::DiscardSink => {
-                    let input = audio_in(&self.outs, Port::In)
-                        .map_or(&self.silence[..], |j| &self.outs[j].audio[..]);
-                    node.meter.record(input);
-                }
+                NodeOp::DiscardSink => node.meter.record(input_audio(Port::In)),
                 NodeOp::Variable { state } => {
                     let count = |port: Port| -> u32 {
                         node.inputs
                             .iter()
                             .filter(|w| w.port == port)
-                            .map(|w| self.outs[w.from].actions)
+                            .map(|w| outs[w.from].actions[w.out.min(ACTION_OUTPUTS - 1)])
                             .sum()
                     };
                     if count(Port::Set) > 0 {
@@ -315,8 +504,7 @@ impl Plan {
                     threshold,
                     hold_left,
                 } => {
-                    let input = audio_in(&self.outs, Port::In)
-                        .map_or(&self.silence[..], |j| &self.outs[j].audio[..]);
+                    let input = input_audio(Port::In);
                     node.meter.record(input);
                     if peak(input) > *threshold {
                         *hold_left = hold_cycles;
@@ -326,7 +514,7 @@ impl Plan {
                     cond = *hold_left > 0;
                 }
                 NodeOp::Logic(op) => {
-                    let value = |port: Port| wire(port).is_some_and(|w| self.outs[w.from].cond);
+                    let value = |port: Port| cond_of(outs, &node.inputs, port).unwrap_or(false);
                     let (a, b) = (value(Port::A), value(Port::B));
                     cond = match op {
                         LogicOp::And => a && b,
@@ -335,43 +523,70 @@ impl Plan {
                         LogicOp::Not => !a,
                     };
                 }
-                NodeOp::Trigger(events) => actions = events.swap(0, Ordering::AcqRel),
+                NodeOp::Not => cond = !cond_of(outs, &node.inputs, Port::In).unwrap_or(false),
+                NodeOp::All => {
+                    let mut linked = node.inputs.iter().filter(|w| w.port == Port::In).peekable();
+                    cond = linked.peek().is_some() && linked.all(|w| outs[w.from].cond);
+                }
+                NodeOp::Any => {
+                    cond = node
+                        .inputs
+                        .iter()
+                        .any(|w| w.port == Port::In && outs[w.from].cond);
+                }
+                NodeOp::Hold { cycles, left } => {
+                    let on = cond_of(outs, &node.inputs, Port::In).unwrap_or(false);
+                    *left = if on { *cycles } else { left.saturating_sub(1) };
+                    cond = on || *left > 0;
+                }
+                NodeOp::After { cycles, seen } => {
+                    let on = cond_of(outs, &node.inputs, Port::In).unwrap_or(false);
+                    *seen = if on { (*seen + 1).min(*cycles) } else { 0 };
+                    cond = on && *seen >= *cycles;
+                }
+                NodeOp::Change { prev } => {
+                    let on = cond_of(outs, &node.inputs, Port::In).unwrap_or(false);
+                    if let Some(before) = *prev {
+                        actions[0] = (on && !before) as u32;
+                        actions[1] = (!on && before) as u32;
+                    }
+                    *prev = Some(on);
+                }
+                NodeOp::Trigger(events) => actions[0] = events.swap(0, Ordering::AcqRel),
                 NodeOp::Timer {
                     interval_frames,
                     elapsed,
                 } => {
                     *elapsed += self.cycle_frames as u64;
                     if *elapsed >= *interval_frames {
-                        actions = (*elapsed / *interval_frames).min(u32::MAX as u64) as u32;
+                        actions[0] = (*elapsed / *interval_frames).min(u32::MAX as u64) as u32;
                         *elapsed %= *interval_frames;
                     }
                 }
             }
-            match node.op {
-                NodeOp::Sink(_) | NodeOp::DiscardSink | NodeOp::Level { .. } => {}
-                NodeOp::Variable { .. }
-                | NodeOp::Logic(_)
-                | NodeOp::Trigger(_)
-                | NodeOp::Timer { .. } => {}
-                _ => node.meter.record(&audio),
+            // a block that sends sound is metered by what it sends; one that only listens was metered above
+            for a in &audios {
+                node.meter.record(a);
             }
-            if matches!(
-                node.op,
-                NodeOp::Variable { .. } | NodeOp::Logic(_) | NodeOp::Level { .. } | NodeOp::Gate(_)
-            ) {
+            if node.op.has_condition() {
                 node.meter.set_condition(cond);
             }
-            node.meter.add_events(actions);
+            node.meter.add_events(actions.iter().sum());
             let out = &mut self.outs[i];
-            out.audio = audio;
+            out.audio = audios;
             out.cond = cond;
             out.actions = actions;
         }
     }
 
-    /// The audio output of node `i` after the last cycle (for tests).
+    /// The first audio output of node `i` after the last cycle (for tests).
     pub fn output(&self, i: usize) -> &[f32] {
-        &self.outs[i].audio
+        self.output_n(i, 0)
+    }
+
+    /// Audio output number `n` of node `i` after the last cycle (for tests).
+    pub fn output_n(&self, i: usize, n: usize) -> &[f32] {
+        &self.outs[i].audio[n]
     }
 
     /// The condition output of node `i` after the last cycle.
@@ -379,9 +594,14 @@ impl Plan {
         self.outs[i].cond
     }
 
-    /// The actions node `i` sent in the last cycle.
+    /// The actions node `i` sent in the last cycle, on its first action output.
     pub fn actions(&self, i: usize) -> u32 {
-        self.outs[i].actions
+        self.outs[i].actions[0]
+    }
+
+    /// The actions node `i` sent in the last cycle, on action output number `n`.
+    pub fn actions_n(&self, i: usize, n: usize) -> u32 {
+        self.outs[i].actions[n]
     }
 }
 
@@ -394,11 +614,12 @@ mod tests {
     fn wire(from: usize) -> Wire {
         Wire {
             from,
+            out: 0,
             port: Port::In,
         }
     }
     fn wire_to(from: usize, port: Port) -> Wire {
-        Wire { from, port }
+        Wire { from, out: 0, port }
     }
     fn node(id: &str, op: NodeOp, inputs: Vec<Wire>) -> PlanNode {
         PlanNode {
@@ -716,5 +937,335 @@ mod tests {
         new.inherit(&old);
         run(&mut new, 1);
         assert!(new.condition(2), "...but the variable kept its value");
+    }
+
+    // ---- the blocks that program: branch, select, delay, not, all, any, hold, after, change
+
+    fn variable(state: bool) -> NodeOp {
+        NodeOp::Variable { state }
+    }
+    fn when(from: usize, k: u8) -> Wire {
+        wire_to(from, Port::When(k))
+    }
+    fn set_var(plan: &mut Plan, node: usize, state: bool) {
+        plan.nodes[node].op = NodeOp::Variable { state };
+    }
+    fn first_sample(plan: &Plan, node: usize, out: usize) -> f32 {
+        plan.output_n(node, out)[0]
+    }
+    fn last_sample(plan: &Plan, node: usize, out: usize) -> f32 {
+        *plan.output_n(node, out).last().unwrap()
+    }
+    fn plan_silent(plan: &Plan, node: usize, out: usize) -> bool {
+        plan.output_n(node, out).iter().all(|s| s.abs() < 1e-6)
+    }
+
+    #[test]
+    fn port_names_become_inputs_and_unknown_ones_do_not() {
+        assert_eq!(Port::from_name("in"), Some(Port::In));
+        assert_eq!(Port::from_name("when1"), Some(Port::When(0)));
+        assert_eq!(Port::from_name("when3"), Some(Port::When(2)));
+        assert_eq!(Port::from_name("in2"), Some(Port::Pick(1)));
+        assert_eq!(Port::from_name("else"), Some(Port::Else));
+        assert_eq!(Port::from_name("when0"), None);
+        assert_eq!(Port::from_name("when17"), None);
+        assert_eq!(Port::from_name("whenever"), None);
+    }
+
+    /// src(0.5) -> branch with two conditions, driven by two variables.
+    fn branch_plan(a: bool, b: bool) -> Plan {
+        Plan::new(
+            vec![
+                node("src", NodeOp::Constant(0.5), vec![]),
+                node("a", variable(a), vec![]),
+                node("b", variable(b), vec![]),
+                node(
+                    "br",
+                    NodeOp::Branch {
+                        gains: Plan::fades(2),
+                    },
+                    vec![wire(0), when(1, 0), when(2, 1)],
+                ),
+            ],
+            480,
+        )
+    }
+
+    #[test]
+    fn a_branch_sends_the_sound_to_the_first_true_condition_only() {
+        let heard = |plan: &Plan| -> Vec<bool> {
+            (0..3)
+                .map(|o| last_sample(plan, 3, o).abs() > 0.4)
+                .collect()
+        };
+        // if a: out1
+        let mut p = branch_plan(true, true);
+        run(&mut p, 3);
+        assert_eq!(heard(&p), [true, false, false], "the first true one wins");
+        // else if b: out2
+        let mut p = branch_plan(false, true);
+        run(&mut p, 3);
+        assert_eq!(heard(&p), [false, true, false]);
+        // else
+        let mut p = branch_plan(false, false);
+        run(&mut p, 3);
+        assert_eq!(heard(&p), [false, false, true]);
+        assert!(plan_silent(&p, 3, 0) && plan_silent(&p, 3, 1));
+    }
+
+    #[test]
+    fn a_branch_that_has_no_condition_linked_sends_everything_to_else() {
+        let mut p = Plan::new(
+            vec![
+                node("src", NodeOp::Constant(0.5), vec![]),
+                node(
+                    "br",
+                    NodeOp::Branch {
+                        gains: Plan::fades(1),
+                    },
+                    vec![wire(0)],
+                ),
+            ],
+            480,
+        );
+        run(&mut p, 3);
+        assert!(plan_silent(&p, 1, 0));
+        assert!((last_sample(&p, 1, 1) - 0.5).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_branch_switches_with_a_fade_not_a_click() {
+        let mut p = branch_plan(false, false);
+        run(&mut p, 3); // everything goes to else
+        set_var(&mut p, 1, true);
+        p.process();
+        // out1 opens during this cycle: it starts near silence and ends at the full sound
+        assert!(first_sample(&p, 3, 0) < 0.1, "{}", first_sample(&p, 3, 0));
+        assert!((last_sample(&p, 3, 0) - 0.5).abs() < 1e-2);
+        // else closes the same way
+        assert!(first_sample(&p, 3, 2) > 0.4);
+        assert!(last_sample(&p, 3, 2) < 1e-2);
+    }
+
+    #[test]
+    fn a_select_takes_the_sound_of_the_first_true_condition() {
+        let plan = |a: bool, b: bool| {
+            Plan::new(
+                vec![
+                    node("s1", NodeOp::Constant(0.2), vec![]),
+                    node("s2", NodeOp::Constant(0.6), vec![]),
+                    node("s3", NodeOp::Constant(0.9), vec![]),
+                    node("a", variable(a), vec![]),
+                    node("b", variable(b), vec![]),
+                    node(
+                        "sel",
+                        Plan::select(2, 480),
+                        vec![
+                            wire_to(0, Port::Pick(0)),
+                            wire_to(1, Port::Pick(1)),
+                            wire_to(2, Port::Else),
+                            when(3, 0),
+                            when(4, 1),
+                        ],
+                    ),
+                ],
+                480,
+            )
+        };
+        let heard = |a: bool, b: bool| {
+            let mut p = plan(a, b);
+            run(&mut p, 3);
+            last_sample(&p, 5, 0)
+        };
+        assert!((heard(true, false) - 0.2).abs() < 1e-3);
+        assert!((heard(false, true) - 0.6).abs() < 1e-3);
+        assert!((heard(false, false) - 0.9).abs() < 1e-3, "else");
+        assert!((heard(true, true) - 0.2).abs() < 1e-3, "the first one");
+    }
+
+    #[test]
+    fn a_delay_holds_the_sound_back_and_a_new_plan_keeps_what_was_in_the_line() {
+        // 10 ms is exactly one cycle of 480 frames
+        let delayed = |ms| {
+            Plan::new(
+                vec![
+                    node("src", NodeOp::Constant(0.5), vec![]),
+                    node("d", Plan::delay(ms), vec![wire(0)]),
+                ],
+                480,
+            )
+        };
+        let mut p = delayed(10);
+        p.process();
+        assert!(plan_silent(&p, 1, 0), "nothing has had time to come out");
+        p.process();
+        assert!((last_sample(&p, 1, 0) - 0.5).abs() < 1e-6);
+        // no delay at all: the sound as it is
+        let mut p0 = delayed(0);
+        p0.process();
+        assert!((last_sample(&p0, 1, 0) - 0.5).abs() < 1e-6);
+        // an edit of the graph does not empty the line
+        let mut next = delayed(10);
+        next.inherit(&p);
+        next.process();
+        assert!((first_sample(&next, 1, 0) - 0.5).abs() < 1e-6);
+        // a different length starts afresh
+        let mut other = delayed(20);
+        other.inherit(&p);
+        other.process();
+        assert!(plan_silent(&other, 1, 0));
+    }
+
+    fn condition_plan(op: NodeOp, inputs: &[Option<bool>]) -> Plan {
+        let mut nodes: Vec<PlanNode> = vec![];
+        let mut wires = vec![];
+        for (i, v) in inputs.iter().enumerate() {
+            if let Some(v) = v {
+                nodes.push(node(&format!("v{i}"), variable(*v), vec![]));
+                wires.push(wire_to(nodes.len() - 1, Port::In));
+            }
+        }
+        nodes.push(node("c", op, wires));
+        Plan::new(nodes, 480)
+    }
+    fn result(op: NodeOp, inputs: &[Option<bool>]) -> bool {
+        let mut p = condition_plan(op, inputs);
+        run(&mut p, 2);
+        p.condition(p.nodes.len() - 1)
+    }
+
+    #[test]
+    fn not_inverts_and_an_unlinked_input_counts_as_false() {
+        assert!(!result(NodeOp::Not, &[Some(true)]));
+        assert!(result(NodeOp::Not, &[Some(false)]));
+        assert!(
+            result(NodeOp::Not, &[None]),
+            "nothing linked reads as false"
+        );
+    }
+
+    #[test]
+    fn all_needs_every_link_true_and_any_needs_one() {
+        let t = Some(true);
+        let f = Some(false);
+        assert!(result(NodeOp::All, &[t, t, t]));
+        assert!(!result(NodeOp::All, &[t, f, t]));
+        assert!(
+            !result(NodeOp::All, &[None]),
+            "no link: not true by default"
+        );
+        assert!(result(NodeOp::Any, &[f, t, f]));
+        assert!(!result(NodeOp::Any, &[f, f]));
+        assert!(!result(NodeOp::Any, &[None]));
+        assert!(result(NodeOp::All, &[t]) && result(NodeOp::Any, &[t]));
+    }
+
+    #[test]
+    fn hold_keeps_a_condition_true_for_a_while_after_it_stops() {
+        let mut p = condition_plan(NodeOp::Hold { cycles: 3, left: 0 }, &[Some(true)]);
+        run(&mut p, 2);
+        assert!(p.condition(1));
+        set_var(&mut p, 0, false);
+        let mut seen = vec![];
+        for _ in 0..5 {
+            p.process();
+            seen.push(p.condition(1));
+        }
+        assert_eq!(seen, [true, true, false, false, false][..], "{seen:?}");
+        // with a hold of zero it is the input itself
+        let mut z = condition_plan(NodeOp::Hold { cycles: 0, left: 0 }, &[Some(true)]);
+        run(&mut z, 1);
+        assert!(z.condition(1));
+        set_var(&mut z, 0, false);
+        run(&mut z, 1);
+        assert!(!z.condition(1));
+    }
+
+    #[test]
+    fn after_waits_for_the_input_to_stay_true() {
+        let mut p = condition_plan(NodeOp::After { cycles: 3, seen: 0 }, &[Some(true)]);
+        let mut seen = vec![];
+        for _ in 0..5 {
+            p.process();
+            seen.push(p.condition(1));
+        }
+        assert_eq!(seen, [false, false, true, true, true][..], "{seen:?}");
+        // a break starts the wait again
+        set_var(&mut p, 0, false);
+        p.process();
+        assert!(!p.condition(1), "false as soon as the input is");
+        set_var(&mut p, 0, true);
+        p.process();
+        p.process();
+        assert!(!p.condition(1), "two cycles are not enough");
+        p.process();
+        assert!(p.condition(1));
+    }
+
+    #[test]
+    fn change_sends_an_action_when_a_condition_becomes_true_and_another_when_false() {
+        let mut p = condition_plan(NodeOp::Change { prev: None }, &[Some(true)]);
+        let both = |p: &Plan| (p.actions_n(1, 0), p.actions_n(1, 1));
+        p.process();
+        assert_eq!(both(&p), (0, 0), "the first look is not a change");
+        p.process();
+        assert_eq!(both(&p), (0, 0));
+        set_var(&mut p, 0, false);
+        p.process();
+        assert_eq!(both(&p), (0, 1), "fell");
+        p.process();
+        assert_eq!(both(&p), (0, 0), "an action acts once");
+        set_var(&mut p, 0, true);
+        p.process();
+        assert_eq!(both(&p), (1, 0), "rose");
+        assert_eq!(p.nodes[1].meter.events(), 2);
+    }
+
+    #[test]
+    fn each_action_output_of_a_change_reaches_its_own_input() {
+        // v1 --condition--> change --rise--> v2.set ; change --fall--> v2.clear: v2 follows v1
+        let mut p = Plan::new(
+            vec![
+                node("v1", variable(false), vec![]),
+                node("ch", NodeOp::Change { prev: None }, vec![wire(0)]),
+                node(
+                    "v2",
+                    variable(false),
+                    vec![
+                        Wire {
+                            from: 1,
+                            out: 0,
+                            port: Port::Set,
+                        },
+                        Wire {
+                            from: 1,
+                            out: 1,
+                            port: Port::Clear,
+                        },
+                    ],
+                ),
+            ],
+            480,
+        );
+        run(&mut p, 2);
+        assert!(!p.condition(2));
+        set_var(&mut p, 0, true);
+        run(&mut p, 2);
+        assert!(p.condition(2), "set by the rise");
+        set_var(&mut p, 0, false);
+        run(&mut p, 2);
+        assert!(!p.condition(2), "cleared by the fall");
+    }
+
+    #[test]
+    fn a_state_of_the_new_blocks_survives_a_plan_swap() {
+        let mut old = condition_plan(NodeOp::Hold { cycles: 5, left: 0 }, &[Some(true)]);
+        run(&mut old, 2);
+        set_var(&mut old, 0, false);
+        run(&mut old, 1); // holding: 4 cycles left
+        let mut new = condition_plan(NodeOp::Hold { cycles: 5, left: 0 }, &[Some(false)]);
+        new.inherit(&old);
+        new.process();
+        assert!(new.condition(1), "the hold went on across the swap");
     }
 }
