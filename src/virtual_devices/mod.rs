@@ -1,12 +1,15 @@
-//! Virtual audio devices: microphones that other programs can pick, fed by the audio of a graph.
+//! Virtual audio devices: microphones that other programs can pick, fed by the audio of a graph, and speakers that
+//! other programs can play into, whose sound the graph receives.
 //!
 //! * [`usb`]: a USB/IP server and a USB Audio Class 2 device (vendored, MIT);
 //! * [`tool`]: the client that attaches such a device to Windows (`usbip-win2`, installed by the user);
-//! * [`mic`]: the [`UsbMicProvider`], the [`VirtualDeviceProvider`](crate::hal::VirtualDeviceProvider) that ties them.
+//! * [`mic`]: the [`UsbMicProvider`], the [`VirtualDeviceProvider`](crate::hal::VirtualDeviceProvider) that ties them;
+//! * [`speaker`]: the speaker side of that provider.
 //!
 //! No driver of ours is involved: Windows binds its in-box USB audio driver to the emulated device.
 
 pub mod mic;
+pub mod speaker;
 pub mod tool;
 pub mod usb;
 

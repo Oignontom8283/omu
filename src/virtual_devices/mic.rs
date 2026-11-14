@@ -9,11 +9,13 @@
 //! microphone's name: the same name is the same device after a restart, so Windows keeps its settings (default
 //! device, volume) instead of showing a new microphone each time.
 
+use super::speaker::{serial_of as speaker_serial, SpeakerStream};
 use super::tool::UsbipTool;
 use super::usb::uac2::{Uac2Config, Uac2Device, Uac2Streams};
-use super::usb::{MonotonicClock, Server};
+use super::usb::{MonotonicClock, Server, UsbDevice};
 use crate::hal::{
-    HalError, RenderCallback, RenderStream, Running, StreamHealth, VirtualDeviceProvider,
+    CaptureStream, HalError, RenderCallback, RenderStream, Running, StreamHealth,
+    VirtualDeviceProvider,
 };
 use crate::types::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -21,12 +23,12 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+pub(super) fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 /// Samples are 24 bits left-justified in 32-bit slots.
-const FULL_SCALE_24: f32 = 8_388_607.0;
+pub(super) const FULL_SCALE_24: f32 = 8_388_607.0;
 
 /// Where the audio of a microphone comes from: the engine's sink callback, asked for as many frames as the USB
 /// host reads.
@@ -53,9 +55,9 @@ impl Uac2Streams for MicFeed {
     }
 }
 
-struct Shared {
-    server: Arc<Server>,
-    next_bus: AtomicU32,
+pub(super) struct Shared {
+    pub server: Arc<Server>,
+    pub next_bus: AtomicU32,
 }
 
 /// The provider of virtual microphones through USB/IP.
@@ -66,6 +68,7 @@ pub struct UsbMicProvider {
     manufacturer: String,
     shared: Mutex<Option<Arc<Shared>>>,
     names: Mutex<Vec<String>>,
+    speaker_names: Mutex<Vec<String>>,
 }
 
 impl UsbMicProvider {
@@ -78,6 +81,7 @@ impl UsbMicProvider {
             manufacturer: crate::branding::VIRTUAL_MANUFACTURER.into(),
             shared: Mutex::new(None),
             names: Mutex::new(vec![]),
+            speaker_names: Mutex::new(vec![]),
         }
     }
 
@@ -116,7 +120,7 @@ impl UsbMicProvider {
 }
 
 /// A stable identifier of a name (FNV-1a), for the device's serial number.
-fn name_hash(name: &str) -> u64 {
+pub(super) fn name_hash(name: &str) -> u64 {
     name.trim()
         .to_lowercase()
         .bytes()
@@ -127,7 +131,7 @@ fn name_hash(name: &str) -> u64 {
 
 impl VirtualDeviceProvider for UsbMicProvider {
     fn name(&self) -> &str {
-        "USB/IP virtual microphones"
+        "USB/IP virtual devices"
     }
 
     fn available(&self) -> Result<(), HalError> {
@@ -170,6 +174,44 @@ impl VirtualDeviceProvider for UsbMicProvider {
         }))
     }
 
+    fn create_speaker(&self, name: &str) -> Result<Box<dyn CaptureStream>, HalError> {
+        self.available()?;
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(HalError::Backend("a virtual speaker needs a name".into()));
+        }
+        let shared = self.server()?;
+        let mut names = lock(&self.speaker_names);
+        if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            names.push(name.to_owned());
+        }
+        Ok(Box::new(SpeakerStream {
+            name: name.to_owned(),
+            busid: format!("1-{}", shared.next_bus.fetch_add(1, Ordering::Relaxed)),
+            config: Uac2Config {
+                vendor_id: self.vendor_id,
+                product_id: self.product_id,
+                bcd_device: 0x0100,
+                manufacturer: self.manufacturer.clone(),
+                product: name.to_owned(),
+                serial: speaker_serial(name),
+                sample_rate: ENGINE_SAMPLE_RATE,
+                playback_channels: ENGINE_CHANNELS,
+                capture_channels: 0,
+                playback_name: None,
+                capture_name: None,
+                capture_connector: false,
+            },
+            shared,
+            tool: self.tool.clone(),
+            health: StreamHealth::new(),
+        }))
+    }
+
+    fn speaker_names(&self) -> Vec<String> {
+        lock(&self.speaker_names).clone()
+    }
+
     fn microphone_names(&self) -> Vec<String> {
         lock(&self.names).clone()
     }
@@ -199,53 +241,85 @@ impl RenderStream for MicStream {
             scratch: Mutex::new(vec![]),
         });
         let device = Uac2Device::new(self.config.clone(), feed).map_err(HalError::Backend)?;
-        let server = self.shared.server.clone();
-        server.add(&self.busid, Arc::new(device));
-        let port = match self.tool.attach(server.port(), &self.busid) {
-            Ok(p) => p,
-            Err(e) => {
-                server.remove(&self.busid);
-                return Err(HalError::Busy(format!(
-                    "cannot attach the virtual microphone {:?}: {e}",
-                    self.name
-                )));
-            }
-        };
-        tracing::info!(name = %self.name, busid = %self.busid, port, "virtual microphone attached");
-        // If the program dies before this stream is dropped, Windows would keep a ghost device: detach it anyway.
-        let cleanup = {
-            let (tool, server, busid) = (self.tool.clone(), server.clone(), self.busid.clone());
-            crate::diagnostics::on_crash_cleanup("virtual microphone", move || {
-                let _ = tool.detach(port);
-                server.remove(&busid);
-            })
-        };
-        let stop = Arc::new(AtomicBool::new(false));
-        let monitor = {
-            let (server, busid, health, stop) = (
-                server.clone(),
-                self.busid.clone(),
-                self.health.clone(),
-                stop.clone(),
-            );
-            std::thread::Builder::new()
-                .name("virtual-mic-monitor".into())
-                .spawn(move || watch(&server, &busid, &health, &stop))
-                .ok()
-        };
-        Ok(Box::new(MicRunning {
-            tool: self.tool.clone(),
-            server,
-            busid: self.busid.clone(),
-            port,
-            stop,
-            monitor,
-            _cleanup: cleanup,
-        }))
+        attach(
+            &Attach {
+                what: "virtual microphone",
+                name: &self.name,
+                busid: &self.busid,
+                shared: &self.shared,
+                tool: &self.tool,
+                health: &self.health,
+            },
+            Arc::new(device),
+        )
     }
 }
 
-/// Flags the microphone as failed when the system detaches it (sleep, driver restart...): the engine then recreates it.
+/// What [`attach`] needs to know about a virtual device (a microphone or a speaker).
+pub(super) struct Attach<'a> {
+    /// "virtual microphone" or "virtual speaker", for messages.
+    pub what: &'static str,
+    pub name: &'a str,
+    pub busid: &'a str,
+    pub shared: &'a Arc<Shared>,
+    pub tool: &'a Arc<dyn UsbipTool>,
+    pub health: &'a Arc<StreamHealth>,
+}
+
+/// Serves `device` on the USB/IP server and has Windows attach it. The returned guard detaches and removes it when
+/// dropped, a monitor flags the stream as failed if the system detaches the device (sleep, driver restart), and a
+/// crash cleanup detaches it if the program dies before the guard is dropped.
+pub(super) fn attach(
+    a: &Attach<'_>,
+    device: Arc<dyn UsbDevice>,
+) -> Result<Box<dyn Running>, HalError> {
+    let server = a.shared.server.clone();
+    server.add(a.busid, device);
+    let port = match a.tool.attach(server.port(), a.busid) {
+        Ok(p) => p,
+        Err(e) => {
+            server.remove(a.busid);
+            return Err(HalError::Busy(format!(
+                "cannot attach the {} {:?}: {e}",
+                a.what, a.name
+            )));
+        }
+    };
+    tracing::info!(name = %a.name, busid = %a.busid, port, "{} attached", a.what);
+    // If the program dies before this stream is dropped, Windows would keep a ghost device: detach it anyway.
+    let cleanup = {
+        let (tool, server, busid) = (a.tool.clone(), server.clone(), a.busid.to_owned());
+        crate::diagnostics::on_crash_cleanup(a.what, move || {
+            let _ = tool.detach(port);
+            server.remove(&busid);
+        })
+    };
+    let stop = Arc::new(AtomicBool::new(false));
+    let monitor = {
+        let (server, busid, health, stop) = (
+            server.clone(),
+            a.busid.to_owned(),
+            a.health.clone(),
+            stop.clone(),
+        );
+        std::thread::Builder::new()
+            .name("virtual-device-monitor".into())
+            .spawn(move || watch(&server, &busid, &health, &stop))
+            .ok()
+    };
+    Ok(Box::new(UsbRunning {
+        what: a.what,
+        tool: a.tool.clone(),
+        server,
+        busid: a.busid.to_owned(),
+        port,
+        stop,
+        monitor,
+        _cleanup: cleanup,
+    }))
+}
+
+/// Flags the device as failed when the system detaches it (sleep, driver restart...): the engine then recreates it.
 fn watch(server: &Server, busid: &str, health: &StreamHealth, stop: &AtomicBool) {
     let mut seen_attached = false;
     let mut gone_for = 0;
@@ -257,15 +331,16 @@ fn watch(server: &Server, busid: &str, health: &StreamHealth, stop: &AtomicBool)
         } else if seen_attached {
             gone_for += 1;
             if gone_for >= 4 {
-                tracing::warn!(busid, "the virtual microphone was detached by the system");
-                health.fail("the virtual microphone was detached by the system");
+                tracing::warn!(busid, "the virtual device was detached by the system");
+                health.fail("the virtual device was detached by the system");
                 return;
             }
         }
     }
 }
 
-struct MicRunning {
+struct UsbRunning {
+    what: &'static str,
     tool: Arc<dyn UsbipTool>,
     server: Arc<Server>,
     busid: String,
@@ -276,18 +351,18 @@ struct MicRunning {
     _cleanup: crate::diagnostics::Registration,
 }
 
-impl Running for MicRunning {}
+impl Running for UsbRunning {}
 
-impl Drop for MicRunning {
+impl Drop for UsbRunning {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
         if let Some(m) = self.monitor.take() {
             let _ = m.join();
         }
         // Detach first (Windows removes the device), then stop serving it.
-        tracing::info!(busid = %self.busid, port = self.port, "detaching the virtual microphone");
+        tracing::info!(busid = %self.busid, port = self.port, "detaching the {}", self.what);
         if let Err(e) = self.tool.detach(self.port) {
-            tracing::warn!(busid = %self.busid, "cannot detach the virtual microphone: {e}");
+            tracing::warn!(busid = %self.busid, "cannot detach the {}: {e}", self.what);
         }
         self.server.remove(&self.busid);
     }

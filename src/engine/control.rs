@@ -465,6 +465,13 @@ impl Inner {
             NodeKind::DeviceRender { device } => {
                 self.start_sink(kind, self.backend.open_render(device).map_err(describe)?)
             }
+            NodeKind::VirtualSpeaker { name } => {
+                let provider = self.virtual_devices.as_ref().ok_or_else(|| {
+                    "no virtual device provider is available on this system".to_string()
+                })?;
+                provider.available().map_err(describe)?;
+                self.start_source(kind, provider.create_speaker(name).map_err(describe)?)
+            }
             NodeKind::VirtualMic { name } => {
                 let provider = self.virtual_devices.as_ref().ok_or_else(|| {
                     "no virtual device provider is available on this system".to_string()
