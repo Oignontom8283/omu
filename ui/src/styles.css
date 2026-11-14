@@ -335,6 +335,21 @@ button.inline {
   margin: 2px 10px;
   align-self: flex-start;
 }
+/* an empty row, so that the rows of a branch line up (the "if" with its "then") */
+.port.gap {
+  visibility: hidden;
+}
+.port.gap::before {
+  content: 'x';
+}
+.adders {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.adders .mini.add {
+  margin: 0;
+}
 .node .body {
   padding: 4px 10px;
 }

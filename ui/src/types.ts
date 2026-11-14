@@ -19,11 +19,20 @@ export type NodeKind =
   | { type: 'gain'; db: number }
   | { type: 'mixer' }
   | { type: 'gate' }
+  | { type: 'branch'; branches: number }
+  | { type: 'select'; branches: number }
+  | { type: 'delay'; ms: number }
   | { type: 'variable'; initial: boolean }
   | { type: 'level'; threshold_db: number }
   | { type: 'logic'; op: LogicOp }
+  | { type: 'not' }
+  | { type: 'all' }
+  | { type: 'any' }
+  | { type: 'hold'; ms: number }
+  | { type: 'after'; ms: number }
   | { type: 'hotkey'; keys: string }
-  | { type: 'timer'; interval_ms: number };
+  | { type: 'timer'; interval_ms: number }
+  | { type: 'change' };
 
 export type NodeType = NodeKind['type'];
 /** The five families of blocks. */

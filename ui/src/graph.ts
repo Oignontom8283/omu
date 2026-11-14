@@ -4,26 +4,96 @@
 
 import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKind, NodeLayout, NodeSpec, NodeType } from './types.ts';
 
-export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean };
+/**
+ * A port of a block. `label` is the translation key of its name and `n` the number it shows (`else if 2`); a port
+ * with `gapBefore` is drawn one row lower, so that the rows of a branch line up (`if` with `then`).
+ */
+export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean; label: string; n?: number; gapBefore?: boolean };
 
-const p = (name: string, dir: 'in' | 'out', flow: FlowType, multi = false): PortMeta => ({ name, dir, flow, multi });
+/** What decides a block's ports: its kind, and for the blocks that branch, how many conditions they have. */
+export type KindLike = { type: NodeType; branches?: number };
 
-/** The ports of each kind of block, inputs first. */
-export const PORTS: Record<NodeType, PortMeta[]> = {
-  app_capture: [p('out', 'out', 'audio')],
-  device_capture: [p('out', 'out', 'audio')],
-  device_render: [p('in', 'in', 'audio')],
-  virtual_speaker: [p('out', 'out', 'audio')],
-  virtual_mic: [p('in', 'in', 'audio')],
-  gain: [p('in', 'in', 'audio'), p('out', 'out', 'audio')],
-  mixer: [p('in', 'in', 'audio', true), p('out', 'out', 'audio')],
-  gate: [p('in', 'in', 'audio'), p('open', 'in', 'condition'), p('out', 'out', 'audio')],
-  variable: [p('set', 'in', 'action', true), p('clear', 'in', 'action', true), p('toggle', 'in', 'action', true), p('value', 'out', 'condition')],
-  level: [p('in', 'in', 'audio'), p('active', 'out', 'condition')],
-  logic: [p('a', 'in', 'condition'), p('b', 'in', 'condition'), p('out', 'out', 'condition')],
-  hotkey: [p('pressed', 'out', 'action')],
-  timer: [p('tick', 'out', 'action')],
-};
+/** The most conditions a branching block can have (same as the daemon's). */
+export const MAX_BRANCHES = 16;
+
+/** The translation key of a port's name: `port.set`, but `port.in.condition` for the input of a condition block. */
+function labelKey(name: string, flow: FlowType): string {
+  return (name === 'in' || name === 'out') && flow !== 'audio' ? `port.${name}.${flow}` : `port.${name}`;
+}
+
+const p = (name: string, dir: 'in' | 'out', flow: FlowType, multi = false, extra: Partial<PortMeta> = {}): PortMeta => ({
+  name,
+  dir,
+  flow,
+  multi,
+  label: labelKey(name, flow),
+  ...extra,
+});
+
+const range = (n: number): number[] => Array.from({ length: n }, (_, i) => i + 1);
+
+/** How many conditions a branching block has: at least one, and what the daemon allows at most. */
+export function branchCount(kind: KindLike): number {
+  const n = kind.branches;
+  return Number.isInteger(n) ? Math.max(1, Math.min(MAX_BRANCHES, n as number)) : 1;
+}
+
+/** The `if` / `else if` condition inputs `when1`.. of a branching block: the first one is the `if`. */
+const whenPort = (k: number): PortMeta => p(`when${k}`, 'in', 'condition', false, { label: k === 1 ? 'port.if' : 'port.elif', n: k === 1 ? undefined : k });
+
+/** The ports of a block, inputs and outputs in the order they are drawn. */
+export function portsOf(kind: KindLike): PortMeta[] {
+  switch (kind.type) {
+    case 'app_capture':
+    case 'device_capture':
+    case 'virtual_speaker':
+      return [p('out', 'out', 'audio')];
+    case 'device_render':
+    case 'virtual_mic':
+      return [p('in', 'in', 'audio')];
+    case 'gain':
+    case 'delay':
+      return [p('in', 'in', 'audio'), p('out', 'out', 'audio')];
+    case 'mixer':
+      return [p('in', 'in', 'audio', true), p('out', 'out', 'audio')];
+    case 'gate':
+      return [p('in', 'in', 'audio'), p('open', 'in', 'condition'), p('out', 'out', 'audio')];
+    case 'branch': {
+      // one sound in, a condition per branch, and a sound out per branch plus the `else`
+      const ks = range(branchCount(kind));
+      return [
+        p('in', 'in', 'audio'),
+        ...ks.map(whenPort),
+        ...ks.map((k) => p(`out${k}`, 'out', 'audio', false, { label: 'port.then', n: k, gapBefore: k === 1 })),
+        p('else', 'out', 'audio'),
+      ];
+    }
+    case 'select': {
+      // a sound per branch, next to its condition, then the sound for when no condition is true
+      const ks = range(branchCount(kind));
+      return [...ks.flatMap((k) => [p(`in${k}`, 'in', 'audio', false, { label: 'port.pick', n: k }), whenPort(k)]), p('else', 'in', 'audio'), p('out', 'out', 'audio')];
+    }
+    case 'variable':
+      return [p('set', 'in', 'action', true), p('clear', 'in', 'action', true), p('toggle', 'in', 'action', true), p('value', 'out', 'condition')];
+    case 'level':
+      return [p('in', 'in', 'audio'), p('active', 'out', 'condition')];
+    case 'logic':
+      return [p('a', 'in', 'condition'), p('b', 'in', 'condition'), p('out', 'out', 'condition')];
+    case 'not':
+    case 'hold':
+    case 'after':
+      return [p('in', 'in', 'condition'), p('out', 'out', 'condition')];
+    case 'all':
+    case 'any':
+      return [p('in', 'in', 'condition', true), p('out', 'out', 'condition')];
+    case 'hotkey':
+      return [p('pressed', 'out', 'action')];
+    case 'timer':
+      return [p('tick', 'out', 'action')];
+    case 'change':
+      return [p('in', 'in', 'condition'), p('rise', 'out', 'action'), p('fall', 'out', 'action')];
+  }
+}
 
 export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger'];
 
@@ -31,9 +101,9 @@ export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'conditi
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   input: ['app_capture', 'device_capture', 'virtual_speaker'],
   output: ['virtual_mic', 'device_render'],
-  processing: ['gain', 'mixer', 'gate'],
-  condition: ['variable', 'level', 'logic'],
-  trigger: ['hotkey', 'timer'],
+  processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay'],
+  condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after'],
+  trigger: ['hotkey', 'timer', 'change'],
 };
 
 export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
@@ -43,23 +113,29 @@ export function categoryOf(type: NodeType): Category {
 }
 
 /**
- * An input that sums or collects (the mixer's, a variable's actions) takes as many links as wanted on one connection
- * point, and they are added together on their own.
+ * An input that sums or collects (the mixer's, `all` and `any`, a variable's actions) takes as many links as wanted
+ * on one connection point; the daemon combines them on its own (adds sounds, and/or conditions).
  *
- * A sound input has a second way to be used: a block that sums sounds can show several input points (a button adds
- * one), which is only clearer to look at, named `in`, `in#2`, `in#3`... For the daemon they are all the port `in`.
+ * A sound or condition input of that kind has a second way to be used: the block can show several input points (a
+ * button adds one), which is only clearer to look at, named `in`, `in#2`, `in#3`... For the daemon they are all the
+ * port `in`.
  */
 export function baseHandle(handle: string): string {
   return handle.split('#')[0];
 }
 
-export function portOf(type: NodeType, name: string): PortMeta | undefined {
-  return PORTS[type].find((q) => q.name === baseHandle(name));
+export function portOf(kind: KindLike, name: string): PortMeta | undefined {
+  return portsOf(kind).find((q) => q.name === baseHandle(name));
 }
 
-/** Whether the editor lets the user add input points to this port (the sound input of the mixer). */
+/** Whether the editor lets the user add input points to this port (the mixer's sound input, `all` and `any`). */
 export function hasEntries(port: PortMeta): boolean {
-  return port.dir === 'in' && port.multi && port.flow === 'audio';
+  return port.dir === 'in' && port.multi && port.flow !== 'action';
+}
+
+/** The port of a block that can show several input points, if it has one. */
+export function entryPortOf(kind: KindLike): PortMeta | undefined {
+  return portsOf(kind).find(hasEntries);
 }
 
 /** The input points a new block starts with, and the fewest one can be left with. */
@@ -119,7 +195,20 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, db: 0 };
     case 'mixer':
     case 'gate':
+    case 'not':
+    case 'all':
+    case 'any':
+    case 'change':
       return { type };
+    case 'branch':
+    case 'select':
+      return { type, branches: 1 };
+    case 'delay':
+      return { type, ms: 100 };
+    case 'hold':
+      return { type, ms: 500 };
+    case 'after':
+      return { type, ms: 200 };
     case 'variable':
       return { type, initial: true };
     case 'level':
@@ -132,6 +221,9 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, interval_ms: 1000 };
   }
 }
+
+/** The ports of every kind of block, with the settings a new block starts with. */
+export const PORTS = Object.fromEntries(NODE_TYPES.map((t) => [t, portsOf(defaultKind(t))])) as Record<NodeType, PortMeta[]>;
 
 /** A node id not used yet: `gain`, `gain-2`, `gain-3`... */
 export function uniqueId(base: string, taken: Iterable<string>): string {
@@ -201,8 +293,8 @@ export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; e
     return Number.isInteger(n) && (n as number) >= 1 && (n as number) <= MAX_ENTRIES ? (n as number) : 0;
   };
   const entryPort = (e: FlowEdge): boolean => {
-    const type = graph.nodes.find((n) => n.id === e.target)?.type;
-    const port = type && portOf(type, e.targetHandle);
+    const spec = graph.nodes.find((n) => n.id === e.target);
+    const port = spec && portOf(spec, e.targetHandle);
     return !!port && hasEntries(port);
   };
   const used = new Map<string, Set<number>>();
@@ -224,7 +316,7 @@ export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; e
   for (const e of edges) if (slots.has(e.id)) e.targetHandle = handleName(e.targetHandle, slots.get(e.id) as number);
 
   for (const n of nodes) {
-    const port = PORTS[n.spec.type].find(hasEntries);
+    const port = entryPortOf(n.spec);
     if (port) n.inputs = entryCount(edges, n.id, port.name, layout[n.id]?.inputs);
   }
   return { nodes, edges };
@@ -252,7 +344,7 @@ export function layoutOf(nodes: FlowNode[], edges: FlowEdge[]): Layout {
   return Object.fromEntries(
     nodes.map((n) => {
       const entry: NodeLayout = { x: Math.round(n.position.x), y: Math.round(n.position.y) };
-      const port = PORTS[n.spec.type].find(hasEntries);
+      const port = entryPortOf(n.spec);
       if (port) {
         entry.inputs = entryCount(edges, n.id, port.name, n.inputs);
         entry.slots = Object.fromEntries(edges.filter((e) => e.target === n.id).map((e) => [e.id, entryNumber(e.targetHandle)]));
@@ -265,7 +357,7 @@ export function layoutOf(nodes: FlowNode[], edges: FlowEdge[]): Layout {
 /** The flow carried by an edge, from the block it starts at. */
 export function flowOfEdge(nodes: { id: string; spec: NodeSpec }[], edge: { source: string; sourceHandle: string | null | undefined }): FlowType | undefined {
   const from = nodes.find((n) => n.id === edge.source);
-  return from && edge.sourceHandle ? portOf(from.spec.type, edge.sourceHandle)?.flow : undefined;
+  return from && edge.sourceHandle ? portOf(from.spec, edge.sourceHandle)?.flow : undefined;
 }
 
 /**
@@ -282,8 +374,8 @@ export function canConnect(
   const from = nodes.find((n) => n.id === c.source);
   const to = nodes.find((n) => n.id === c.target);
   if (!from || !to) return false;
-  const out = portOf(from.spec.type, c.sourceHandle);
-  const input = portOf(to.spec.type, c.targetHandle);
+  const out = portOf(from.spec, c.sourceHandle);
+  const input = portOf(to.spec, c.targetHandle);
   if (!out || !input || out.dir !== 'out' || input.dir !== 'in' || out.flow !== input.flow) return false;
   if (edges.some((e) => e.source === c.source && e.sourceHandle === c.sourceHandle && e.target === c.target && baseHandle(e.targetHandle) === baseHandle(c.targetHandle as string))) return false;
   if (!input.multi && edges.some((e) => e.target === c.target && e.targetHandle === c.targetHandle)) return false;
@@ -313,23 +405,24 @@ export function edgesAfterKindChange(
   id: string,
   to: NodeType,
 ): FlowEdge[] {
-  const typeOf = (nodeId: string) => nodes.find((n) => n.id === nodeId)?.spec.type;
+  const specOf = (nodeId: string) => nodes.find((n) => n.id === nodeId)?.spec;
+  const after = defaultKind(to);
   const out: FlowEdge[] = [];
   for (const e of edges) {
-    const fromType = typeOf(e.source);
-    const toType = typeOf(e.target);
-    if (!fromType || !toType) continue;
+    const fromSpec = specOf(e.source);
+    const toSpec = specOf(e.target);
+    if (!fromSpec || !toSpec) continue;
     let { sourceHandle, targetHandle } = e;
-    const flow = portOf(fromType, e.sourceHandle)?.flow;
+    const flow = portOf(fromSpec, e.sourceHandle)?.flow;
     if (e.source === id) {
-      const same = portOf(to, sourceHandle);
-      const moved = same && same.dir === 'out' && same.flow === flow ? same : PORTS[to].find((q) => q.dir === 'out' && q.flow === flow);
+      const same = portOf(after, sourceHandle);
+      const moved = same && same.dir === 'out' && same.flow === flow ? same : portsOf(after).find((q) => q.dir === 'out' && q.flow === flow);
       if (!moved) continue;
       sourceHandle = moved.name;
     }
     if (e.target === id) {
-      const same = portOf(to, targetHandle);
-      const moved = same && same.dir === 'in' && same.flow === flow ? same : PORTS[to].find((q) => q.dir === 'in' && q.flow === flow);
+      const same = portOf(after, targetHandle);
+      const moved = same && same.dir === 'in' && same.flow === flow ? same : portsOf(after).find((q) => q.dir === 'in' && q.flow === flow);
       if (!moved) continue;
       targetHandle = moved.name;
     }

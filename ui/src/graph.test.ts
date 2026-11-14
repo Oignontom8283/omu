@@ -5,6 +5,9 @@ import {
   KINDS_BY_CATEGORY,
   NODE_TYPES,
   PORTS,
+  branchCount,
+  entryPortOf,
+  portsOf,
   canConnect,
   entryCount,
   entryHandles,
@@ -112,9 +115,92 @@ test('the families send and receive the flows they should', () => {
   const receives = (t: (typeof NODE_TYPES)[number]) => PORTS[t].filter((q) => q.dir === 'in').map((q) => q.flow);
   for (const t of KINDS_BY_CATEGORY.input) assert.deepEqual([sends(t), receives(t)], [['audio'], []]);
   for (const t of KINDS_BY_CATEGORY.output) assert.deepEqual([sends(t), receives(t)], [[], ['audio']]);
-  for (const t of KINDS_BY_CATEGORY.trigger) assert.deepEqual([sends(t), receives(t)], [['action'], []], 'a trigger only sends actions');
-  for (const t of KINDS_BY_CATEGORY.condition) assert.deepEqual(sends(t), ['condition']);
-  for (const t of KINDS_BY_CATEGORY.processing) assert.deepEqual(sends(t), ['audio']);
+  const only = (flows: string[], flow: string) => flows.length > 0 && flows.every((f) => f === flow);
+  for (const t of KINDS_BY_CATEGORY.trigger) {
+    assert.ok(only(sends(t), 'action'), `${t}: a trigger only sends actions`);
+    assert.ok(receives(t).every((f) => f === 'condition'), `${t}: and receives at most a condition`);
+  }
+  for (const t of KINDS_BY_CATEGORY.condition) assert.ok(only(sends(t), 'condition'), t);
+  for (const t of KINDS_BY_CATEGORY.processing) assert.ok(only(sends(t), 'audio'), t);
+});
+
+test('a branch has a condition per branch and a sound output per branch plus an else; a select the other way round', () => {
+  const names = (kind: Parameters<typeof portsOf>[0], dir: 'in' | 'out' = 'in') => portsOf(kind).filter((q) => q.dir === dir).map((q) => q.name);
+  assert.deepEqual(names({ type: 'branch', branches: 1 }), ['in', 'when1']);
+  assert.deepEqual(names({ type: 'branch', branches: 1 }, 'out'), ['out1', 'else']);
+  assert.deepEqual(names({ type: 'branch', branches: 3 }), ['in', 'when1', 'when2', 'when3']);
+  assert.deepEqual(names({ type: 'branch', branches: 3 }, 'out'), ['out1', 'out2', 'out3', 'else']);
+  assert.deepEqual(names({ type: 'select', branches: 2 }), ['in1', 'when1', 'in2', 'when2', 'else']);
+  assert.deepEqual(names({ type: 'select', branches: 2 }, 'out'), ['out']);
+  // the same names as the daemon's, whatever the order they are drawn in
+  assert.deepEqual([...names({ type: 'select', branches: 2 })].sort(), ['else', 'in1', 'in2', 'when1', 'when2']);
+  // nonsense counts are brought back to something sensible
+  assert.equal(branchCount({ type: 'branch', branches: 0 }), 1);
+  assert.equal(branchCount({ type: 'branch', branches: 999 }), 16);
+  assert.equal(branchCount({ type: 'branch' }), 1);
+  // the first condition is the "if", the others "else if" with their number; outputs are numbered the same way
+  const labels = portsOf({ type: 'branch', branches: 2 }).map((q) => `${q.label}${q.n ?? ''}`);
+  assert.deepEqual(labels, ['port.in', 'port.if', 'port.elif2', 'port.then1', 'port.then2', 'port.else']);
+  assert.equal(portsOf({ type: 'branch', branches: 2 }).filter((q) => q.gapBefore).length, 1, 'one gap so that if lines up with then');
+});
+
+test('conditions that combine can show several input points like the mixer; the others take one link', () => {
+  for (const type of ['all', 'any'] as const) {
+    const port = entryPortOf({ type });
+    assert.equal(port?.flow, 'condition');
+    assert.equal(port?.name, 'in');
+  }
+  assert.equal(entryPortOf({ type: 'mixer' })?.flow, 'audio');
+  for (const type of ['not', 'hold', 'after', 'change', 'gain', 'variable', 'branch'] as const) assert.equal(entryPortOf(defaultKind(type)), undefined, type);
+  // three conditions into `all`, on two points: the daemon sees three links into `in`
+  const g: GraphSpec = {
+    nodes: [
+      { id: 'a', type: 'variable', initial: true },
+      { id: 'b', type: 'variable', initial: true },
+      { id: 'c', type: 'variable', initial: true },
+      { id: 'all', type: 'all' },
+    ],
+    edges: ['a', 'b', 'c'].map((n) => ({ from: { node: n, port: 'value' }, to: { node: 'all', port: 'in' } })),
+  };
+  const flow = toFlow(g, { all: { x: 0, y: 0, inputs: 2, slots: { 'a.value->all.in': 1, 'b.value->all.in': 1, 'c.value->all.in': 2 } } });
+  assert.deepEqual(flow.edges.map((e) => e.targetHandle), ['in', 'in', 'in#2']);
+  assert.equal(flow.nodes.find((n) => n.id === 'all')?.inputs, 2);
+  assert.deepEqual(fromFlow(flow.nodes, flow.edges), g);
+});
+
+test('connecting into the numbered ports of a branch', () => {
+  const nodes = [
+    { id: 'src', spec: { id: 'src', type: 'app_capture', target: { pid: 1 } } as const },
+    { id: 'v', spec: { id: 'v', type: 'variable', initial: true } as const },
+    { id: 'br', spec: { id: 'br', type: 'branch', branches: 2 } as const },
+    { id: 'mic', spec: { id: 'mic', type: 'virtual_mic', name: 'M' } as const },
+  ];
+  const can = (source: string, sh: string, target: string, th: string) => canConnect(nodes, [], { source, target, sourceHandle: sh, targetHandle: th });
+  assert.ok(can('src', 'out', 'br', 'in'));
+  assert.ok(can('v', 'value', 'br', 'when1'));
+  assert.ok(can('v', 'value', 'br', 'when2'));
+  assert.ok(!can('v', 'value', 'br', 'when3'), 'only two conditions on this block');
+  assert.ok(!can('src', 'out', 'br', 'when1'), 'a sound is not a condition');
+  assert.ok(can('br', 'out2', 'mic', 'in'));
+  assert.ok(can('br', 'else', 'mic', 'in'));
+  assert.ok(!can('br', 'out3', 'mic', 'in'));
+  assert.ok(!can('v', 'value', 'br', 'out1'), 'an output is not an input');
+});
+
+test('changing a block into a branching one keeps the links that still fit', () => {
+  const nodes = [
+    { id: 'src', spec: { id: 'src', type: 'app_capture', target: { pid: 1 } } as const },
+    { id: 'g', spec: { id: 'g', type: 'gain', db: 0 } as const },
+    { id: 'mic', spec: { id: 'mic', type: 'virtual_mic', name: 'M' } as const },
+  ];
+  const edges = toFlow(
+    { nodes: nodes.map((n) => n.spec), edges: [{ from: { node: 'src', port: 'out' }, to: { node: 'g', port: 'in' } }, { from: { node: 'g', port: 'out' }, to: { node: 'mic', port: 'in' } }] },
+    {},
+  ).edges;
+  const asBranch = edgesAfterKindChange(nodes, edges, 'g', 'branch');
+  assert.deepEqual(asBranch.map((e) => `${e.sourceHandle}->${e.targetHandle}`), ['out->in', 'out1->in'], 'the output moves to the first sound output');
+  const asNot = edgesAfterKindChange(nodes, edges, 'g', 'not');
+  assert.equal(asNot.length, 0, 'sounds cannot enter a condition block');
 });
 
 test('connection rules: flows must match, outputs go to inputs, one edge per plain input', () => {

@@ -1,7 +1,7 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { useEffect, useState } from 'react';
 import { useEditor } from '../context.ts';
-import { KINDS_BY_CATEGORY, MAX_ENTRIES, PORTS, categoryOf, entryCount, entryHandles, hasEntries, levelDb, linksPerEntry, meterFill, type PortMeta } from '../graph.ts';
+import { KINDS_BY_CATEGORY, MAX_BRANCHES, MAX_ENTRIES, branchCount, categoryOf, entryCount, entryHandles, hasEntries, levelDb, linksPerEntry, meterFill, portsOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { DeviceRef, LogicOp, NodeSpec, NodeType } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
@@ -155,10 +155,65 @@ function Params({ spec }: { spec: NodeSpec }) {
           <input className="nodrag" type="number" min={10} step={10} value={spec.interval_ms} onChange={(e) => update(spec.id, { type: 'timer', interval_ms: Math.max(10, Number(e.target.value) || 10) })} />
         </label>
       );
+    case 'delay':
+      return <MsField label="field.delay" value={spec.ms} max={5000} onChange={(ms) => update(spec.id, { type: 'delay', ms })} />;
+    case 'hold':
+      return <MsField label="field.hold" value={spec.ms} max={60000} onChange={(ms) => update(spec.id, { type: 'hold', ms })} />;
+    case 'after':
+      return <MsField label="field.after" value={spec.ms} max={60000} onChange={(ms) => update(spec.id, { type: 'after', ms })} />;
+    case 'branch':
+    case 'select':
+      return (
+        <>
+          <Branches spec={spec} />
+          <small className="hint">{t(`kind.${spec.type}.hint`)}</small>
+        </>
+      );
     case 'mixer':
     case 'gate':
+    case 'not':
+    case 'all':
+    case 'any':
+    case 'change':
       return <small className="hint">{t(`kind.${spec.type}.hint`)}</small>;
   }
+}
+
+/** A number of milliseconds. */
+function MsField({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (ms: number) => void }) {
+  const t = useT();
+  return (
+    <label className="field">
+      <span>{t(label)}</span>
+      <input className="nodrag" type="number" min={0} max={max} step={10} value={value} onChange={(e) => onChange(Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))))} />
+    </label>
+  );
+}
+
+/**
+ * The "+" of a block that branches: adds a condition (an `else if`), with its own sound output (or sound input), or
+ * takes the last one away when nothing is linked to it.
+ */
+function Branches({ spec }: { spec: Of<'branch'> | Of<'select'> }) {
+  const { update } = useEditor();
+  const t = useT();
+  const edges = useEdges();
+  const count = branchCount(spec);
+  const last = portsOf(spec).filter((q) => q.name === `when${count}` || q.name === `out${count}` || q.name === `in${count}`);
+  const used = edges.some((e) => (e.target === spec.id && last.some((q) => q.name === e.targetHandle)) || (e.source === spec.id && last.some((q) => q.name === e.sourceHandle)));
+  const set = (branches: number) => update(spec.id, { type: spec.type, branches });
+  return (
+    <div className="adders">
+      <button className="mini add nodrag" title={t('node.addCondition')} aria-label={t('node.addCondition')} disabled={count >= MAX_BRANCHES} onClick={() => set(count + 1)}>
+        +
+      </button>
+      {count > 1 && !used && (
+        <button className="mini nodrag" title={t('node.removeCondition')} aria-label={t('node.removeCondition')} onClick={() => set(count - 1)}>
+          ×
+        </button>
+      )}
+    </div>
+  );
 }
 
 function IdField({ id }: { id: string }) {
@@ -210,7 +265,7 @@ function EntriesRow({ port, node, asked }: { port: PortMeta; node: string; asked
           <div key={h} className="port in entry" title={t(`flow.${port.flow}`)}>
             <Handle id={h} type="target" position={Position.Left} className={`flow-${port.flow}`} />
             <span>
-              {t(`port.${port.name}`)} {n}
+              {t(port.label)} {n}
             </span>
             {(links.get(n) ?? 0) > 1 && (
               <small className="sum" title={t('node.summed')}>
@@ -238,10 +293,13 @@ function PortRow({ port, node, inputs }: { port: PortMeta; node: string; inputs:
   const isInput = port.dir === 'in';
   if (hasEntries(port)) return <EntriesRow port={port} node={node} asked={inputs} />;
   return (
-    <div className={`port ${isInput ? 'in' : 'out'}`} title={t(`flow.${port.flow}`)}>
-      <Handle id={port.name} type={isInput ? 'target' : 'source'} position={isInput ? Position.Left : Position.Right} className={`flow-${port.flow}`} />
-      <span>{t(`port.${port.name}`)}</span>
-    </div>
+    <>
+      {port.gapBefore && <div className="port gap" aria-hidden="true" />}
+      <div className={`port ${isInput ? 'in' : 'out'}`} title={t(`flow.${port.flow}`)}>
+        <Handle id={port.name} type={isInput ? 'target' : 'source'} position={isInput ? Position.Left : Position.Right} className={`flow-${port.flow}`} />
+        <span>{t(port.label, { n: port.n ?? '' }).trim()}</span>
+      </div>
+    </>
   );
 }
 
@@ -273,7 +331,7 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
   const t = useT();
   const spec = data.spec;
   const category = categoryOf(spec.type);
-  const ports = PORTS[spec.type];
+  const ports = portsOf(spec);
   const failed = statusOf(spec.id)?.state === 'failed';
   return (
     <div className={`node cat-${category}${selected ? ' selected' : ''}${failed ? ' failed' : ''}`}>
