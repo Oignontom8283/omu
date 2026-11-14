@@ -13,6 +13,7 @@ pub mod web;
 
 use crate::engine::{Engine, EngineConfig};
 use crate::graph::validate;
+use crate::hal::Direction;
 use crate::hal::{Backend, HalError, VirtualDeviceProvider};
 use crate::protocol::methods::{
     self as m, Method, ProviderInfo, SystemInfo, ValidateResult, EVENT_GRAPH, EVENT_STATUS,
@@ -20,7 +21,7 @@ use crate::protocol::methods::{
 use crate::protocol::{
     Id, Notification, Request, Response, RpcError, JSONRPC_VERSION, PROTOCOL_VERSION,
 };
-use crate::types::{EngineStatus, GraphSpec};
+use crate::types::{DeviceRef, EngineStatus, GraphSpec, NodeKind};
 use serde_json::Value;
 use std::sync::{Arc, Mutex, MutexGuard};
 use store::{SavedState, Store};
@@ -181,15 +182,10 @@ impl Daemon {
             m::GraphGet::NAME => result(lock(&self.state).saved.graph.clone()),
             m::GraphValidate::NAME => {
                 let graph = params::<m::GraphValidate>(p)?;
-                result(match validate(&graph) {
-                    Ok(_) => ValidateResult {
-                        ok: true,
-                        errors: vec![],
-                    },
-                    Err(errors) => ValidateResult {
-                        ok: false,
-                        errors: errors.iter().map(|e| e.to_string()).collect(),
-                    },
+                let errors = self.problems(&graph);
+                result(ValidateResult {
+                    ok: errors.is_empty(),
+                    errors,
                 })
             }
             m::GraphSet::NAME => {
@@ -243,15 +239,96 @@ impl Daemon {
         }
     }
 
+    /// Everything wrong with `graph`: the structural problems, and the daemon's own rules that need to know the
+    /// devices (a graph may not record this product's virtual microphones: the program using one would hear its own
+    /// output).
+    fn problems(&self, graph: &GraphSpec) -> Vec<String> {
+        let mut out: Vec<String> = match validate(graph) {
+            Ok(_) => vec![],
+            Err(errors) => errors.iter().map(|e| e.to_string()).collect(),
+        };
+        out.extend(self.feedback_problems(graph));
+        out
+    }
+
+    fn feedback_problems(&self, graph: &GraphSpec) -> Vec<String> {
+        let mut mics: Vec<String> = graph
+            .nodes
+            .iter()
+            .filter_map(|n| match &n.kind {
+                NodeKind::VirtualMic { name } if !name.trim().is_empty() => {
+                    Some(name.trim().to_lowercase())
+                }
+                _ => None,
+            })
+            .collect();
+        if let Some(provider) = &self.virtual_devices {
+            mics.extend(
+                provider
+                    .microphone_names()
+                    .iter()
+                    .map(|n| n.trim().to_lowercase()),
+            );
+        }
+        mics.retain(|n| !n.is_empty());
+        if mics.is_empty() {
+            return vec![];
+        }
+        let devices = self.backend.list_devices().unwrap_or_default();
+        let captures = || devices.iter().filter(|d| d.direction == Direction::Capture);
+        let mut problems = vec![];
+        for node in &graph.nodes {
+            let NodeKind::DeviceCapture { device } = &node.kind else {
+                continue;
+            };
+            let candidates: Vec<String> = match device {
+                DeviceRef::Name(n) => {
+                    let n = n.to_lowercase();
+                    std::iter::once(n.clone())
+                        .chain(
+                            captures()
+                                .filter(|d| d.name.to_lowercase().contains(&n))
+                                .map(|d| d.name.to_lowercase()),
+                        )
+                        .collect()
+                }
+                DeviceRef::Id(id) => captures()
+                    .filter(|d| &d.id == id)
+                    .map(|d| d.name.to_lowercase())
+                    .collect(),
+                DeviceRef::Default => captures()
+                    .filter(|d| d.is_default)
+                    .map(|d| d.name.to_lowercase())
+                    .collect(),
+            };
+            // Windows names an emulated microphone "Microphone (<name>)": match the name exactly or inside those
+            // parentheses (a short name such as "Mic" must not match every device with "mic" in its name).
+            let is_ours = |c: &str, m: &str| c == m || c.ends_with(&format!("({m})"));
+            if let Some(mic) = mics
+                .iter()
+                .find(|m| candidates.iter().any(|c| is_ours(c, m)))
+            {
+                problems.push(format!(
+                    "node {:?} records the virtual microphone {mic:?}: whatever is sent to it would be heard again (feedback)",
+                    node.id.0
+                ));
+            }
+        }
+        problems
+    }
+
     fn set_graph(&self, graph: GraphSpec) -> Result<(), RpcError> {
-        let valid = validate(&graph).map_err(|errors| {
-            let list: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
-            RpcError::new(
+        let errors = self.problems(&graph);
+        if !errors.is_empty() {
+            return Err(RpcError::new(
                 RpcError::VALIDATION,
-                format!("the graph is invalid: {}", list.join("; ")),
+                format!("the graph is invalid: {}", errors.join("; ")),
             )
-            .with_data(serde_json::json!(list))
-        })?;
+            .with_data(serde_json::json!(errors)));
+        }
+        // `problems` found none, so validation succeeds
+        let valid = validate(&graph)
+            .map_err(|_| RpcError::internal("the graph changed under validation"))?;
         self.engine.apply(valid);
         {
             let mut st = lock(&self.state);
@@ -511,6 +588,65 @@ mod tests {
             assert_eq!(got, chain(), "the graph itself is kept");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn recording_a_virtual_microphone_of_the_same_graph_is_refused() {
+        let sim = SimBackend::new();
+        sim.add_app(1, "a.exe", SimSource::tone(300.0));
+        sim.add_capture_device("Microphone (Mic)", SimSource::tone(300.0)); // how Windows names the virtual microphone
+        sim.add_capture_device("Real Microphone", SimSource::tone(300.0));
+        let d = daemon_in(&temp_dir("feedback"), &sim);
+        let mut g = chain(); // app -> virtual mic named "Mic"
+        g.nodes.push(NodeSpec {
+            id: "rec".into(),
+            kind: NodeKind::DeviceCapture {
+                device: DeviceRef::Name("Microphone (Mic)".into()),
+            },
+        });
+        g.nodes.push(NodeSpec {
+            id: "spk".into(),
+            kind: NodeKind::DeviceRender {
+                device: DeviceRef::Default,
+            },
+        });
+        g.edges.push(EdgeSpec {
+            from: PortRef::new("rec", "out"),
+            to: PortRef::new("spk", "in"),
+        });
+        let r = call(&d, "graph.set", serde_json::to_value(&g).unwrap());
+        let e = r.error.expect("refused");
+        assert_eq!(e.code, RpcError::VALIDATION);
+        assert!(
+            e.message.contains("feedback") && e.message.contains("\"rec\""),
+            "{}",
+            e.message
+        );
+        // recording an ordinary microphone is fine
+        let mut ok = chain();
+        ok.nodes.push(NodeSpec {
+            id: "rec".into(),
+            kind: NodeKind::DeviceCapture {
+                device: DeviceRef::Name("Real".into()),
+            },
+        });
+        ok.nodes.push(NodeSpec {
+            id: "spk".into(),
+            kind: NodeKind::DeviceRender {
+                device: DeviceRef::Default,
+            },
+        });
+        ok.edges.push(EdgeSpec {
+            from: PortRef::new("rec", "out"),
+            to: PortRef::new("spk", "in"),
+        });
+        let v: ValidateResult = serde_json::from_value(
+            call(&d, "graph.validate", serde_json::to_value(&ok).unwrap())
+                .result
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(v.ok, "{:?}", v.errors);
     }
 
     #[test]

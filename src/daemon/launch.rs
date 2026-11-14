@@ -81,7 +81,11 @@ fn real_backend() -> Result<
             thread_init: Some(crate::hal::wasapi::graph_thread_init()),
             ..Default::default()
         };
-        Ok((backend, None, config))
+        Ok((
+            backend,
+            Some(crate::virtual_devices::platform_provider()),
+            config,
+        ))
     }
     #[cfg(not(windows))]
     {
