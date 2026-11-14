@@ -50,6 +50,30 @@ daemon *args:
 cli *args:
     cargo run --bin omu -- {{args}}
 
+# Install the web panel's dependencies (needs Node.js)
+ui-install:
+    npm --prefix ui install
+
+# Build the web panel into ui/dist; the daemon serves it (rebuild the daemon in release mode to embed it)
+ui-build:
+    npm --prefix ui run build
+
+# Develop the panel with hot reload against a running daemon: open http://localhost:5173
+ui-dev:
+    npm --prefix ui run dev
+
+# Type-check and test the web panel
+ui-test:
+    npm --prefix ui run typecheck
+    npm --prefix ui test
+
+# Try everything without real audio: the daemon with a simulated audio system, serving the panel
+demo:
+    cargo run --bin omud -- --demo
+
+# Everything, Rust and web panel
+verify-all: verify ui-test
+
 # Remove build output
 clean:
     cargo clean
