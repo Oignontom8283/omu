@@ -57,4 +57,8 @@ fn main() {
         out,
     )
     .unwrap();
+
+    // The daemon embeds the web panel built into ui/dist; the folder must exist even when the panel was not built
+    // (building the panel needs Node.js, building the daemon must not).
+    let _ = fs::create_dir_all(manifest.join("ui").join("dist"));
 }

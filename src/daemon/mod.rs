@@ -5,7 +5,11 @@
 //!   without any network.
 //! * the network part (HTTP, WebSocket, the web panel) lives in the sibling modules and only forwards messages here.
 
+pub mod auth;
+pub mod launch;
+pub mod server;
 pub mod store;
+pub mod web;
 
 use crate::engine::{Engine, EngineConfig};
 use crate::graph::validate;

@@ -7,6 +7,8 @@
 //! | [`branding`] | product name and identifiers, resolved at compile time from `branding.toml` | |
 //! | [`types`] | graph schema, ports, audio format, device references | |
 //! | [`graph`] | graph validation and ordering | |
+//! | `client` | typed calls to a daemon over HTTP | `client` |
+//! | [`discovery`] | how clients find the local daemon (address and token) | |
 //! | [`dsp`] | allocation-free audio building blocks | |
 //! | [`hal`] | platform backend traits (+ simulated backend, + Windows backend) | |
 //! | [`protocol`] | JSON-RPC control protocol: envelopes, typed methods and events | |
@@ -14,6 +16,9 @@
 //! | `daemon` | the daemon core: request dispatch, persistence, events | `daemon` |
 
 pub mod branding;
+#[cfg(feature = "client")]
+pub mod client;
+pub mod discovery;
 pub mod dsp;
 pub mod graph;
 pub mod hal;
