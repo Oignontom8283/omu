@@ -2,9 +2,11 @@
 
 mod format;
 mod node;
+mod status;
 
 pub use format::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 pub use node::{
     AppTarget, DeviceRef, EdgeSpec, GraphSpec, NodeId, NodeKind, NodeSpec, PortDirection, PortRef,
     PortSpec, PortType,
 };
+pub use status::{EngineStatus, NodeState, NodeStatus};
