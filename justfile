@@ -3,7 +3,7 @@
 #
 # Three executables come out of this repository, one source tree. A TARGET is one of:
 #
-#   demon (or server)   omu-daemon  the daemon: audio engine, control server, web panel
+#   demon (or server)   omud  the daemon: audio engine, control server, web panel
 #   cli                 omu-cli     the command-line client
 #   gui                 omu-gui     the desktop window
 #   all                           the three (the default of build and dev)
@@ -34,14 +34,14 @@ dev target="all": (_cargo "build" replace_regex(target, "^(daemon|demon|server)(
 
 # Build (release) and run: just run demon --demo     just run cli status     just run gui
 run target="demon" *args:
-    {{ if target == "cli" { "cargo run --release --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run --release --bin omu-gui --no-default-features --features gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --release --bin omu-daemon --no-default-features --features daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
+    {{ if target == "cli" { "cargo run --release --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run --release --bin omu-gui --no-default-features --features gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --release --bin omud --no-default-features --features daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
 
 # The cargo command of a target (private). `all` builds the targets one after the other, each with exactly its own
 # features: cargo unifies the features of everything built by one command, so building them together would give the
 # command-line client the daemon's code (and size).
 [private]
 _cargo verb target native:
-    {{ if target == "all" { just_executable() + " _each " + quote(verb) + " " + (if native == "" { "-" } else { quote(native) }) } else { "cargo " + verb + " --bin " + (if target == "gui" { "omu-gui" } else if target == "cli" { "omu-cli" } else if target == "demon" { "omu-daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + " --no-default-features --features " + (if target == "demon" { "daemon" } else { target }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else if native == "-" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
+    {{ if target == "all" { just_executable() + " _each " + quote(verb) + " " + (if native == "" { "-" } else { quote(native) }) } else { "cargo " + verb + " --bin " + (if target == "gui" { "omu-gui" } else if target == "cli" { "omu-cli" } else if target == "demon" { "omud" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + " --no-default-features --features " + (if target == "demon" { "daemon" } else { target }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else if native == "-" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
 
 [private]
 _each verb native: (_cargo verb "cli" native) (_cargo verb "demon" native) (_cargo verb "gui" native)
@@ -84,7 +84,7 @@ ui-hot:
 
 # Try everything without real audio: the daemon with a simulated audio system, serving the panel
 demo:
-    cargo run --bin omu-daemon -- --demo
+    cargo run --bin omud -- --demo
 
 # Everything, Rust and web panel
 verify-all: verify ui-test

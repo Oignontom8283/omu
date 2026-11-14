@@ -1,5 +1,5 @@
-//! `omu-daemon`: the daemon. Owns the audio engine, serves the control protocol and the web panel.
-//! See `omu-daemon --help`.
+//! `omud`: the daemon. Owns the audio engine, serves the control protocol and the web panel.
+//! See `omud --help`.
 
 use clap::Parser;
 use omu::daemon::instance;

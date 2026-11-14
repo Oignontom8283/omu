@@ -7,12 +7,12 @@ description = "Audio routing daemon with a node-graph: capture an application's 
 repository = "https://github.com/Oignontom8283/omu"
 license-file = "LICENSE"
 publish = false
-default-run = "omu-daemon"
+default-run = "omud"
 
 # One library holds every component (modules = folders of src/); each binary is a thin entry point. One package, three
 # targets:
 #
-#   omu-daemon   the daemon: owns the audio engine, serves the control protocol  (feature `daemon`, default)
+#   omud   the daemon: owns the audio engine, serves the control protocol  (feature `daemon`, default)
 #   omu-cli      the command-line client of the daemon                           (feature `cli`, default)
 #   omu-gui      the desktop window (Tauri)                                      (feature `gui`, opt-in)
 #
@@ -23,8 +23,8 @@ name = "omu"
 path = "src/lib.rs"
 
 [[bin]]
-name = "omu-daemon"
-path = "src/bin/omu-daemon/main.rs"
+name = "omud"
+path = "src/bin/omud/main.rs"
 required-features = ["daemon"]
 
 [[bin]]
