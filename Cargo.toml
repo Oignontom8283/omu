@@ -32,16 +32,26 @@ required-features = ["cli"]
 default = ["daemon", "cli"]
 # the audio engine and the platform backends (heavy: real-time code, Windows API bindings)
 engine = ["dep:rtrb", "dep:windows", "dep:windows-core"]
-daemon = ["engine"]
-# the command-line client (and, through `client`, what a GUI needs): protocol + client only
-cli = ["client"]
-client = []
+# the daemon: control server (HTTP + WebSocket) and the embedded web panel
+daemon = ["engine", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed", "dep:getrandom", "dep:clap"]
+# the command-line client
+cli = ["client", "dep:clap"]
+# what any client needs to talk to a daemon (the CLI, a Tauri window): protocol + HTTP client
+client = ["dep:ureq"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 rtrb = { version = "0.4", optional = true }
+dirs = "7.0"
+tokio = { version = "1.54", optional = true, features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+axum = { version = "0.8", optional = true, features = ["ws"] }
+futures-util = { version = "0.3", optional = true }
+rust-embed = { version = "8.14", optional = true, features = ["mime-guess"] }
+getrandom = { version = "0.4", optional = true }
+clap = { version = "4.6", optional = true, features = ["derive", "env"] }
+ureq = { version = "3.5", optional = true, features = ["json"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", optional = true, features = [
@@ -59,6 +69,9 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_UI_Shell_PropertiesSystem",
 ] }
 windows-core = { version = "0.62", optional = true }
+
+[dev-dependencies]
+tungstenite = "0.30"
 
 [build-dependencies]
 toml = "1.2"
