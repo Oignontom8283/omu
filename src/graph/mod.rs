@@ -185,6 +185,7 @@ pub fn validate(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
 fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
     let mut devices: Vec<(&NodeId, &DeviceRef)> = vec![];
     let mut virtual_names: HashMap<String, &NodeId> = HashMap::new();
+    let mut speaker_names: HashMap<String, &NodeId> = HashMap::new();
     let mut shortcuts: HashMap<String, &NodeId> = HashMap::new();
     for node in &spec.nodes {
         match &node.kind {
@@ -209,6 +210,15 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
             },
             NodeKind::Timer { interval_ms } if *interval_ms < 10 => {
                 errors.push(GraphError::TimerTooFast(node.id.clone(), *interval_ms));
+            }
+            NodeKind::VirtualSpeaker { name } => {
+                if name.trim().is_empty() {
+                    errors.push(GraphError::EmptyVirtualName(node.id.clone()));
+                } else if let Some(other) =
+                    speaker_names.insert(name.trim().to_lowercase(), &node.id)
+                {
+                    errors.push(GraphError::SameVirtualName(other.clone(), node.id.clone()));
+                }
             }
             NodeKind::VirtualMic { name } => {
                 if name.trim().is_empty() {
@@ -422,6 +432,36 @@ mod tests {
         assert!(e.contains(&GraphError::SameDevice("r1".into(), "r2".into())));
         assert!(e.contains(&GraphError::SameVirtualName("v1".into(), "v2".into())));
         assert!(e.contains(&GraphError::EmptyVirtualName("v3".into())));
+    }
+
+    #[test]
+    fn virtual_speakers_need_distinct_names_but_may_share_one_with_a_microphone() {
+        let speaker = |name: &str| NodeKind::VirtualSpeaker { name: name.into() };
+        let spec = GraphSpec {
+            nodes: vec![
+                node("s1", speaker("Game")),
+                node("s2", speaker(" game")),
+                node("s3", speaker("")),
+                // a microphone and a speaker of the same name are two different devices
+                node("m1", mic("Game")),
+            ],
+            edges: vec![],
+        };
+        let e = validate(&spec).unwrap_err();
+        assert!(e.contains(&GraphError::SameVirtualName("s1".into(), "s2".into())));
+        assert!(e.contains(&GraphError::EmptyVirtualName("s3".into())));
+        assert!(!e
+            .iter()
+            .any(|x| matches!(x, GraphError::SameVirtualName(a, b) if a.0 == "m1" || b.0 == "m1")));
+    }
+
+    #[test]
+    fn a_virtual_speaker_is_an_input_that_sends_audio() {
+        let k = NodeKind::VirtualSpeaker { name: "x".into() };
+        assert_eq!(k.category(), crate::types::Category::Input);
+        assert!(k.is_source() && k.needs_stream());
+        assert_eq!(k.output_type(), Some(crate::types::PortType::Audio));
+        assert!(k.port("out").is_some() && k.port("in").is_none());
     }
 
     #[test]
