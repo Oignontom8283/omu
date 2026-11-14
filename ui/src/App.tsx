@@ -12,7 +12,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { EVENT_GRAPH, EVENT_STATUS, Rpc, RpcError, api, findToken, type Connection } from './api.ts';
+import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findToken, startDaemon, type Connection } from './api.ts';
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Palette } from './components/Palette.tsx';
@@ -240,13 +240,25 @@ export function App() {
           </button>
         </header>
 
-        {(problems.length > 0 || notice || noProvider) && (
+        {(problems.length > 0 || notice || noProvider || (IN_DESKTOP_WINDOW && conn === 'closed')) && (
           <div className="banners">
             {problems.length > 0 && (
               <div className="banner error">
                 <strong>The graph was refused:</strong>
                 <ul>{problems.map((p) => <li key={p}>{p}</li>)}</ul>
                 <button onClick={() => setProblems([])}>×</button>
+              </div>
+            )}
+            {IN_DESKTOP_WINDOW && conn === 'closed' && (
+              <div className="banner warn">
+                The daemon is not running.{' '}
+                <button className="inline"
+                  onClick={() => {
+                    startDaemon().catch((e) => setNotice(message(e)));
+                  }}
+                >
+                  Start the daemon
+                </button>
               </div>
             )}
             {notice && (
