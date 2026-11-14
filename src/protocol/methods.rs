@@ -3,8 +3,7 @@
 //! Each method is a zero-sized type implementing [`Method`], so a client call is typed end to end
 //! (`client.call::<GraphSet>(&graph)`) and the daemon dispatches on the same names.
 
-use crate::hal::{AppInfo, Capabilities, DeviceInfo};
-use crate::types::{EngineStatus, GraphSpec};
+use crate::types::{AppInfo, Capabilities, DeviceInfo, EngineStatus, GraphSpec};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
