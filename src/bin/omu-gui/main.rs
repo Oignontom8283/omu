@@ -7,7 +7,6 @@ fn main() {
         data_dir: omu::discovery::data_dir(),
         dialog: true,
         console_log: cfg!(debug_assertions),
-        track_session: false,
     });
     omu::gui::run();
 }

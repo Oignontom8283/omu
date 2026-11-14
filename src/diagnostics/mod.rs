@@ -43,15 +43,13 @@ pub struct Settings {
     pub dialog: bool,
     /// Also print the logs on stderr.
     pub console_log: bool,
-    /// Keep a session marker to notice a crash at the next start (for long-running programs).
-    pub track_session: bool,
 }
 
 /// Lives as long as the program: dropping it marks a clean exit and flushes the logs.
 #[derive(Debug)]
 pub struct Guard {
-    /// What the previous run of this program left behind.
-    pub previous: PreviousSession,
+    program: &'static str,
+    data_dir: PathBuf,
     session: bool,
 }
 
@@ -65,11 +63,6 @@ pub fn init(settings: Settings) -> Guard {
     ) {
         eprintln!("warning: logging could not start: {e}");
     }
-    let previous = if settings.track_session {
-        session::begin(&settings.data_dir, settings.program)
-    } else {
-        PreviousSession::default()
-    };
     crash::install(crash::Context {
         program: settings.program,
         crash_dir: settings.data_dir.join(CRASH_DIR),
@@ -84,15 +77,27 @@ pub fn init(settings: Settings) -> Guard {
         exe = ?std::env::current_exe().ok(),
         "starting"
     );
-    if previous.unclean {
-        tracing::warn!(
-            report = ?previous.crash_report,
-            "the previous run did not stop cleanly (crash, kill or power cut)"
-        );
-    }
     Guard {
-        previous,
-        session: settings.track_session,
+        program: settings.program,
+        data_dir: settings.data_dir,
+        session: false,
+    }
+}
+
+impl Guard {
+    /// Starts keeping a session marker (for long-running programs) and says what the previous run left behind: a
+    /// run that did not stop cleanly (crash, kill, power cut) is reported in the log. Call it once the program knows
+    /// that it is the one that runs: a second copy that refuses to start must not touch the marker of the first.
+    pub fn track_session(&mut self) -> PreviousSession {
+        let previous = session::begin(&self.data_dir, self.program);
+        self.session = true;
+        if previous.unclean {
+            tracing::warn!(
+                report = ?previous.crash_report,
+                "the previous run did not stop cleanly (crash, kill or power cut)"
+            );
+        }
+        previous
     }
 }
 

@@ -7,7 +7,6 @@ fn main() -> std::process::ExitCode {
         data_dir: omu::discovery::data_dir(),
         dialog: false,
         console_log: false,
-        track_session: false,
     });
     match omu::cli::execute(std::env::args_os(), &mut std::io::stdout()) {
         Ok(()) => std::process::ExitCode::SUCCESS,

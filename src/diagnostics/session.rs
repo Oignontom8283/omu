@@ -77,7 +77,7 @@ pub fn end_current() {
 }
 
 #[cfg(all(windows, feature = "logging"))]
-fn pid_alive(pid: u32) -> bool {
+pub(crate) fn pid_alive(pid: u32) -> bool {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
         GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
@@ -96,7 +96,7 @@ fn pid_alive(pid: u32) -> bool {
 }
 
 #[cfg(not(all(windows, feature = "logging")))]
-fn pid_alive(pid: u32) -> bool {
+pub(crate) fn pid_alive(pid: u32) -> bool {
     Path::new(&format!("/proc/{pid}")).exists()
 }
 
