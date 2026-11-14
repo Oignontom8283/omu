@@ -113,9 +113,7 @@
   "status.actions": "{count} actions",
   "status.underruns": "Sous-alimentations / débordements du tampon",
 
-  "node.nameChars": "Uniquement lettres, chiffres, - _ et .",
-  "node.nameTaken": "Ce nom est déjà utilisé",
-  "node.nameHint": "Nom de ce bloc dans le graphe",
+  "node.nameHint": "Nom de ce bloc (libre : mettez ce que vous voulez)",
   "node.addInput": "Ajouter une entrée",
   "node.removeInput": "Retirer cette entrée",
   "node.summed": "Plusieurs liens sur cette entrée : ils sont additionnés",
@@ -151,5 +149,8 @@
   "field.hold": "Reste vrai encore (ms)",
   "field.after": "Vrai après (ms)",
   "node.addCondition": "Ajouter un « sinon si »",
-  "node.removeCondition": "Retirer le dernier « sinon si »"
+  "node.removeCondition": "Retirer le dernier « sinon si »",
+  "node.namePlaceholder": "Nom du bloc",
+  "node.idLabel": "identifiant :",
+  "node.unnamed": "(bloc sans nom)"
 }

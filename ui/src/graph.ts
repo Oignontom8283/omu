@@ -8,7 +8,7 @@ import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKi
  * A port of a block. `label` is the translation key of its name and `n` the number it shows (`else if 2`); a port
  * with `gapBefore` is drawn one row lower, so that the rows of a branch line up (`if` with `then`).
  */
-export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean; label: string; n?: number; gapBefore?: boolean };
+export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean; label: string; n?: number; gapBefore?: boolean; entries?: boolean };
 
 /** What decides a block's ports: its kind, and for the blocks that branch, how many conditions they have. */
 export type KindLike = { type: NodeType; branches?: number };
@@ -21,11 +21,13 @@ function labelKey(name: string, flow: FlowType): string {
   return (name === 'in' || name === 'out') && flow !== 'audio' ? `port.${name}.${flow}` : `port.${name}`;
 }
 
+// A sound input takes any number of links (the daemon adds the sounds together); the other inputs only when they are
+// told to (the actions of a variable, the conditions of `all` and `any`).
 const p = (name: string, dir: 'in' | 'out', flow: FlowType, multi = false, extra: Partial<PortMeta> = {}): PortMeta => ({
   name,
   dir,
   flow,
-  multi,
+  multi: multi || (dir === 'in' && flow === 'audio'),
   label: labelKey(name, flow),
   ...extra,
 });
@@ -55,7 +57,7 @@ export function portsOf(kind: KindLike): PortMeta[] {
     case 'delay':
       return [p('in', 'in', 'audio'), p('out', 'out', 'audio')];
     case 'mixer':
-      return [p('in', 'in', 'audio', true), p('out', 'out', 'audio')];
+      return [p('in', 'in', 'audio', true, { entries: true }), p('out', 'out', 'audio')];
     case 'gate':
       return [p('in', 'in', 'audio'), p('open', 'in', 'condition'), p('out', 'out', 'audio')];
     case 'branch': {
@@ -85,7 +87,7 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [p('in', 'in', 'condition'), p('out', 'out', 'condition')];
     case 'all':
     case 'any':
-      return [p('in', 'in', 'condition', true), p('out', 'out', 'condition')];
+      return [p('in', 'in', 'condition', true, { entries: true }), p('out', 'out', 'condition')];
     case 'hotkey':
       return [p('pressed', 'out', 'action')];
     case 'timer':
@@ -130,7 +132,7 @@ export function portOf(kind: KindLike, name: string): PortMeta | undefined {
 
 /** Whether the editor lets the user add input points to this port (the mixer's sound input, `all` and `any`). */
 export function hasEntries(port: PortMeta): boolean {
-  return port.dir === 'in' && port.multi && port.flow !== 'action';
+  return port.dir === 'in' && port.multi && port.entries === true;
 }
 
 /** The port of a block that can show several input points, if it has one. */
@@ -235,8 +237,43 @@ export function uniqueId(base: string, taken: Iterable<string>): string {
   }
 }
 
-export function idBase(type: NodeType): string {
-  return type.replace('_', '-');
+/** What a new block is called in the graph: a random identifier (a UUID), so that it never has to change. */
+export function newId(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID();
+  // a page that is not a secure context has no randomUUID: make a version 4 one from random bytes
+  const b = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === 'function') c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Whether an identifier was made by an editor (nobody reads it) rather than chosen by a person. */
+export function isGeneratedId(id: string): boolean {
+  return UUID.test(id);
+}
+
+/** A message of the daemon with the identifiers of the blocks it names replaced by what people call them. */
+export function namedProblem(text: string, nodes: { id: string; display?: string }[], unnamed: string): string {
+  let out = text;
+  for (const n of nodes) {
+    if (!out.includes(n.id)) continue;
+    const label = nameOf(n) || (isGeneratedId(n.id) ? unnamed : '');
+    if (label && label !== n.id) out = out.split(n.id).join(label);
+  }
+  return out;
+}
+
+/** The text that stands for a block when a message has to name it: its display name, else a chosen id, else nothing. */
+export function nameOf(spec: { id: string; display?: string }): string {
+  const display = spec.display?.trim();
+  if (display) return display;
+  return isGeneratedId(spec.id) ? '' : spec.id;
 }
 
 /** A block of the editor. `inputs` is how many input points it shows, for the blocks that can show several. */

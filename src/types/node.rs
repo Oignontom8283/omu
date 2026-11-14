@@ -46,7 +46,8 @@ pub struct PortSpec {
     pub name: String,
     pub direction: PortDirection,
     pub ty: PortType,
-    /// An input that accepts several incoming edges (combined by the node itself: summed by a mixer, or-ed...).
+    /// An input that accepts several incoming edges. Sounds are added together (every sound input does); a block that
+    /// combines conditions (`all`, `any`) combines them; a variable collects the actions.
     pub multi: bool,
 }
 
@@ -226,8 +227,10 @@ fn numbered(
     direction: PortDirection,
     ty: PortType,
 ) -> impl Iterator<Item = PortSpec> + '_ {
+    // a sound input takes any number of links (they are added together)
+    let multi = direction == Input && ty == Audio;
     (1..=branches.clamp(1, MAX_BRANCHES))
-        .map(move |n| port(format!("{base}{n}"), direction, ty, false))
+        .map(move |n| port(format!("{base}{n}"), direction, ty, multi))
 }
 
 /// The number the name of a numbered port ends with, when it is `base` followed by a number: `("when", "when3")`
@@ -240,7 +243,8 @@ pub fn port_number(base: &str, name: &str) -> Option<u32> {
 impl NodeKind {
     /// The ports of this kind of node: the inputs first, then the outputs, in the order a block shows them.
     pub fn ports(&self) -> Vec<PortSpec> {
-        let in_audio = || port("in", Input, Audio, false);
+        // a sound input takes any number of links: the engine adds the sounds together
+        let in_audio = || port("in", Input, Audio, true);
         let out_audio = || port("out", Output, Audio, false);
         let in_cond = |multi| port("in", Input, Condition, multi);
         let out_cond = || port("out", Output, Condition, false);
@@ -250,7 +254,7 @@ impl NodeKind {
             | NodeKind::VirtualSpeaker { .. } => vec![out_audio()],
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],
             NodeKind::Gain { .. } | NodeKind::Delay { .. } => vec![in_audio(), out_audio()],
-            NodeKind::Mixer => vec![port("in", Input, Audio, true), out_audio()],
+            NodeKind::Mixer => vec![in_audio(), out_audio()],
             NodeKind::Gate => vec![
                 in_audio(),
                 port("open", Input, Condition, false),
@@ -264,7 +268,7 @@ impl NodeKind {
                 .collect(),
             NodeKind::Select { branches } => numbered("in", *branches, Input, Audio)
                 .chain(numbered("when", *branches, Input, Condition))
-                .chain([port("else", Input, Audio, false), out_audio()])
+                .chain([port("else", Input, Audio, true), out_audio()])
                 .collect(),
             NodeKind::Variable { .. } => vec![
                 port("set", Input, Action, true),
@@ -361,9 +365,26 @@ impl NodeKind {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NodeSpec {
+    /// What the graph's edges call the block: any text that is not used by another block (an editor makes a random
+    /// one, a hand-written graph can use `"mic"`). It never changes when the block is renamed.
     pub id: NodeId,
+    /// A name for people, as free as they want. Nothing in the daemon reads it: it is kept with the graph so that
+    /// every editor shows the same names. Missing means no name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
     #[serde(flatten)]
     pub kind: NodeKind,
+}
+
+impl NodeSpec {
+    /// A block with no display name.
+    pub fn new(id: &str, kind: NodeKind) -> Self {
+        NodeSpec {
+            id: NodeId::from(id),
+            display: None,
+            kind,
+        }
+    }
 }
 
 /// The whole editable graph.
@@ -385,16 +406,19 @@ mod tests {
             nodes: vec![
                 NodeSpec {
                     id: "app".into(),
+                    display: None,
                     kind: NodeKind::AppCapture {
                         target: AppTarget::ProcessName("chrome.exe".into()),
                     },
                 },
                 NodeSpec {
                     id: "vol".into(),
+                    display: None,
                     kind: NodeKind::Gain { db: -6.0 },
                 },
                 NodeSpec {
                     id: "mic".into(),
+                    display: None,
                     kind: NodeKind::VirtualMic {
                         name: "Stream".into(),
                     },
@@ -420,6 +444,7 @@ mod tests {
     fn json_shape_is_flat_and_readable() {
         let node = NodeSpec {
             id: "g".into(),
+            display: None,
             kind: NodeKind::Gain { db: 3.5 },
         };
         let v: serde_json::Value = serde_json::to_value(&node).unwrap();
@@ -433,21 +458,49 @@ mod tests {
     }
 
     #[test]
-    fn only_the_blocks_that_combine_accept_several_links_on_one_input() {
-        let kinds = [
+    fn every_sound_input_takes_several_links_and_a_condition_input_only_when_it_combines() {
+        for k in [
             NodeKind::Mixer,
-            NodeKind::All,
-            NodeKind::Any,
-            NodeKind::Not,
             NodeKind::Gain { db: 0.0 },
             NodeKind::VirtualMic { name: "x".into() },
+            NodeKind::Gate,
+            NodeKind::Delay { ms: 1 },
             NodeKind::Branch { branches: 2 },
-        ];
-        let multi = kinds
-            .iter()
-            .filter(|k| k.ports().iter().any(|p| p.multi))
-            .count();
-        assert_eq!(multi, 3);
+            NodeKind::Select { branches: 2 },
+            NodeKind::Level {
+                threshold_db: -40.0,
+            },
+        ] {
+            for p in k.ports() {
+                if p.direction == PortDirection::Input && p.ty == PortType::Audio {
+                    assert!(p.multi, "{k:?}: {} adds the sounds", p.name);
+                }
+            }
+        }
+        // a condition input takes one link, except the ones that combine them
+        let combining = |k: &NodeKind| {
+            k.ports()
+                .iter()
+                .filter(|p| p.ty == PortType::Condition && p.multi)
+                .count()
+        };
+        assert_eq!(combining(&NodeKind::All), 1);
+        assert_eq!(combining(&NodeKind::Any), 1);
+        for k in [
+            NodeKind::Not,
+            NodeKind::Gate,
+            NodeKind::Hold { ms: 1 },
+            NodeKind::After { ms: 1 },
+            NodeKind::Change,
+            NodeKind::Branch { branches: 3 },
+            NodeKind::Logic { op: LogicOp::And },
+        ] {
+            assert_eq!(
+                combining(&k),
+                0,
+                "{k:?}: a condition decides, it is not combined"
+            );
+        }
     }
 
     #[test]
@@ -519,6 +572,7 @@ mod tests {
         for k in every_kind() {
             let spec = NodeSpec {
                 id: "x".into(),
+                display: None,
                 kind: k.clone(),
             };
             let back: NodeSpec =
@@ -656,5 +710,39 @@ mod tests {
                 false, false, false, false, false, false, false, false, false
             ]
         );
+    }
+
+    #[test]
+    fn the_display_name_is_optional_free_text_next_to_the_id() {
+        // a graph written by hand has none, and means none
+        let old: NodeSpec =
+            serde_json::from_str(r#"{"id":"mic","type":"virtual_mic","name":"Stream"}"#).unwrap();
+        assert_eq!(old.display, None);
+        // an editor adds one, with any text, and the id stays what it was
+        let named: NodeSpec = serde_json::from_str(
+            r#"{"id":"3f2c0a52-9d4e-4c8e-8f3e-0a7d5a2b9c11","display":"Micro du stream (principal) é","type":"gain","db":-3.0}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            named.display.as_deref(),
+            Some("Micro du stream (principal) é")
+        );
+        assert_eq!(named.kind, NodeKind::Gain { db: -3.0 });
+        let back: NodeSpec = serde_json::from_value(serde_json::to_value(&named).unwrap()).unwrap();
+        assert_eq!(back, named);
+        // without one, nothing is written (the files of people who never use it do not change)
+        let json = serde_json::to_value(&old).unwrap();
+        assert!(json.get("display").is_none(), "{json}");
+        // it never gets mixed up with the settings of a block, whatever they are called
+        let mic = NodeSpec {
+            id: "m".into(),
+            display: Some("Display".into()),
+            kind: NodeKind::VirtualMic {
+                name: "Device".into(),
+            },
+        };
+        let v = serde_json::to_value(&mic).unwrap();
+        assert_eq!(v["display"], "Display");
+        assert_eq!(v["name"], "Device");
     }
 }

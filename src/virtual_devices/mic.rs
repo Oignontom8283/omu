@@ -568,4 +568,103 @@ mod tests {
         let tool = Arc::new(FakeTool::default());
         assert!(provider(&tool).create_microphone("  ").is_err());
     }
+
+    // ---- through the whole engine: what the user does in the panel (rename a block, remove it)
+
+    fn engine_with(tool: &Arc<FakeTool>) -> crate::engine::Engine {
+        use crate::engine::{Engine, EngineConfig};
+        use crate::hal::sim::SimBackend;
+        use crate::hal::{Backend, VirtualDeviceProvider};
+        let sim = SimBackend::new();
+        Engine::new(
+            Arc::new(sim) as Arc<dyn Backend>,
+            Some(Arc::new(provider(tool)) as Arc<dyn VirtualDeviceProvider>),
+            EngineConfig::default(),
+        )
+    }
+
+    fn mic_graph(names: &[&str]) -> crate::graph::ValidGraph {
+        use crate::types::{GraphSpec, NodeKind, NodeSpec};
+        let spec = GraphSpec {
+            nodes: names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    NodeSpec::new(
+                        &format!("mic{i}"),
+                        NodeKind::VirtualMic { name: (*n).into() },
+                    )
+                })
+                .collect(),
+            edges: vec![],
+        };
+        crate::graph::validate(&spec).unwrap()
+    }
+
+    fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
+        let start = std::time::Instant::now();
+        while !cond() {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "timed out: {what}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn renaming_a_microphone_block_replaces_the_device_and_removing_it_removes_the_device() {
+        let tool = Arc::new(FakeTool::default());
+        let engine = engine_with(&tool);
+        let attached = || tool.attached.lock().unwrap().len();
+        let detached = || tool.detached.lock().unwrap().clone();
+
+        engine.apply(mic_graph(&["Alpha"]));
+        wait_until("the first device", || attached() == 1);
+        assert!(detached().is_empty());
+
+        // the same block, another name: the old device goes away, a new one is attached
+        engine.apply(mic_graph(&["Beta"]));
+        wait_until("the renamed device", || attached() == 2);
+        wait_until("the old device removed", || detached() == vec![1]);
+
+        // a graph without the block: its device goes away
+        engine.apply(mic_graph(&[]));
+        wait_until("the device of the removed block", || {
+            detached() == vec![1, 2]
+        });
+
+        // nothing else was touched along the way
+        assert_eq!(attached(), 2);
+    }
+
+    #[test]
+    fn an_edit_that_does_not_touch_the_name_keeps_the_device() {
+        let tool = Arc::new(FakeTool::default());
+        let engine = engine_with(&tool);
+        engine.apply(mic_graph(&["Alpha"]));
+        wait_until("the device", || tool.attached.lock().unwrap().len() == 1);
+        // another block is added: the first microphone is not detached and attached again
+        engine.apply(mic_graph(&["Alpha", "Gamma"]));
+        wait_until("the second device", || {
+            tool.attached.lock().unwrap().len() == 2
+        });
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(tool.detached.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn naming_a_block_does_not_touch_its_device() {
+        let tool = Arc::new(FakeTool::default());
+        let engine = engine_with(&tool);
+        engine.apply(mic_graph(&["Alpha"]));
+        wait_until("the device", || tool.attached.lock().unwrap().len() == 1);
+        // the same block and the same device name, but the block gets a display name
+        let mut named = mic_graph(&["Alpha"]).spec;
+        named.nodes[0].display = Some("Mon micro".into());
+        engine.apply(crate::graph::validate(&named).unwrap());
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(tool.attached.lock().unwrap().len(), 1, "not attached again");
+        assert!(tool.detached.lock().unwrap().is_empty(), "not detached");
+    }
 }

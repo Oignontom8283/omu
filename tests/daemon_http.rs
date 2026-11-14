@@ -24,12 +24,14 @@ fn chain() -> GraphSpec {
         nodes: vec![
             NodeSpec {
                 id: "app".into(),
+                display: None,
                 kind: NodeKind::AppCapture {
                     target: AppTarget::ProcessName("chrome.exe".into()),
                 },
             },
             NodeSpec {
                 id: "mic".into(),
+                display: None,
                 kind: NodeKind::VirtualMic {
                     name: "Stream".into(),
                 },
@@ -90,10 +92,12 @@ fn validation_errors_reach_the_client_with_details() {
         nodes: vec![
             NodeSpec {
                 id: "x".into(),
+                display: None,
                 kind: NodeKind::Mixer,
             },
             NodeSpec {
                 id: "x".into(),
+                display: None,
                 kind: NodeKind::Mixer,
             },
         ],

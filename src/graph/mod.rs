@@ -5,7 +5,8 @@
 //!
 //! * node ids are non-empty, made of letters, digits, `-`, `_`, `.`, and unique;
 //! * an edge goes from an existing output port to an existing input port of the same type;
-//! * an input port takes one edge, except a `multi` input (the mixer's, the `all` and `any` conditions');
+//! * an input port takes one edge, except a `multi` input: every sound input (the sounds are added), the `all` and
+//!   `any` conditions and the actions of a variable;
 //! * no duplicate edge, no cycle (a feedback loop needs an explicit delay block, which does not exist yet);
 //! * two sinks may not use the same device, and two virtual microphones may not share a name.
 
@@ -32,7 +33,7 @@ pub enum GraphError {
     ToOutput(NodeId, String),
     #[error("edge connects ports of different types ({from} -> {to})")]
     TypeMismatch { from: String, to: String },
-    #[error("input {0}.{1} receives several edges but does not accept it (use a mixer)")]
+    #[error("input {0}.{1} receives several edges but does not accept it (to combine conditions use an 'all' or 'any' block)")]
     FanIn(NodeId, String),
     #[error("duplicate edge {0} -> {1}")]
     DuplicateEdge(String, String),
@@ -291,6 +292,7 @@ mod tests {
     fn node(id: &str, kind: NodeKind) -> NodeSpec {
         NodeSpec {
             id: id.into(),
+            display: None,
             kind,
         }
     }
@@ -373,14 +375,29 @@ mod tests {
     }
 
     #[test]
-    fn fan_in_needs_a_mixer() {
+    fn several_sounds_can_enter_one_sound_input_and_are_added() {
         let two_sources = |sink: NodeKind| GraphSpec {
             nodes: vec![node("a", app()), node("b", app()), node("s", sink)],
             edges: vec![edge("a", "out", "s", "in"), edge("b", "out", "s", "in")],
         };
-        let e = validate(&two_sources(gain())).unwrap_err();
-        assert!(e.contains(&GraphError::FanIn("s".into(), "in".into())));
-        assert!(validate(&two_sources(NodeKind::Mixer)).is_ok());
+        for sink in [
+            NodeKind::Mixer,
+            gain(),
+            mic("M"),
+            NodeKind::Gate,
+            NodeKind::Delay { ms: 10 },
+        ] {
+            assert!(validate(&two_sources(sink.clone())).is_ok(), "{sink:?}");
+        }
+        // the same output twice into one input would only double the sound: that is a mistake
+        let twice = GraphSpec {
+            nodes: vec![node("a", app()), node("g", gain())],
+            edges: vec![edge("a", "out", "g", "in"), edge("a", "out", "g", "in")],
+        };
+        assert!(validate(&twice)
+            .unwrap_err()
+            .iter()
+            .any(|e| matches!(e, GraphError::DuplicateEdge(..))));
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::hal::{
     Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider,
 };
 use crate::types::{
-    EngineStatus, KeyCombo, NodeId, NodeKind, NodeState, NodeStatus, ENGINE_SAMPLE_RATE,
+    EngineStatus, KeyCombo, NodeId, NodeKind, NodeState, NodeStatus, PortType, ENGINE_SAMPLE_RATE,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -325,7 +325,7 @@ impl Inner {
                     if st.failures.remove(&node.id).is_some() {
                         tracing::info!(node = %node.id.0, "stream recovered");
                     } else {
-                        tracing::info!(node = %node.id.0, kind = ?node.kind, "stream started");
+                        tracing::info!(node = %node.id.0, name = node.display.as_deref().unwrap_or(""), kind = ?node.kind, "stream started");
                     }
                     st.resources.insert(node.id.clone(), resource);
                 }
@@ -396,15 +396,12 @@ impl Inner {
         graph: &ValidGraph,
         resources: &HashMap<NodeId, Resource>,
     ) -> (Plan, HashMap<NodeId, Arc<Meter>>) {
+        // where each block of the graph is in the plan (a block can be preceded by a mixer the engine adds)
         let mut position = vec![0usize; graph.spec.nodes.len()];
-        for (pos, &idx) in graph.order.iter().enumerate() {
-            position[idx] = pos;
-        }
         let mut meters = HashMap::new();
-        let nodes: Vec<PlanNode> = graph
-            .order
-            .iter()
-            .map(|&idx| {
+        let mut nodes: Vec<PlanNode> = Vec::with_capacity(graph.order.len());
+        for &idx in &graph.order {
+            {
                 let spec = &graph.spec.nodes[idx];
                 let cycle_frames = self.cfg.cycle_frames as u64;
                 let op = match (&spec.kind, resources.get(&spec.id).map(|r| &r.io)) {
@@ -450,31 +447,42 @@ impl Inner {
                     // every other kind has been handled above (streams, triggers and the blocks); what is left is the mixer
                     _ => NodeOp::Mixer,
                 };
-                let inputs = graph
+                let wires: Vec<(Wire, bool)> = graph
                     .incoming(idx)
                     .filter_map(|e| {
                         let edge = &graph.spec.edges[e];
                         let source = graph.edge_nodes[e].0;
-                        Port::from_name(&edge.to.port).map(|port| Wire {
-                            from: position[source],
-                            out: graph.spec.nodes[source]
-                                .kind
-                                .output_index(&edge.from.port)
-                                .unwrap_or(0),
-                            port,
+                        let audio = spec
+                            .kind
+                            .port(&edge.to.port)
+                            .is_some_and(|p| p.ty == PortType::Audio);
+                        Port::from_name(&edge.to.port).map(|port| {
+                            (
+                                Wire {
+                                    from: position[source],
+                                    out: graph.spec.nodes[source]
+                                        .kind
+                                        .output_index(&edge.from.port)
+                                        .unwrap_or(0),
+                                    port,
+                                },
+                                audio,
+                            )
                         })
                     })
                     .collect();
+                let inputs = sum_sounds(&mut nodes, &spec.id, matches!(op, NodeOp::Mixer), &wires);
                 let meter: Arc<Meter> = Arc::default();
                 meters.insert(spec.id.clone(), meter.clone());
-                PlanNode {
+                position[idx] = nodes.len();
+                nodes.push(PlanNode {
                     id: spec.id.clone(),
                     op,
                     inputs,
                     meter,
-                }
-            })
-            .collect();
+                });
+            }
+        }
         (Plan::new(nodes, self.cfg.cycle_frames), meters)
     }
 
@@ -567,4 +575,53 @@ impl Inner {
             _running: running,
         })
     }
+}
+
+/// Several sounds entering one input are added together: the engine puts a mixer of its own just before the block (a
+/// block that is itself a mixer adds its inputs on its own). Returns the wires of the block.
+fn sum_sounds(
+    nodes: &mut Vec<PlanNode>,
+    owner: &NodeId,
+    adds_itself: bool,
+    wires: &[(Wire, bool)],
+) -> Vec<Wire> {
+    let mut out = Vec::with_capacity(wires.len());
+    let mut summed: Vec<Port> = vec![];
+    for (wire, audio) in wires {
+        if adds_itself || !audio {
+            out.push(*wire);
+            continue;
+        }
+        if summed.contains(&wire.port) {
+            continue;
+        }
+        let same: Vec<Wire> = wires
+            .iter()
+            .filter(|(w, a)| *a && w.port == wire.port)
+            .map(|(w, _)| *w)
+            .collect();
+        if same.len() == 1 {
+            out.push(*wire);
+            continue;
+        }
+        summed.push(wire.port);
+        nodes.push(PlanNode {
+            id: NodeId(format!("{}~sum{}", owner.0, nodes.len())),
+            op: NodeOp::Mixer,
+            inputs: same
+                .iter()
+                .map(|w| Wire {
+                    port: Port::In,
+                    ..*w
+                })
+                .collect(),
+            meter: Arc::default(),
+        });
+        out.push(Wire {
+            from: nodes.len() - 1,
+            out: 0,
+            port: wire.port,
+        });
+    }
+    out
 }

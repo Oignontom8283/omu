@@ -27,23 +27,25 @@ import {
   edgesAfterKindChange,
   flowOfEdge,
   fromFlow,
-  idBase,
+  newId,
+  namedProblem,
   layoutOf,
   MAX_ENTRIES,
   toFlow,
-  uniqueId,
 } from './graph.ts';
 import { LANGUAGES, languageName, useI18n } from './i18n/index.tsx';
 import { useTheme, type ThemeChoice } from './theme.tsx';
-import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeType, SystemInfo } from './types.ts';
+import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeSpec, NodeType, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
-const ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+/** The display name of a block, to be kept when its settings change. */
+const named = (spec: NodeSpec): { display?: string } => (spec.display === undefined ? {} : { display: spec.display });
 
 const asEdge = (e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? '', targetHandle: e.targetHandle ?? '' });
 
@@ -210,7 +212,8 @@ export function App() {
 
   const addNode = (category: Category) => {
     const type = KINDS_BY_CATEGORY[category][0];
-    const id = uniqueId(idBase(type), nodesRef.current.map((n) => n.id));
+    // a random identifier: the name people give a block is a separate thing (its display name)
+    const id = newId();
     // start at the middle of the view and slide away from the blocks already there
     const p = flow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
     const position = { x: p.x - 115, y: p.y - 70 };
@@ -255,28 +258,24 @@ export function App() {
       apps,
       devices,
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
-      update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...kind } } } : n))),
+      update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...named(n.data.spec), ...kind } } } : n))),
       changeKind: (id: string, type: NodeType) => {
         const plain = nodesRef.current.map((n) => ({ id: n.id, spec: n.data.spec }));
         setEdges(edgesAfterKindChange(plain, edgesRef.current.map(asEdge), id, type));
-        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...defaultKind(type) } } } : n)));
+        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...named(n.data.spec), ...defaultKind(type) } } } : n)));
       },
       setInputs: (id: string, count: number) => {
         setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, inputs: Math.max(1, Math.min(MAX_ENTRIES, count)) } } : n)));
       },
-      rename: (id: string, next: string) => {
-        if (!ID_PATTERN.test(next)) return 'node.nameChars';
-        if (nodesRef.current.some((n) => n.id === next)) return 'node.nameTaken';
-        setNodes((list) => list.map((n) => (n.id === id ? { ...n, id: next, data: { ...n.data, spec: { ...n.data.spec, id: next } } } : n)));
-        setEdges((list) =>
-          list.map((e) => {
-            const source = e.source === id ? next : e.source;
-            const target = e.target === id ? next : e.target;
-            return { ...e, source, target, id: edgeId({ from: { node: source, port: e.sourceHandle ?? '' }, to: { node: target, port: e.targetHandle ?? '' } }) };
+      setDisplay: (id: string, text: string) =>
+        setNodes((list) =>
+          list.map((n) => {
+            if (n.id !== id) return n;
+            const { display: _old, ...rest } = n.data.spec;
+            // free text; none at all means no name (the property is left out)
+            return { ...n, data: { ...n.data, spec: (text === '' ? rest : { ...rest, display: text }) as NodeSpec } };
           }),
-        );
-        return null;
-      },
+        ),
     }),
     [apps, devices, status, setNodes, setEdges],
   );
@@ -342,7 +341,7 @@ export function App() {
               <div className="banner error">
                 <strong>{t('app.refused')}</strong>
                 <ul>
-                  {problems.map((p) => (
+                  {problems.map((p) => namedProblem(p, graph.nodes, t('node.unnamed'))).map((p) => (
                     <li key={p}>{p}</li>
                   ))}
                 </ul>

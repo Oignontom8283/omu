@@ -40,7 +40,11 @@ export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigge
 /** The three kinds of flow between blocks. */
 export type FlowType = 'audio' | 'condition' | 'action';
 
-export type NodeSpec = { id: string } & NodeKind;
+/**
+ * A block of the graph. `id` is what the links call it (an editor makes a random one, a graph written by hand can use
+ * any text that no other block uses); `display` is the name people give it, free text, missing when there is none.
+ */
+export type NodeSpec = { id: string; display?: string } & NodeKind;
 export type PortRef = { node: string; port: string };
 export type EdgeSpec = { from: PortRef; to: PortRef };
 export type GraphSpec = { nodes: NodeSpec[]; edges: EdgeSpec[] };

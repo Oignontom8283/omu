@@ -96,6 +96,7 @@ mod tests {
             graph: GraphSpec {
                 nodes: vec![NodeSpec {
                     id: "m".into(),
+                    display: None,
                     kind: NodeKind::Mixer,
                 }],
                 edges: vec![],

@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 fn node(id: &str, kind: NodeKind) -> NodeSpec {
     NodeSpec {
         id: id.into(),
+        display: None,
         kind,
     }
 }
@@ -638,4 +639,58 @@ fn a_change_block_between_two_conditions_works_in_the_real_engine() {
     let loud = tail.chunks(4_800).filter(|c| rms(c) > 0.2).count();
     let quiet = tail.chunks(4_800).filter(|c| rms(c) < 0.02).count();
     assert!(loud > 3 && quiet > 3, "loud {loud}, quiet {quiet}");
+}
+
+#[test]
+fn two_sounds_into_one_input_are_added_without_a_mixer_block() {
+    // two programs linked straight to a virtual microphone and to a gain: the engine adds them
+    let sim = SimBackend::new();
+    sim.add_app(1, "a.exe", SimSource::tone(1000.0));
+    sim.add_app(2, "b.exe", SimSource::tone(1500.0));
+    let e = engine(&sim);
+    let capture = |name: &str| NodeKind::AppCapture {
+        target: AppTarget::ProcessName(name.into()),
+    };
+    let spec = GraphSpec {
+        nodes: vec![
+            node("a", capture("a.exe")),
+            node("b", capture("b.exe")),
+            node("g", NodeKind::Gain { db: 0.0 }),
+            node(
+                "direct",
+                NodeKind::VirtualMic {
+                    name: "Direct".into(),
+                },
+            ),
+            node(
+                "through",
+                NodeKind::VirtualMic {
+                    name: "Through".into(),
+                },
+            ),
+        ],
+        edges: vec![
+            link("a", "out", "direct", "in"),
+            link("b", "out", "direct", "in"),
+            link("a", "out", "g", "in"),
+            link("b", "out", "g", "in"),
+            link("g", "out", "through", "in"),
+        ],
+    };
+    e.apply(validate(&spec).unwrap());
+    std::thread::sleep(Duration::from_millis(2500));
+    let status = e.status();
+    drop(e);
+    for n in &status.nodes {
+        assert_eq!(n.state, NodeState::Running, "{}", n.id);
+    }
+    // each tone alone has an rms of 0.354; two tones of different frequencies add their power: 0.5
+    for name in ["virtual:Direct", "virtual:Through"] {
+        let l = left(&sim_recording(&sim, name));
+        let level = rms(&l[l.len() / 2..]);
+        assert!(
+            (level - 0.5).abs() < 0.04,
+            "{name}: rms {level} (0.354 would be only one of the two)"
+        );
+    }
 }
