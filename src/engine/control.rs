@@ -11,8 +11,7 @@ use crate::graph::ValidGraph;
 use crate::hal::{
     Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider,
 };
-use crate::types::{NodeId, NodeKind};
-use serde::Serialize;
+use crate::types::{EngineStatus, NodeId, NodeKind, NodeState, NodeStatus};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -42,35 +41,6 @@ impl Default for EngineConfig {
             retry_max: Duration::from_secs(10),
         }
     }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(tag = "state", content = "message", rename_all = "snake_case")]
-pub enum NodeState {
-    Running,
-    /// The node's stream could not be opened or broke; the engine retries. The node is silent meanwhile.
-    Failed(String),
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct NodeStatus {
-    pub id: NodeId,
-    #[serde(flatten)]
-    pub state: NodeState,
-    /// Highest level (linear, 1.0 = full scale) since the previous status call.
-    pub peak: f32,
-    pub underruns: u64,
-    pub overruns: u64,
-    pub fill_ms: f32,
-    pub frames: u64,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct EngineStatus {
-    pub running: bool,
-    pub cycles: u64,
-    pub late_cycles: u64,
-    pub nodes: Vec<NodeStatus>,
 }
 
 enum Io {

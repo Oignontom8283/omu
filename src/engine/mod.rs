@@ -13,4 +13,5 @@ pub mod control;
 pub mod plan;
 pub mod runtime;
 
-pub use control::{Engine, EngineConfig, EngineStatus, NodeState, NodeStatus};
+pub use crate::types::{EngineStatus, NodeState, NodeStatus};
+pub use control::{Engine, EngineConfig};
