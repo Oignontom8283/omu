@@ -475,3 +475,64 @@ fn a_shortcut_that_is_taken_fails_only_its_block() {
     assert_eq!(get("app"), NodeState::Running);
     assert_eq!(get("mic"), NodeState::Running);
 }
+
+#[test]
+fn what_programs_play_into_a_virtual_speaker_comes_out_of_its_block() {
+    let sim = SimBackend::new();
+    sim.play_into_speaker("Discord Out", SimSource::tone(700.0));
+    let e = engine(&sim);
+    let spec = GraphSpec {
+        nodes: vec![
+            node(
+                "spk",
+                NodeKind::VirtualSpeaker {
+                    name: "Discord Out".into(),
+                },
+            ),
+            node(
+                "mic",
+                NodeKind::VirtualMic {
+                    name: "Stream".into(),
+                },
+            ),
+        ],
+        edges: vec![edge("spk", "mic")],
+    };
+    e.apply(validate(&spec).unwrap());
+    std::thread::sleep(Duration::from_millis(3000));
+    let status = e.status();
+    drop(e);
+
+    for n in &status.nodes {
+        assert_eq!(n.state, NodeState::Running, "{}", n.id);
+    }
+    let l = left(&sim_recording(&sim, "virtual:Stream"));
+    let steady = &l[48_000..];
+    assert!(
+        (rms(steady) - 0.5 / 2f32.sqrt()).abs() < 0.03,
+        "rms {}",
+        rms(steady)
+    );
+    let hz = tone_hz(steady, 48_000.0);
+    assert!((hz - 700.0).abs() < 15.0, "{hz} Hz");
+    assert!(glitches(&status) <= 2, "{status:?}");
+}
+
+#[test]
+fn without_a_virtual_device_provider_the_virtual_speaker_node_fails_cleanly() {
+    let e = Engine::new(
+        Arc::new(SimBackend::new()) as Arc<dyn Backend>,
+        None,
+        EngineConfig::default(),
+    );
+    let spec = GraphSpec {
+        nodes: vec![node("spk", NodeKind::VirtualSpeaker { name: "S".into() })],
+        edges: vec![],
+    };
+    e.apply(validate(&spec).unwrap());
+    let status = e.status();
+    match &status.nodes[0].state {
+        NodeState::Failed(m) => assert!(m.contains("no virtual device provider"), "{m}"),
+        other => panic!("expected a failure, got {other:?}"),
+    }
+}
