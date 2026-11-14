@@ -49,6 +49,8 @@ struct Shared {
     sinks: HashMap<String, SimSink>,
     /// Health of every stream opened so far (to simulate device failures).
     healths: Vec<Arc<StreamHealth>>,
+    /// When false, sinks throw away what they receive instead of recording it (long-running demos).
+    discard: bool,
 }
 
 /// The simulated backend. Cloning shares the same world.
@@ -97,6 +99,12 @@ impl SimBackend {
             },
         );
         recording
+    }
+
+    /// Makes the sinks opened from now on discard their audio instead of recording it (for demos that run for
+    /// hours: a recording would grow without bound).
+    pub fn discard_audio(&self) {
+        self.shared.lock().unwrap().discard = true;
     }
 
     /// Makes every stream opened so far fail, like a device that was unplugged: they stop delivering audio.
@@ -226,6 +234,7 @@ impl CaptureStream for SimCapture {
 struct SimRender {
     sink: SimSink,
     health: Arc<StreamHealth>,
+    discard: bool,
 }
 
 impl RenderStream for SimRender {
@@ -238,14 +247,16 @@ impl RenderStream for SimRender {
     fn start(self: Box<Self>, mut callback: RenderCallback) -> Result<Box<dyn Running>, HalError> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop2 = stop.clone();
-        let (sink, health) = (self.sink, self.health.clone());
+        let (sink, health, discard) = (self.sink, self.health.clone(), self.discard);
         let thread = std::thread::spawn(move || {
             let chunk = (sink.format.sample_rate / 100) as usize;
             let mut buf = vec![0.0f32; chunk * sink.format.channels as usize];
             let mut pacer = Pacer::new(sink.format.sample_rate, sink.ppm);
             while !stop2.load(Ordering::Relaxed) && !health.has_failed() {
                 callback(&mut buf);
-                sink.recording.lock().unwrap().extend_from_slice(&buf);
+                if !discard {
+                    sink.recording.lock().unwrap().extend_from_slice(&buf);
+                }
                 health.add_frames(chunk as u64);
                 pacer.wait(chunk as u64, &stop2);
             }
@@ -307,10 +318,14 @@ impl Backend for SimBackend {
         let s = self.shared.lock().unwrap();
         let (_, sink) = Self::find(&s.sinks, device)
             .ok_or_else(|| HalError::NotFound(format!("{device:?}")))?;
-        let health = StreamHealth::new();
+        let (health, discard) = (StreamHealth::new(), s.discard);
         drop(s);
         self.track(&health);
-        Ok(Box::new(SimRender { sink, health }))
+        Ok(Box::new(SimRender {
+            sink,
+            health,
+            discard,
+        }))
     }
 
     fn list_apps(&self) -> Result<Vec<AppInfo>, HalError> {
@@ -368,10 +383,15 @@ impl VirtualDeviceProvider for SimBackend {
                 recording: Arc::default(),
             })
             .clone();
+        let discard = s.discard;
         drop(s);
         let health = StreamHealth::new();
         self.track(&health);
-        Ok(Box::new(SimRender { sink, health }))
+        Ok(Box::new(SimRender {
+            sink,
+            health,
+            discard,
+        }))
     }
 }
 
