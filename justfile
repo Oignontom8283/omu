@@ -8,8 +8,9 @@
 #   gui                 omu-gui     the desktop window
 #   all                           the three (the default of build and dev)
 #
-# `just build [target]` makes release builds, `just dev [target]` makes debug builds (fast to compile, with debug
-# information). Cargo itself builds the web panel (npm) for the targets that embed it, so `cargo run` of the daemon or
+# `just build [target]` (alias `just release`) makes release builds, `just build [target] native` also tunes them for
+# this machine's processor, `just dev [target]` makes debug builds (fast to compile, with debug information) and
+# `just run [target]` builds in release mode and runs. Cargo itself builds the web panel (npm) for the targets that embed it, so `cargo run` of the daemon or
 # of the window is always up to date; the command line needs no Node.js.
 
 # `just` runs recipes with `sh`; on Windows without Git Bash in PATH, use PowerShell instead.
@@ -18,28 +19,31 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 default:
     @just --list
 
-# Release build: just build [all|gui|cli|demon|server]
-build target="all": (_cargo "build --release" replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon"))
+# Release build: just build [all|gui|cli|demon|server] [native]
+# With `native` the code is also tuned for THIS machine's processor (-C target-cpu=native): a little faster, but the
+# executables may crash with an illegal instruction on another, older or different processor. Meant for building from
+# source to run on the same computer, not for binaries that are handed to others.
+build target="all" native="": (_cargo "build --release" replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") native)
 
 # Same as `build`
-release target="all": (build target)
+release target="all" native="": (build target native)
 
 # Debug build (not release): just dev [all|gui|cli|demon|server]
-dev target="all": (_cargo "build" replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon"))
+dev target="all": (_cargo "build" replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") "")
 
-# Run a debug build: just run demon --demo     just run cli status     just run gui
+# Build (release) and run: just run demon --demo     just run cli status     just run gui
 run target="demon" *args:
-    {{ if target == "cli" { "cargo run --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run --bin omu-gui --no-default-features --features gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --bin omu-daemon --no-default-features --features daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
+    {{ if target == "cli" { "cargo run --release --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run --release --bin omu-gui --no-default-features --features gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --release --bin omu-daemon --no-default-features --features daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
 
 # The cargo command of a target (private). `all` builds the targets one after the other, each with exactly its own
 # features: cargo unifies the features of everything built by one command, so building them together would give the
 # command-line client the daemon's code (and size).
 [private]
-_cargo verb target:
-    {{ if target == "all" { just_executable() + " _each " + quote(verb) } else if target == "gui" { "cargo " + verb + " --bin omu-gui --no-default-features --features gui" } else if target == "cli" { "cargo " + verb + " --bin omu-cli --no-default-features --features cli" } else if target == "demon" { "cargo " + verb + " --bin omu-daemon --no-default-features --features daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") } }}
+_cargo verb target native:
+    {{ if target == "all" { just_executable() + " _each " + quote(verb) + " " + quote(native) } else { "cargo " + verb + " --bin " + (if target == "gui" { "omu-gui" } else if target == "cli" { "omu-cli" } else if target == "demon" { "omu-daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + " --no-default-features --features " + (if target == "demon" { "daemon" } else { target }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
 
 [private]
-_each verb: (_cargo verb "cli") (_cargo verb "demon") (_cargo verb "gui")
+_each verb native: (_cargo verb "cli" native) (_cargo verb "demon" native) (_cargo verb "gui" native)
 
 # Run every test (Rust, every feature)
 test:
