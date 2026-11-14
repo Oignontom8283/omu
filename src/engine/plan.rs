@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     fn gain_node_scales_its_input_and_meters_it() {
-        let (mut sp, sc, _) = source_bridge(AudioFormat::ENGINE, 10.0);
+        let (mut sp, sc, _) = source_bridge(AudioFormat::ENGINE, 100.0);
         for _ in 0..14 {
             sp.push(&vec![0.5f32; 960]); // 14 cycles of audio for the 10 cycles run below
         }
@@ -202,9 +202,9 @@ mod tests {
     #[test]
     fn sink_pushes_its_input_into_the_bridge() {
         let (sp, mut sc, _) = sink_bridge(AudioFormat::ENGINE, 10.0);
-        let (mut src_p, src_c, _) = source_bridge(AudioFormat::ENGINE, 10.0);
-        for _ in 0..4 {
-            src_p.push(&vec![0.3f32; 960]);
+        let (mut src_p, src_c, _) = source_bridge(AudioFormat::ENGINE, 100.0);
+        for _ in 0..12 {
+            src_p.push(&vec![0.3f32; 960]); // enough to prime the source (100 ms) and to outlast the 6 cycles below
         }
         let mut plan = Plan::new(
             vec![

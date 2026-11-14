@@ -371,6 +371,15 @@ impl VirtualDeviceProvider for SimBackend {
         Ok(())
     }
 
+    fn microphone_names(&self) -> Vec<String> {
+        let s = self.shared.lock().unwrap();
+        s.sinks
+            .keys()
+            .filter_map(|k| k.strip_prefix("virtual:"))
+            .map(str::to_owned)
+            .collect()
+    }
+
     fn create_microphone(&self, name: &str) -> Result<Box<dyn RenderStream>, HalError> {
         let key = format!("virtual:{name}");
         let mut s = self.shared.lock().unwrap();

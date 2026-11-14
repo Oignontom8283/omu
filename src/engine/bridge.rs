@@ -32,6 +32,10 @@ pub struct BridgeStats {
     pub overruns: AtomicU64,
     /// Latest smoothed fill level, in milliseconds (x10 to keep one decimal in an integer).
     fill_ms_x10: AtomicU32,
+    /// Times the consumer read the ring (tells the producer whether anyone listens at all).
+    pulls: AtomicU64,
+    /// Times a backlog of stale audio was thrown away so that playback restarts close to live.
+    pub trimmed: AtomicU64,
 }
 
 impl BridgeStats {
@@ -74,6 +78,22 @@ fn advance(cons: &mut Consumer<f32>, n: usize) {
         if let Ok(chunk) = cons.read_chunk(n) {
             chunk.commit_all();
         }
+    }
+}
+
+/// When the consumer was not reading for a while (a virtual microphone nobody records), the ring is full of old audio.
+/// Keep only the latest `target` frames: a listener that starts now hears the present, not half a second ago.
+fn trim_backlog(
+    cons: &mut Consumer<f32>,
+    channels: usize,
+    avail: &mut usize,
+    target: usize,
+    stats: &BridgeStats,
+) {
+    if *avail > target * 4 {
+        advance(cons, (*avail - target) * channels);
+        *avail = target;
+        stats.trimmed.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -155,7 +175,7 @@ impl SourceConsumer {
     /// Fills `out` (engine format) with the next frames; silence while priming or after an underrun.
     pub fn pull(&mut self, out: &mut [f32]) {
         let n_out = out.len() / ENGINE_CH;
-        let avail = self.cons.slots() / self.dev_ch;
+        let mut avail = self.cons.slots() / self.dev_ch;
         if !self.primed {
             if avail < self.target_frames {
                 out.fill(0.0);
@@ -163,6 +183,13 @@ impl SourceConsumer {
             }
             self.primed = true;
         }
+        trim_backlog(
+            &mut self.cons,
+            self.dev_ch,
+            &mut avail,
+            self.target_frames,
+            &self.stats,
+        );
         let ratio = self.controller.update(avail);
         self.stats
             .set_fill_ms(self.controller.smoothed_fill() * 1000.0 / self.dev_rate as f64);
@@ -195,11 +222,25 @@ impl SourceConsumer {
 pub struct SinkProducer {
     prod: Producer<f32>,
     stats: Arc<BridgeStats>,
+    last_pulls: u64,
+    /// Consecutive pushes during which the consumer did not read at all.
+    idle_pushes: u32,
 }
+
+/// Pushes without any read after which a full ring is no longer an error: nobody is listening.
+const IDLE_PUSHES: u32 = 50;
 
 impl SinkProducer {
     pub fn push(&mut self, data: &[f32]) {
-        if !write(&mut self.prod, data) {
+        let pulls = self.stats.pulls.load(Ordering::Relaxed);
+        if pulls == self.last_pulls {
+            self.idle_pushes = self.idle_pushes.saturating_add(1);
+        } else {
+            self.idle_pushes = 0;
+            self.last_pulls = pulls;
+        }
+        // A full ring while nobody reads (an unused virtual microphone) is normal: drop quietly.
+        if !write(&mut self.prod, data) && self.idle_pushes < IDLE_PUSHES {
             self.stats.overruns.fetch_add(1, Ordering::Relaxed);
         }
     }
@@ -231,6 +272,8 @@ pub fn sink_bridge(
         SinkProducer {
             prod,
             stats: stats.clone(),
+            last_pulls: 0,
+            idle_pushes: 0,
         },
         SinkConsumer {
             cons,
@@ -251,6 +294,7 @@ pub fn sink_bridge(
 impl SinkConsumer {
     /// Fills `out` (device format) with the next frames to play; silence while priming or after an underrun.
     pub fn pull(&mut self, out: &mut [f32]) {
+        self.stats.pulls.fetch_add(1, Ordering::Relaxed);
         let total = out.len() / self.dev_ch;
         let mut done = 0;
         while done < total {
@@ -262,7 +306,7 @@ impl SinkConsumer {
     }
 
     fn pull_piece(&mut self, out: &mut [f32], n_dev: usize) {
-        let avail = self.cons.slots() / ENGINE_CH;
+        let mut avail = self.cons.slots() / ENGINE_CH;
         if !self.primed {
             if avail < self.target_frames {
                 out.fill(0.0);
@@ -270,6 +314,13 @@ impl SinkConsumer {
             }
             self.primed = true;
         }
+        trim_backlog(
+            &mut self.cons,
+            ENGINE_CH,
+            &mut avail,
+            self.target_frames,
+            &self.stats,
+        );
         let ratio = self.controller.update(avail);
         self.stats
             .set_fill_ms(self.controller.smoothed_fill() * 1000.0 / ENGINE_SAMPLE_RATE as f64);
@@ -419,6 +470,46 @@ mod tests {
                 "{ppm} ppm: {under} underruns, {over} overruns"
             );
         }
+    }
+
+    #[test]
+    fn a_listener_that_starts_late_hears_the_present_not_the_backlog() {
+        let (mut prod, mut cons, stats) = sink_bridge(AudioFormat::ENGINE, 20.0);
+        for _ in 0..40 {
+            prod.push(&vec![0.1f32; CYCLE * 2]); // old audio nobody read
+        }
+        for _ in 0..3 {
+            prod.push(&vec![0.9f32; CYCLE * 2]); // the present
+        }
+        let mut out = vec![0.0f32; CYCLE * 2];
+        cons.pull(&mut out);
+        assert!(
+            out.iter().all(|s| (*s - 0.9).abs() < 1e-3),
+            "starts with the latest audio: {}",
+            out[0]
+        );
+        assert_eq!(stats.trimmed.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn a_full_ring_nobody_reads_is_not_counted_as_overruns() {
+        let (mut prod, _cons, stats) = sink_bridge(AudioFormat::ENGINE, 20.0);
+        for _ in 0..300 {
+            prod.push(&vec![0.1f32; CYCLE * 2]);
+        }
+        assert!(
+            stats.overruns.load(Ordering::Relaxed) < 10,
+            "{}",
+            stats.overruns.load(Ordering::Relaxed)
+        );
+        // and a reader that is there keeps the ring short instead of letting it overrun
+        let (mut prod, mut cons, stats) = sink_bridge(AudioFormat::ENGINE, 20.0);
+        let mut out = vec![0.0f32; 16];
+        for _ in 0..300 {
+            cons.pull(&mut out);
+            prod.push(&vec![0.1f32; CYCLE * 2]);
+        }
+        assert!(stats.trimmed.load(Ordering::Relaxed) > 0);
     }
 
     #[test]

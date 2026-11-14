@@ -1,0 +1,254 @@
+//! The tool that attaches a USB/IP device to Windows: the `usbip-win2` client (`usbip.exe`).
+//!
+//! It is not part of this product: it is a signed driver package made by someone else, installed by the user (this
+//! product never installs a driver by itself). [`UsbipTool`] hides it behind a trait so that everything above can be
+//! tested without a driver, and so that another way of attaching (or another platform's) can be plugged in.
+//!
+//! Applications sharing the driver must only detach the ports they attached: never `detach --all`.
+
+use std::path::PathBuf;
+
+/// Attaches and detaches devices served by our own USB/IP server.
+pub trait UsbipTool: Send + Sync {
+    /// Whether the tool is installed and usable; the error says what is missing and how to get it.
+    fn available(&self) -> Result<(), String>;
+    /// Attaches `busid` of the server listening on `127.0.0.1:server_port`; returns the tool's port number.
+    fn attach(&self, server_port: u16, busid: &str) -> Result<u32, String>;
+    /// Detaches a port this program attached.
+    fn detach(&self, port: u32) -> Result<(), String>;
+    /// The devices currently attached through the tool (by any program).
+    fn imported(&self) -> Result<Vec<Imported>, String>;
+}
+
+/// A device attached through the USB/IP client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Imported {
+    pub port: u32,
+    pub vendor_id: u16,
+    pub product_id: u16,
+    /// The TCP port of the server it comes from, when it is on this machine.
+    pub server_port: Option<u16>,
+}
+
+/// Reads the output of `usbip port`, for example:
+///
+/// ```text
+/// Imported USB devices
+/// ====================
+/// Port 01: device in use at High Speed(480Mbps)
+///          Generic : pid.codes Test PID (1209:0001)
+///            -> usbip://127.0.0.1:43108/1-1
+///            -> remote bus/dev 001/001
+/// ```
+pub fn parse_imported(text: &str) -> Vec<Imported> {
+    let mut out: Vec<Imported> = vec![];
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("Port ") {
+            if let Some(port) = rest.split(':').next().and_then(|p| p.trim().parse().ok()) {
+                out.push(Imported {
+                    port,
+                    vendor_id: 0,
+                    product_id: 0,
+                    server_port: None,
+                });
+            }
+        } else if let Some(current) = out.last_mut() {
+            if let Some(ids) = line.rsplit_once('(').and_then(|(_, r)| r.strip_suffix(')')) {
+                if let Some((v, p)) = ids.split_once(':') {
+                    if let (Ok(v), Ok(p)) = (u16::from_str_radix(v, 16), u16::from_str_radix(p, 16))
+                    {
+                        current.vendor_id = v;
+                        current.product_id = p;
+                    }
+                }
+            }
+            if let Some(url) = line.strip_prefix("-> usbip://127.0.0.1:") {
+                current.server_port = url.split('/').next().and_then(|p| p.parse().ok());
+            }
+        }
+    }
+    out
+}
+
+/// The Windows client, `usbip.exe` of usbip-win2.
+#[derive(Debug, Default, Clone)]
+pub struct UsbipExe;
+
+impl UsbipExe {
+    /// Where `usbip.exe` is: `USBIP_EXE` if set, else the installer's default folders.
+    pub fn locate() -> Option<PathBuf> {
+        if let Some(path) = std::env::var_os("USBIP_EXE") {
+            return Some(path.into());
+        }
+        ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
+            .iter()
+            .filter_map(std::env::var_os)
+            .map(|base| PathBuf::from(base).join("USBip").join("usbip.exe"))
+            .find(|path| path.is_file())
+    }
+
+    #[cfg(windows)]
+    fn command(path: &std::path::Path) -> std::process::Command {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut command = std::process::Command::new(path);
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+
+    #[cfg(not(windows))]
+    fn command(path: &std::path::Path) -> std::process::Command {
+        std::process::Command::new(path)
+    }
+}
+
+const MISSING: &str =
+    "the USB/IP client (usbip-win2) is not installed: virtual microphones need it \
+(https://github.com/vadimgrn/usbip-win2/releases)";
+
+impl UsbipTool for UsbipExe {
+    fn available(&self) -> Result<(), String> {
+        if cfg!(windows) {
+            Self::locate()
+                .map(|_| ())
+                .ok_or_else(|| MISSING.to_string())
+        } else {
+            Err("virtual microphones through USB/IP are only available on Windows for now".into())
+        }
+    }
+
+    fn attach(&self, server_port: u16, busid: &str) -> Result<u32, String> {
+        let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
+        let output = Self::command(&path)
+            .args([
+                "--tcp-port",
+                &server_port.to_string(),
+                "attach",
+                "--remote",
+                "127.0.0.1",
+                "--bus-id",
+                busid,
+            ])
+            .args(["--once", "--terse"])
+            .output()
+            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        if !output.status.success() {
+            return Err(format!(
+                "usbip attach failed: {}{}",
+                String::from_utf8_lossy(&output.stdout).trim(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+        }
+        let text = String::from_utf8_lossy(&output.stdout);
+        text.trim()
+            .parse()
+            .map_err(|_| format!("usbip attach returned no port number: {text:?}"))
+    }
+
+    fn detach(&self, port: u32) -> Result<(), String> {
+        let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
+        let status = Self::command(&path)
+            .args(["detach", "--port", &port.to_string()])
+            .status()
+            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        status
+            .success()
+            .then_some(())
+            .ok_or_else(|| format!("usbip detach of port {port} failed: {status}"))
+    }
+
+    fn imported(&self) -> Result<Vec<Imported>, String> {
+        let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
+        let output = Self::command(&path)
+            .arg("port")
+            .output()
+            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        Ok(parse_imported(&String::from_utf8_lossy(&output.stdout)))
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod fake {
+    use super::{Imported, UsbipTool};
+    use std::sync::Mutex;
+
+    /// A tool that records what it is asked and can be told to fail.
+    #[derive(Default)]
+    pub struct FakeTool {
+        pub unavailable: Mutex<Option<String>>,
+        pub attach_error: Mutex<Option<String>>,
+        pub attached: Mutex<Vec<(u16, String)>>,
+        pub detached: Mutex<Vec<u32>>,
+        pub imported: Mutex<Vec<Imported>>,
+    }
+
+    impl UsbipTool for FakeTool {
+        fn available(&self) -> Result<(), String> {
+            self.unavailable.lock().unwrap().clone().map_or(Ok(()), Err)
+        }
+        fn attach(&self, server_port: u16, busid: &str) -> Result<u32, String> {
+            if let Some(e) = self.attach_error.lock().unwrap().clone() {
+                return Err(e);
+            }
+            let mut attached = self.attached.lock().unwrap();
+            attached.push((server_port, busid.to_owned()));
+            Ok(attached.len() as u32)
+        }
+        fn detach(&self, port: u32) -> Result<(), String> {
+            self.detached.lock().unwrap().push(port);
+            Ok(())
+        }
+        fn imported(&self) -> Result<Vec<Imported>, String> {
+            Ok(self.imported.lock().unwrap().clone())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_the_port_listing() {
+        let text = "Imported USB devices
+====================
+Port 01: device in use at High Speed(480Mbps)
+         Generic : pid.codes Test PID (1209:0001)
+           -> usbip://127.0.0.1:43108/1-1
+           -> remote bus/dev 001/001
+Port 02: device in use at Full Speed(12Mbps)
+         Acme : Gadget (046d:c52b)
+           -> usbip://192.168.1.5:3240/3-2
+";
+        let got = parse_imported(text);
+        assert_eq!(
+            got,
+            vec![
+                Imported {
+                    port: 1,
+                    vendor_id: 0x1209,
+                    product_id: 0x0001,
+                    server_port: Some(43108)
+                },
+                Imported {
+                    port: 2,
+                    vendor_id: 0x046d,
+                    product_id: 0xc52b,
+                    server_port: None
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_empty_listing_is_no_devices() {
+        assert!(parse_imported("").is_empty());
+        assert!(parse_imported(
+            "Imported USB devices
+====================
+"
+        )
+        .is_empty());
+    }
+}

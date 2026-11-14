@@ -14,6 +14,7 @@
 //! | [`hal`] | platform backend traits (+ simulated backend, + Windows backend) | |
 //! | [`protocol`] | JSON-RPC control protocol: envelopes, typed methods and events | |
 //! | `engine` | real-time engine: bridges, plan, graph thread, supervision | `engine` |
+//! | `virtual_devices` | virtual microphones through emulated USB audio devices | `engine` |
 //! | `daemon` | the daemon core: request dispatch, persistence, events | `daemon` |
 
 pub mod branding;
@@ -32,3 +33,5 @@ pub mod types;
 pub mod daemon;
 #[cfg(feature = "engine")]
 pub mod engine;
+#[cfg(feature = "engine")]
+pub mod virtual_devices;
