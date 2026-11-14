@@ -19,10 +19,11 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 default:
     @just --list
 
-# Release build: just build [all|gui|cli|demon|server] [native]
 # With `native` the code is also tuned for THIS machine's processor (-C target-cpu=native): a little faster, but the
 # executables may crash with an illegal instruction on another, older or different processor. Meant for building from
 # source to run on the same computer, not for binaries that are handed to others.
+
+# Release build: just build [all|gui|cli|demon|server] [native]
 build target="all" native="": (_cargo "build --release" replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") native)
 
 # Same as `build`
