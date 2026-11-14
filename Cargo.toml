@@ -54,7 +54,7 @@ futures-util = { version = "0.3", optional = true }
 rust-embed = { version = "8.14", optional = true, features = ["mime-guess"] }
 getrandom = { version = "0.4", optional = true }
 clap = { version = "4.6", optional = true, features = ["derive", "env"] }
-ureq = { version = "3.5", optional = true, features = ["json"] }
+ureq = { version = "3.5", optional = true, default-features = false, features = ["json"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", optional = true, features = [
@@ -81,6 +81,13 @@ tungstenite = "0.30"
 
 [build-dependencies]
 toml = "1.2"
+
+# Release builds: link-time optimisation removes what each executable does not use. `panic = "abort"` is NOT used on
+# purpose: the audio thread catches a panicking block (catch_unwind) instead of taking the process down.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

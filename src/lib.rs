@@ -10,8 +10,8 @@
 //! | `cli` | the command-line client's logic | `cli` |
 //! | `client` | typed calls to a daemon over HTTP | `client` |
 //! | [`discovery`] | how clients find the local daemon (address and token) | |
-//! | [`dsp`] | allocation-free audio building blocks | |
-//! | [`hal`] | platform backend traits (+ simulated backend, + Windows backend) | |
+//! | `dsp` | allocation-free audio building blocks | `engine` |
+//! | `hal` | platform backend traits (+ simulated backend, + Windows backend) | `engine` |
 //! | [`protocol`] | JSON-RPC control protocol: envelopes, typed methods and events | |
 //! | `engine` | real-time engine: bridges, plan, graph thread, supervision | `engine` |
 //! | `virtual_devices` | virtual microphones through emulated USB audio devices | `engine` |
@@ -23,8 +23,10 @@ pub mod cli;
 #[cfg(feature = "client")]
 pub mod client;
 pub mod discovery;
+#[cfg(feature = "engine")]
 pub mod dsp;
 pub mod graph;
+#[cfg(feature = "engine")]
 pub mod hal;
 pub mod protocol;
 pub mod types;
