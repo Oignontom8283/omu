@@ -2427,6 +2427,8 @@ dependencies = [
  "rust-embed",
  "serde",
  "serde_json",
+ "tauri",
+ "tauri-build",
  "thiserror 2.0.21",
  "tokio",
  "toml 1.2.1+spec-1.1.0",
@@ -2434,18 +2436,6 @@ dependencies = [
  "ureq",
  "windows",
  "windows-core",
-]
-
-[[package]]
-name = "omu-gui"
-version = "0.4.0"
-dependencies = [
- "omu",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]

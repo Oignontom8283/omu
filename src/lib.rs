@@ -16,6 +16,7 @@
 //! | `engine` | real-time engine: bridges, plan, graph thread, supervision | `engine` |
 //! | `virtual_devices` | virtual microphones through emulated USB audio devices | `engine` |
 //! | `daemon` | the daemon core: request dispatch, persistence, events | `daemon` |
+//! | `gui` | the desktop window's commands | `gui` |
 
 pub mod branding;
 #[cfg(feature = "cli")]
@@ -26,6 +27,8 @@ pub mod discovery;
 #[cfg(feature = "engine")]
 pub mod dsp;
 pub mod graph;
+#[cfg(feature = "gui")]
+pub mod gui;
 #[cfg(feature = "engine")]
 pub mod hal;
 pub mod protocol;

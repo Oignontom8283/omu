@@ -59,9 +59,13 @@ fn main() {
     )
     .unwrap();
 
+    // The window embeds the panel too, and takes its name from the branding.
+    #[cfg(feature = "gui")]
+    gui::prepare(&path);
+
     // The daemon embeds the web panel built into ui/dist: build it (with npm) whenever the daemon is built. The
     // folder must exist for the embedding even when `OMU_SKIP_UI` skips the build.
-    if env::var_os("CARGO_FEATURE_DAEMON").is_some() {
+    if env::var_os("CARGO_FEATURE_DAEMON").is_some() || env::var_os("CARGO_FEATURE_GUI").is_some() {
         panel::ensure_panel(&manifest.join("ui"), &path);
     } else {
         let _ = fs::create_dir_all(manifest.join("ui").join("dist"));
@@ -70,4 +74,25 @@ fn main() {
 
 mod panel {
     include!("build-support/panel.rs");
+}
+
+/// The desktop window: its identity (product name, application id, title) comes from `branding.toml`, so the window
+/// carries the same name as the other executables. `tauri.conf.json` holds the rest.
+#[cfg(feature = "gui")]
+mod gui {
+    use std::{env, path::Path};
+
+    pub fn prepare(branding: &Path) {
+        let text = std::fs::read_to_string(branding).unwrap();
+        let table: toml::Table = text.parse().unwrap();
+        let get = |key: &str| table[key].as_str().unwrap().to_owned();
+        let (name, id) = (get("display_name"), get("app_id"));
+        // Tauri merges this JSON over tauri.conf.json, both for tauri-build and for the macro that embeds the config.
+        let config = format!(
+            r#"{{"productName":{name:?},"identifier":{id:?},"app":{{"windows":[{{"title":{name:?},"width":1280,"height":800,"minWidth":720,"minHeight":480}}]}}}}"#
+        );
+        env::set_var("TAURI_CONFIG", &config);
+        println!("cargo:rustc-env=TAURI_CONFIG={config}");
+        tauri_build::build();
+    }
 }

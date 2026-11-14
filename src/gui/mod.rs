@@ -1,13 +1,13 @@
 //! The desktop window: the web panel in a native window.
 //!
 //! The panel does not open a network connection itself here. It calls the commands below, which use the same
-//! [`omu::client`] as the command line to reach the daemon found through its discovery file. So the window works
+//! [`crate::client`] as the command line to reach the daemon found through its discovery file. So the window works
 //! with the daemon of this machine without any browser-origin or token handling in the page, and the page and the
 //! command line cannot drift apart in how they talk to the daemon.
 
-use omu::client::{Client, ClientError};
-use omu::discovery::data_dir;
-use omu::protocol::Request;
+use crate::client::{Client, ClientError};
+use crate::discovery::data_dir;
+use crate::protocol::Request;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::atomic::{AtomicI64, Ordering};
@@ -71,7 +71,7 @@ pub fn start_daemon() -> Result<(), String> {
 pub fn start_daemon_from(dir: &std::path::Path) -> Result<(), String> {
     let daemon = dir.join(format!(
         "{}{}",
-        omu::branding::DAEMON_EXECUTABLE,
+        crate::branding::DAEMON_EXECUTABLE,
         std::env::consts::EXE_SUFFIX
     ));
     if !daemon.exists() {
@@ -120,10 +120,10 @@ pub fn run() {
         .expect("error while running the desktop window");
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "daemon"))]
 mod tests {
     use super::*;
-    use omu::daemon::launch::{Options, Running};
+    use crate::daemon::launch::{Options, Running};
 
     #[test]
     fn calls_reach_the_daemon_and_errors_keep_their_shape() {
@@ -134,14 +134,14 @@ mod tests {
         opts.demo = true;
         let running = Running::start(opts).unwrap();
         // `call` finds the daemon through the data directory, like the real window does
-        std::env::set_var(omu::branding::env_var("DATA_DIR"), &dir);
+        std::env::set_var(crate::branding::env_var("DATA_DIR"), &dir);
 
         let info = call("system.info", Value::Null).unwrap();
         assert_eq!(info["backend"], "simulated");
         let err = call("graph.set", serde_json::json!({"nodes": 3})).unwrap_err();
-        assert_eq!(err.code, omu::protocol::RpcError::INVALID_PARAMS);
+        assert_eq!(err.code, crate::protocol::RpcError::INVALID_PARAMS);
         let missing = call("nope", Value::Null).unwrap_err();
-        assert_eq!(missing.code, omu::protocol::RpcError::METHOD_NOT_FOUND);
+        assert_eq!(missing.code, crate::protocol::RpcError::METHOD_NOT_FOUND);
 
         running.stop();
         let gone = call("system.info", Value::Null).unwrap_err();
@@ -156,7 +156,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let e = start_daemon_from(&dir).unwrap_err();
         assert!(
-            e.contains(omu::branding::DAEMON_EXECUTABLE) && e.contains("not found"),
+            e.contains(crate::branding::DAEMON_EXECUTABLE) && e.contains("not found"),
             "{e}"
         );
         let _ = std::fs::remove_dir_all(&dir);

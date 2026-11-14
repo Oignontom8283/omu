@@ -60,7 +60,7 @@ export class Rpc {
 
   constructor(private token: string) {}
 
-  // Desktop window: the app's own commands carry the requests (see ui/src-tauri); nothing is pushed to the page, so
+  // Desktop window: the app's own commands carry the requests (see src/gui); nothing is pushed to the page, so
   // the status and graph events are made by polling.
   private invoke: Invoke | null = null;
   private poll: ReturnType<typeof setInterval> | null = null;

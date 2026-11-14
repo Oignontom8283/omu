@@ -32,4 +32,4 @@ rustc-ice-*.txt
 /local/
 /ui/node_modules/
 /ui/dist/
-/ui/src-tauri/gen/
+/gen/

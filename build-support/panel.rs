@@ -25,7 +25,7 @@ fn newest(path: &Path, newest_seen: &mut SystemTime) {
         let Ok(entries) = std::fs::read_dir(path) else { return };
         for entry in entries.flatten() {
             let name = entry.file_name();
-            if name == "node_modules" || name == "dist" || name == "src-tauri" {
+            if name == "node_modules" || name == "dist" {
                 continue;
             }
             newest(&entry.path(), newest_seen);

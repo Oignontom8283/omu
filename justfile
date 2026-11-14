@@ -29,24 +29,24 @@ dev target="all": (_cargo "build" replace_regex(target, "^(daemon|demon|server)(
 
 # Run a debug build: just run demon --demo     just run cli status     just run gui
 run target="demon" *args:
-    {{ if target == "cli" { "cargo run --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run -p omu-gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --bin omu-daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
+    {{ if target == "cli" { "cargo run --bin omu-cli --no-default-features --features cli -- " + args } else if target == "gui" { "cargo run --bin omu-gui --no-default-features --features gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --bin omu-daemon -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
 
 # The cargo command of a target (private)
 [private]
 _cargo verb target:
-    cargo {{verb}} {{ if target == "all" { "--workspace" } else if target == "gui" { "-p omu-gui" } else if target == "cli" { "--bin omu-cli --no-default-features --features cli" } else if target == "demon" { "--bin omu-daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") } }}
+    cargo {{verb}} {{ if target == "all" { "--all-features" } else if target == "gui" { "--bin omu-gui --no-default-features --features gui" } else if target == "cli" { "--bin omu-cli --no-default-features --features cli" } else if target == "demon" { "--bin omu-daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") } }}
 
-# Run every test (Rust, workspace)
+# Run every test (Rust, every feature)
 test:
-    cargo test --workspace
+    cargo test --all-features
 
 # Fast type-check of everything
 check:
-    cargo check --workspace --all-targets
+    cargo check --all-features --all-targets
 
 # Lints; warnings are errors
 lint:
-    cargo clippy --workspace --all-targets -- -D warnings
+    cargo clippy --all-features --all-targets -- -D warnings
 
 # Format the code
 fmt:
