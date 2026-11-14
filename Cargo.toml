@@ -1,6 +1,6 @@
 [package]
 name = "omu"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Audio routing daemon with a node-graph: capture an application's sound, process it, send it to a virtual microphone"
@@ -42,7 +42,9 @@ default = ["daemon", "cli"]
 # the audio engine and the platform backends (heavy: real-time code, Windows API bindings)
 engine = ["dep:rtrb", "dep:windows", "dep:windows-core"]
 # the daemon: control server (HTTP + WebSocket) and the embedded web panel
-daemon = ["engine", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed", "dep:getrandom", "dep:clap"]
+daemon = ["engine", "logging", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed", "dep:getrandom", "dep:clap"]
+# logs (file, console, in-memory ring) and the Windows crash handlers; without it only the panic hook and the macros exist
+logging = ["dep:tracing-subscriber", "dep:tracing-appender", "dep:windows"]
 # the command-line client
 cli = ["client", "dep:clap"]
 # what any client needs to talk to a daemon (the CLI, a Tauri window): protocol + HTTP client
@@ -50,12 +52,15 @@ client = ["dep:ureq"]
 # the desktop window: the panel embedded in a Tauri window that talks to the daemon through the client. `custom-protocol`
 # is Tauri's own switch for "serve the panel from inside the executable" (without it the window would load a
 # development server's address and stay blank).
-gui = ["client", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol"]
+gui = ["client", "logging", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["std", "fmt", "env-filter", "registry", "tracing-log", "ansi"] }
+tracing-appender = { version = "0.2", optional = true }
 rtrb = { version = "0.4", optional = true }
 dirs = "7.0"
 tokio = { version = "1.54", optional = true, features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
@@ -76,6 +81,11 @@ windows = { version = "0.62", optional = true, features = [
     "Win32_Media_KernelStreaming",
     "Win32_Media_Multimedia",
     "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Kernel",
+    "Win32_System_Memory",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
     "Win32_System_Diagnostics_ToolHelp",
@@ -94,12 +104,24 @@ tungstenite = "0.30"
 toml = "1.2"
 tauri-build = { version = "2", optional = true }
 
-# Release builds: link-time optimisation removes what each executable does not use. `panic = "abort"` is NOT used on
-# purpose: the audio thread catches a panicking block (catch_unwind) instead of taking the process down.
+# Release builds, as optimised as the language allows without tying the result to one machine:
+#  * fat link-time optimisation across every crate + one code-generation unit: the best inlining and dead-code
+#    removal (each executable keeps only what it uses: the CLI carries no audio engine, no server);
+#  * opt-level 3;
+#  * `panic = "unwind"` is kept on purpose: the audio thread contains a panicking block (catch_unwind) and the crash
+#    handler runs the cleanups while unwinding; `abort` would turn every bug into a dead program;
+#  * line tables are kept in the debug information (`.pdb` next to the executable on Windows) and symbols are not
+#    stripped: crash reports then show function, file and line. The debug information is not loaded at run time, so
+#    it costs disk space beside the executable, not speed or memory. Ship the `.pdb` files with the executables.
+# `-C target-cpu=native` is NOT set: it would make binaries that crash with an illegal instruction on older CPUs.
 [profile.release]
-lto = "thin"
+opt-level = 3
+lto = "fat"
 codegen-units = 1
-strip = "symbols"
+panic = "unwind"
+debug = "line-tables-only"
+strip = "none"
+incremental = false
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -1,5 +1,5 @@
 //! The command-line client: parses the arguments, talks to the daemon through [`crate::client`], prints the answer.
-//! The binary (`src/bin/omu`) only calls [`execute`]; keeping the logic here makes it testable against a real daemon.
+//! The binary (`src/bin/omu-cli`) only calls [`execute`]; keeping the logic here makes it testable against a real daemon.
 
 use crate::client::{Client, ClientError};
 use crate::protocol::methods::*;
@@ -43,11 +43,23 @@ pub enum Command {
     },
     /// Stop the engine (the graph is kept and starts again with `route` or `graph set`).
     Stop,
+    /// Show the daemon's latest log lines (and follow them as they come with --follow).
+    Logs(LogsArgs),
     /// Print the address of the web panel (and open it with --open).
     Panel {
         #[arg(long)]
         open: bool,
     },
+}
+
+#[derive(Args, Debug)]
+pub struct LogsArgs {
+    /// How many of the latest lines to show.
+    #[arg(short = 'n', long, default_value_t = 100)]
+    pub lines: usize,
+    /// Keep running and print new lines as they are logged (stop with Ctrl-C).
+    #[arg(short, long)]
+    pub follow: bool,
 }
 
 #[derive(Args, Debug)]
@@ -224,6 +236,16 @@ where
                 )?,
                 None => writeln!(out, "virtual microphones: none on this system")?,
             }
+            if info.previous_run_unclean {
+                writeln!(
+                    out,
+                    "warning: the previous run of the daemon did not stop cleanly{}",
+                    info.crash_report
+                        .as_deref()
+                        .map(|p| format!(" (crash report: {p})"))
+                        .unwrap_or_default()
+                )?;
+            }
             writeln!(
                 out,
                 "engine: {}",
@@ -326,6 +348,32 @@ where
         Command::Stop => {
             client.call::<EngineStop>(&())?;
             writeln!(out, "engine stopped")?;
+        }
+        Command::Logs(args) => {
+            let mut lines = client.call::<LogsRecent>(&LogsParams {
+                after: None,
+                limit: Some(args.lines),
+            })?;
+            let mut last = 0;
+            loop {
+                for line in &lines {
+                    if cli.json {
+                        writeln!(out, "{}", serde_json::to_string(line).unwrap_or_default())?;
+                    } else {
+                        writeln!(out, "{}", line.text)?;
+                    }
+                    last = last.max(line.seq);
+                }
+                out.flush()?;
+                if !args.follow {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                lines = client.call::<LogsRecent>(&LogsParams {
+                    after: Some(last),
+                    limit: Some(500),
+                })?;
+            }
         }
         Command::Panel { open } => {
             let url = client.panel_url();

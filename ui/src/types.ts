@@ -69,6 +69,9 @@ export type SystemInfo = {
   backend: string;
   capabilities: { devices: boolean; app_capture: boolean; virtual_devices: boolean; hotkeys?: boolean };
   virtual_microphones: ProviderInfo | null;
+  /** The previous run of the daemon did not stop cleanly; `crash_report` is the file it left, when it left one. */
+  previous_run_unclean?: boolean;
+  crash_report?: string | null;
 };
 
 export type Layout = Record<string, { x: number; y: number }>;

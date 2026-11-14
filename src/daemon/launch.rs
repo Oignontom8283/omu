@@ -27,6 +27,8 @@ pub struct Options {
     /// Use a simulated audio system (fake applications and devices) instead of the real one: to try the panel and
     /// the protocol on a machine without audio, or without touching the real audio.
     pub demo: bool,
+    /// What the previous run left behind (reported by `system.info`).
+    pub previous_session: crate::diagnostics::PreviousSession,
 }
 
 impl Options {
@@ -39,6 +41,7 @@ impl Options {
             allowed_origins: vec![],
             restore: true,
             demo: false,
+            previous_session: Default::default(),
         }
     }
 }
@@ -117,12 +120,22 @@ pub async fn serve(
         real_backend()?
     };
     let backend_name = backend.name().to_string();
+    tracing::info!(
+        backend = %backend_name,
+        listen = %opts.listen,
+        data_dir = %opts.data_dir.display(),
+        demo = opts.demo,
+        "starting the daemon"
+    );
+    crate::diagnostics::note("backend", backend_name.clone());
+    crate::diagnostics::note("listen", opts.listen.to_string());
     let daemon = Arc::new(Daemon::new(
         backend,
         virtual_devices,
         engine_config,
         Store::new(&opts.data_dir),
     ));
+    daemon.set_previous_session(opts.previous_session.clone());
 
     let token = auth::new_token();
     let (listener, router) = server::bind(
@@ -145,6 +158,7 @@ pub async fn serve(
         _ => format!("cannot listen on {}: {e}", opts.listen),
     })?;
     let address = listener.local_addr().map_err(|e| e.to_string())?;
+    tracing::info!(%address, "control port open");
 
     if opts.restore {
         let d = daemon.clone();
@@ -162,6 +176,11 @@ pub async fn serve(
             Discovery::path_in(&opts.data_dir).display()
         )
     })?;
+    // If the daemon dies without going through the end of this function, the file would send clients to nobody.
+    let cleanup_dir = opts.data_dir.clone();
+    let _discovery_cleanup = crate::diagnostics::on_crash_cleanup("discovery file", move || {
+        Discovery::remove_if_mine(&cleanup_dir)
+    });
     ready(&Info {
         address,
         token,
@@ -170,6 +189,7 @@ pub async fn serve(
     });
 
     let result = server::run(daemon.clone(), listener, router, shutdown).await;
+    tracing::info!("shutting down");
     Discovery::remove_if_mine(&opts.data_dir);
     // Dropping the daemon stops the engine and every stream.
     drop(daemon);

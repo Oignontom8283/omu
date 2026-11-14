@@ -136,6 +136,9 @@ pub enum NodeOp {
     /// Tests only: audio that never runs dry.
     #[cfg(test)]
     Constant(f32),
+    /// Tests only: a block with a bug.
+    #[cfg(test)]
+    Panic,
 }
 
 pub struct PlanNode {
@@ -253,6 +256,8 @@ impl Plan {
                 NodeOp::SilentSource => audio.fill(0.0),
                 #[cfg(test)]
                 NodeOp::Constant(v) => audio.fill(*v),
+                #[cfg(test)]
+                NodeOp::Panic => panic!("test: a block panicked"),
                 NodeOp::Gain(g) => {
                     let input = audio_in(&self.outs, Port::In)
                         .map_or(&self.silence[..], |j| &self.outs[j].audio[..]);

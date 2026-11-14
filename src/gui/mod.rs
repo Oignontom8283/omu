@@ -47,7 +47,10 @@ fn from_client(e: ClientError) -> IpcError {
 /// restarted (new token, new port) is found again without restarting the window.
 pub fn call(method: &str, params: Value) -> Result<Value, IpcError> {
     static IDS: AtomicI64 = AtomicI64::new(1);
-    let client = Client::discover_in(&data_dir()).map_err(from_client)?;
+    let client = Client::discover_in(&data_dir()).map_err(|e| {
+        tracing::debug!(%method, "no daemon found: {e:?}");
+        from_client(e)
+    })?;
     let response = client
         .send(&Request::new(
             IDS.fetch_add(1, Ordering::Relaxed),
@@ -92,7 +95,11 @@ pub fn start_daemon_from(dir: &std::path::Path) -> Result<(), String> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
     }
-    command.spawn().map(|_| ()).map_err(|e| e.to_string())
+    tracing::info!("starting the daemon");
+    command.spawn().map(|_| ()).map_err(|e| {
+        tracing::error!("cannot start the daemon: {e}");
+        e.to_string()
+    })
 }
 
 #[tauri::command]
@@ -117,7 +124,7 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![rpc, launch_daemon])
         .run(tauri::generate_context!())
-        .expect("error while running the desktop window");
+        .unwrap_or_else(|e| crate::diagnostics::fail(&format!("the window could not run: {e}"), 1));
 }
 
 #[cfg(all(test, feature = "daemon"))]
