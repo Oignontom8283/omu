@@ -7,6 +7,7 @@
 //! | [`branding`] | product name and identifiers, resolved at compile time from `branding.toml` | |
 //! | [`types`] | graph schema, ports, audio format, device references | |
 //! | [`graph`] | graph validation and ordering | |
+//! | `cli` | the command-line client's logic | `cli` |
 //! | `client` | typed calls to a daemon over HTTP | `client` |
 //! | [`discovery`] | how clients find the local daemon (address and token) | |
 //! | [`dsp`] | allocation-free audio building blocks | |
@@ -16,6 +17,8 @@
 //! | `daemon` | the daemon core: request dispatch, persistence, events | `daemon` |
 
 pub mod branding;
+#[cfg(feature = "cli")]
+pub mod cli;
 #[cfg(feature = "client")]
 pub mod client;
 pub mod discovery;
