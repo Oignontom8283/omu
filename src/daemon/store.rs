@@ -78,7 +78,7 @@ pub(crate) fn temp_dir(tag: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::methods::Position;
+    use crate::protocol::methods::NodeLayout;
     use crate::types::{NodeKind, NodeSpec};
 
     #[test]
@@ -104,7 +104,7 @@ mod tests {
         };
         s.save_state(&state).unwrap();
         let mut layout = Layout::new();
-        layout.insert("m".into(), Position { x: 1.0, y: 2.0 });
+        layout.insert("m".into(), NodeLayout::at(1.0, 2.0));
         s.save_layout(&layout).unwrap();
         assert_eq!(Store::new(&dir).load_state(), state);
         assert_eq!(Store::new(&dir).load_layout(), layout);

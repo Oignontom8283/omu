@@ -73,14 +73,33 @@ pub struct ValidateResult {
     pub errors: Vec<String>,
 }
 
-/// Where a node is drawn in an editor. Not part of the audio graph: stored by the daemon for the clients.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Position {
+/// How a node is drawn in an editor. Not part of the audio graph: stored by the daemon for the clients.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeLayout {
     pub x: f64,
     pub y: f64,
+    /// How many input points an editor shows on a block that sums its inputs (the mixer). The daemon only ever sees
+    /// the port; this is purely how the links are laid out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inputs: Option<u32>,
+    /// Which of those input points each link into the block is drawn on (the link's id -> the point's number, from 1).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub slots: BTreeMap<String, u32>,
 }
 
-pub type Layout = BTreeMap<String, Position>;
+impl NodeLayout {
+    /// A block at a place, with nothing else to remember.
+    pub fn at(x: f64, y: f64) -> Self {
+        Self {
+            x,
+            y,
+            inputs: None,
+            slots: BTreeMap::new(),
+        }
+    }
+}
+
+pub type Layout = BTreeMap<String, NodeLayout>;
 
 method!(
     /// Name, version, protocol version, backend and capabilities of the daemon.
@@ -175,8 +194,24 @@ mod tests {
     #[test]
     fn layout_round_trips() {
         let mut l = Layout::new();
-        l.insert("app".into(), Position { x: 10.0, y: -4.5 });
+        l.insert("app".into(), NodeLayout::at(10.0, -4.5));
+        let mut mixer = NodeLayout::at(1.0, 2.0);
+        mixer.inputs = Some(3);
+        mixer.slots.insert("a.out->mix.in".into(), 2);
+        l.insert("mix".into(), mixer);
         let back: Layout = serde_json::from_str(&serde_json::to_string(&l).unwrap()).unwrap();
         assert_eq!(l, back);
+    }
+
+    #[test]
+    fn a_layout_without_input_points_still_loads() {
+        // what older versions saved, and what a block without summing inputs needs
+        let old: Layout = serde_json::from_str(r#"{"app":{"x":10.0,"y":-4.5}}"#).unwrap();
+        assert_eq!(old["app"], NodeLayout::at(10.0, -4.5));
+        let plain = serde_json::to_string(&old).unwrap();
+        assert!(
+            !plain.contains("inputs") && !plain.contains("slots"),
+            "{plain}"
+        );
     }
 }

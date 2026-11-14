@@ -475,7 +475,7 @@ pub fn parse_error_response(message: &str) -> Response {
 mod tests {
     use super::*;
     use crate::hal::sim::{SimBackend, SimSource};
-    use crate::protocol::methods::Position;
+    use crate::protocol::methods::NodeLayout;
     use crate::types::{AppTarget, EdgeSpec, NodeKind, NodeSpec, NodeState, PortRef};
     use serde_json::json;
     use std::time::Duration;
@@ -818,7 +818,11 @@ mod tests {
         {
             let d = daemon_in(&dir, &sim);
             let mut l = crate::protocol::methods::Layout::new();
-            l.insert("app".into(), Position { x: 5.0, y: 6.0 });
+            let mut mixer = NodeLayout::at(7.0, 8.0);
+            mixer.inputs = Some(4);
+            mixer.slots.insert("a.out->mix.in".into(), 3);
+            l.insert("mix".into(), mixer);
+            l.insert("app".into(), NodeLayout::at(5.0, 6.0));
             assert!(call(&d, "layout.set", serde_json::to_value(&l).unwrap())
                 .error
                 .is_none());
@@ -826,7 +830,13 @@ mod tests {
         let d = daemon_in(&dir, &sim);
         let got: crate::protocol::methods::Layout =
             serde_json::from_value(call(&d, "layout.get", Value::Null).result.unwrap()).unwrap();
-        assert_eq!(got["app"], Position { x: 5.0, y: 6.0 });
+        assert_eq!(got["app"], NodeLayout::at(5.0, 6.0));
+        assert_eq!(
+            got["mix"].inputs,
+            Some(4),
+            "the input points survive a restart"
+        );
+        assert_eq!(got["mix"].slots["a.out->mix.in"], 3);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
