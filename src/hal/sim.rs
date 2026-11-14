@@ -48,6 +48,8 @@ struct Shared {
     sources: HashMap<String, SimSource>,
     apps: HashMap<u32, (String, SimSource)>,
     sinks: HashMap<String, SimSink>,
+    /// Virtual speakers (by name) and what is played into them.
+    speakers: HashMap<String, SimSource>,
     /// Health of every stream opened so far (to simulate device failures).
     healths: Vec<Arc<StreamHealth>>,
     /// When false, sinks throw away what they receive instead of recording it (long-running demos).
@@ -73,6 +75,15 @@ impl SimBackend {
             .lock()
             .unwrap()
             .sources
+            .insert(name.to_owned(), source);
+    }
+
+    /// Simulates programs playing `source` into the virtual speaker called `name` (before the speaker is created).
+    pub fn play_into_speaker(&self, name: &str, source: SimSource) {
+        self.shared
+            .lock()
+            .unwrap()
+            .speakers
             .insert(name.to_owned(), source);
     }
 
@@ -429,6 +440,35 @@ impl VirtualDeviceProvider for SimBackend {
             .filter_map(|k| k.strip_prefix("virtual:"))
             .map(str::to_owned)
             .collect()
+    }
+
+    fn speaker_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self
+            .shared
+            .lock()
+            .unwrap()
+            .speakers
+            .keys()
+            .cloned()
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn create_speaker(&self, name: &str) -> Result<Box<dyn CaptureStream>, HalError> {
+        let mut s = self.shared.lock().unwrap();
+        // nobody plays into it unless the test or the demo says so: silence
+        let source = *s
+            .speakers
+            .entry(name.to_owned())
+            .or_insert_with(|| SimSource {
+                amplitude: 0.0,
+                ..SimSource::tone(440.0)
+            });
+        drop(s);
+        let health = StreamHealth::new();
+        self.track(&health);
+        Ok(Box::new(SimCapture { source, health }))
     }
 
     fn create_microphone(&self, name: &str) -> Result<Box<dyn RenderStream>, HalError> {

@@ -300,33 +300,76 @@ impl Daemon {
     }
 
     fn feedback_problems(&self, graph: &GraphSpec) -> Vec<String> {
+        let provider = self.virtual_devices.as_ref();
         let mut mics: Vec<String> = graph
             .nodes
             .iter()
             .filter_map(|n| match &n.kind {
-                NodeKind::VirtualMic { name } if !name.trim().is_empty() => {
-                    Some(name.trim().to_lowercase())
-                }
+                NodeKind::VirtualMic { name } => Some(name.clone()),
                 _ => None,
             })
             .collect();
-        if let Some(provider) = &self.virtual_devices {
-            mics.extend(
-                provider
-                    .microphone_names()
-                    .iter()
-                    .map(|n| n.trim().to_lowercase()),
-            );
-        }
-        mics.retain(|n| !n.is_empty());
-        if mics.is_empty() {
+        mics.extend(provider.map(|p| p.microphone_names()).unwrap_or_default());
+        let mut speakers: Vec<String> = graph
+            .nodes
+            .iter()
+            .filter_map(|n| match &n.kind {
+                NodeKind::VirtualSpeaker { name } => Some(name.clone()),
+                _ => None,
+            })
+            .collect();
+        speakers.extend(provider.map(|p| p.speaker_names()).unwrap_or_default());
+
+        let mut problems = self.feedback_for(
+            graph,
+            &mics,
+            Direction::Capture,
+            |k| match k {
+                NodeKind::DeviceCapture { device } => Some(device),
+                _ => None,
+            },
+            "records the virtual microphone",
+            "whatever is sent to it would be heard again",
+        );
+        problems.extend(self.feedback_for(
+            graph,
+            &speakers,
+            Direction::Render,
+            |k| match k {
+                NodeKind::DeviceRender { device } => Some(device),
+                _ => None,
+            },
+            "plays into the virtual speaker",
+            "it would come straight back into the graph",
+        ));
+        problems
+    }
+
+    /// The nodes (`device_of` picks the device a node uses, if it uses one in `direction`) that use one of this
+    /// product's own virtual devices `names`: a loop.
+    fn feedback_for<'g>(
+        &self,
+        graph: &'g GraphSpec,
+        names: &[String],
+        direction: Direction,
+        device_of: impl Fn(&'g NodeKind) -> Option<&'g DeviceRef>,
+        verb: &str,
+        consequence: &str,
+    ) -> Vec<String> {
+        let mut own: Vec<String> = names
+            .iter()
+            .map(|n| n.trim().to_lowercase())
+            .filter(|n| !n.is_empty())
+            .collect();
+        own.dedup();
+        if own.is_empty() {
             return vec![];
         }
         let devices = self.backend.list_devices().unwrap_or_default();
-        let captures = || devices.iter().filter(|d| d.direction == Direction::Capture);
+        let listed = || devices.iter().filter(|d| d.direction == direction);
         let mut problems = vec![];
         for node in &graph.nodes {
-            let NodeKind::DeviceCapture { device } = &node.kind else {
+            let Some(device) = device_of(&node.kind) else {
                 continue;
             };
             let candidates: Vec<String> = match device {
@@ -334,30 +377,30 @@ impl Daemon {
                     let n = n.to_lowercase();
                     std::iter::once(n.clone())
                         .chain(
-                            captures()
+                            listed()
                                 .filter(|d| d.name.to_lowercase().contains(&n))
                                 .map(|d| d.name.to_lowercase()),
                         )
                         .collect()
                 }
-                DeviceRef::Id(id) => captures()
+                DeviceRef::Id(id) => listed()
                     .filter(|d| &d.id == id)
                     .map(|d| d.name.to_lowercase())
                     .collect(),
-                DeviceRef::Default => captures()
+                DeviceRef::Default => listed()
                     .filter(|d| d.is_default)
                     .map(|d| d.name.to_lowercase())
                     .collect(),
             };
-            // Windows names an emulated microphone "Microphone (<name>)": match the name exactly or inside those
-            // parentheses (a short name such as "Mic" must not match every device with "mic" in its name).
+            // Windows names an emulated device "Microphone (<name>)" or "Speakers (<name>)": match the name exactly or
+            // inside those parentheses (a short name such as "Mic" must not match every device with "mic" in its name).
             let is_ours = |c: &str, m: &str| c == m || c.ends_with(&format!("({m})"));
-            if let Some(mic) = mics
+            if let Some(own) = own
                 .iter()
                 .find(|m| candidates.iter().any(|c| is_ours(c, m)))
             {
                 problems.push(format!(
-                    "node {:?} records the virtual microphone {mic:?}: whatever is sent to it would be heard again (feedback)",
+                    "node {:?} {verb} {own:?}: {consequence} (feedback)",
                     node.id.0
                 ));
             }
@@ -646,6 +689,52 @@ mod tests {
             assert_eq!(got, chain(), "the graph itself is kept");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn playing_into_a_virtual_speaker_that_the_same_graph_records_is_refused() {
+        let sim = SimBackend::new();
+        // how Windows names the virtual speaker
+        sim.add_render_device("Speakers (Spk)", crate::types::AudioFormat::ENGINE, 0.0);
+        sim.add_render_device("Real Speakers", crate::types::AudioFormat::ENGINE, 0.0);
+        let d = daemon_in(&temp_dir("feedback-speaker"), &sim);
+        let graph = |target: &str| GraphSpec {
+            nodes: vec![
+                NodeSpec {
+                    id: "in".into(),
+                    kind: NodeKind::VirtualSpeaker { name: "Spk".into() },
+                },
+                NodeSpec {
+                    id: "out".into(),
+                    kind: NodeKind::DeviceRender {
+                        device: DeviceRef::Name(target.into()),
+                    },
+                },
+            ],
+            edges: vec![EdgeSpec {
+                from: PortRef::new("in", "out"),
+                to: PortRef::new("out", "in"),
+            }],
+        };
+        let r = call(
+            &d,
+            "graph.set",
+            serde_json::to_value(graph("Speakers (Spk)")).unwrap(),
+        );
+        let e = r.error.expect("refused");
+        assert_eq!(e.code, RpcError::VALIDATION);
+        assert!(
+            e.message.contains("feedback") && e.message.contains("\"out\""),
+            "{}",
+            e.message
+        );
+        // playing the speaker's sound on an ordinary output is the whole point
+        let r = call(
+            &d,
+            "graph.set",
+            serde_json::to_value(graph("Real")).unwrap(),
+        );
+        assert!(r.error.is_none(), "{:?}", r.error);
     }
 
     #[test]

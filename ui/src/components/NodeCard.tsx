@@ -87,6 +87,13 @@ function Params({ spec }: { spec: NodeSpec }) {
     case 'device_capture':
     case 'device_render':
       return <DeviceEditor spec={spec} />;
+    case 'virtual_speaker':
+      return (
+        <label className="field">
+          <span>{t('field.speakerName')}</span>
+          <input className="nodrag" value={spec.name} onChange={(e) => update(spec.id, { type: 'virtual_speaker', name: e.target.value })} />
+        </label>
+      );
     case 'virtual_mic':
       return (
         <label className="field">

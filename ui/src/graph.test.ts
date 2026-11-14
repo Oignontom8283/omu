@@ -186,3 +186,17 @@ test('meters', () => {
   assert.equal(meterFill(0), 0);
   assert.ok(meterFill(0.1) > 0.6 && meterFill(0.1) < 0.7);
 });
+
+test('a virtual speaker is an input: it sends audio, and its name survives the round trip', () => {
+  assert.deepEqual(PORTS.virtual_speaker.map((q) => `${q.dir}:${q.name}`), ['out:out']);
+  assert.equal(categoryOf('virtual_speaker'), 'input');
+  const g: GraphSpec = {
+    nodes: [
+      { id: 'spk', type: 'virtual_speaker', name: 'Game' },
+      { id: 'mic', type: 'virtual_mic', name: 'Stream' },
+    ],
+    edges: [{ from: { node: 'spk', port: 'out' }, to: { node: 'mic', port: 'in' } }],
+  };
+  const flow = toFlow(g, {});
+  assert.deepEqual(fromFlow(flow.nodes, flow.edges), g);
+});

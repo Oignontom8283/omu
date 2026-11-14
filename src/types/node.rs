@@ -134,6 +134,10 @@ pub enum NodeKind {
     AppCapture { target: AppTarget },
     /// Input: a capture device (microphone, line in, or a virtual device's output).
     DeviceCapture { device: DeviceRef },
+    /// Input: a virtual speaker created and owned by this product. Programs choose it as their output device; what
+    /// they play into it is the sound of this block (useful for programs that cannot be captured one by one, or to
+    /// gather several of them on one device).
+    VirtualSpeaker { name: String },
     // ---- outputs
     /// Output: a playback device (speakers, headphones, or the input side of a third-party virtual cable).
     DeviceRender { device: DeviceRef },
@@ -192,7 +196,9 @@ impl NodeKind {
     /// The ports of this kind of node.
     pub fn ports(&self) -> &'static [PortSpec] {
         match self {
-            NodeKind::AppCapture { .. } | NodeKind::DeviceCapture { .. } => &[OUT_AUDIO],
+            NodeKind::AppCapture { .. }
+            | NodeKind::DeviceCapture { .. }
+            | NodeKind::VirtualSpeaker { .. } => &[OUT_AUDIO],
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => &[IN_AUDIO],
             NodeKind::Gain { .. } => &[IN_AUDIO, OUT_AUDIO],
             NodeKind::Mixer => &[IN_AUDIO_MULTI, OUT_AUDIO],
@@ -212,7 +218,9 @@ impl NodeKind {
     /// The family of this block.
     pub fn category(&self) -> Category {
         match self {
-            NodeKind::AppCapture { .. } | NodeKind::DeviceCapture { .. } => Category::Input,
+            NodeKind::AppCapture { .. }
+            | NodeKind::DeviceCapture { .. }
+            | NodeKind::VirtualSpeaker { .. } => Category::Input,
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => Category::Output,
             NodeKind::Gain { .. } | NodeKind::Mixer | NodeKind::Gate => Category::Processing,
             NodeKind::Variable { .. } | NodeKind::Level { .. } | NodeKind::Logic { .. } => {

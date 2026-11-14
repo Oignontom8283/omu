@@ -140,6 +140,18 @@ pub trait VirtualDeviceProvider: Send + Sync {
     fn available(&self) -> Result<(), HalError>;
     /// Creates (or reuses) a virtual microphone called `name`. The returned stream is what *we* play into it.
     fn create_microphone(&self, name: &str) -> Result<Box<dyn RenderStream>, HalError>;
+    /// Creates (or reuses) a virtual speaker called `name`: an output device other programs can play into. The
+    /// returned stream is what *we* record from it. Providers that cannot make speakers say so (the default).
+    fn create_speaker(&self, _name: &str) -> Result<Box<dyn CaptureStream>, HalError> {
+        Err(HalError::Unsupported(
+            "this provider cannot create virtual speakers".into(),
+        ))
+    }
+    /// The names of the speakers this provider has created so far: the daemon refuses to play into them from the
+    /// graph that records them (feedback).
+    fn speaker_names(&self) -> Vec<String> {
+        vec![]
+    }
     /// The names of the microphones this provider has created so far: the daemon refuses to record from them (a
     /// program must never hear its own output through its own virtual microphone).
     fn microphone_names(&self) -> Vec<String> {
