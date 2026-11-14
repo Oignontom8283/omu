@@ -136,6 +136,10 @@ button.primary {
   border-color: var(--primary);
   color: var(--on-primary);
 }
+button.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
 button.on {
   border-color: var(--primary);
 }

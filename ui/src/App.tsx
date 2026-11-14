@@ -161,6 +161,27 @@ export function App() {
     void load();
   };
 
+  // Stopping the daemon ends all audio and removes the virtual devices: it asks twice (a second click within 4 s).
+  const [confirmShutdown, setConfirmShutdown] = useState(false);
+  useEffect(() => {
+    if (!confirmShutdown) return;
+    const timer = window.setTimeout(() => setConfirmShutdown(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [confirmShutdown]);
+  const shutdownDaemon = async () => {
+    if (!confirmShutdown) {
+      setConfirmShutdown(true);
+      return;
+    }
+    setConfirmShutdown(false);
+    try {
+      await daemon.shutdown();
+    } catch (e) {
+      // the daemon may close the connection before the reply reaches us (or be gone already): that is the answer too
+      if (e instanceof RpcError && e.code !== -1) setNotice(message(e));
+    }
+  };
+
   const stopEngine = async () => {
     try {
       await daemon.stop();
@@ -282,6 +303,9 @@ export function App() {
           </button>
           <button onClick={stopEngine} disabled={conn !== 'open' || !status?.running}>
             {t('app.stopEngine')}
+          </button>
+          <button className={confirmShutdown ? 'danger' : ''} onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
+            {confirmShutdown ? t('app.stopDaemonConfirm') : t('app.stopDaemon')}
           </button>
           <button onClick={revert} disabled={conn !== 'open' || !dirty}>
             {t('app.revert')}

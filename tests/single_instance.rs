@@ -16,7 +16,7 @@ fn temp(name: &str) -> PathBuf {
 }
 
 fn start(dir: &Path) -> Child {
-    Command::new(env!("CARGO_BIN_EXE_omu-daemon"))
+    Command::new(env!("CARGO_BIN_EXE_omud"))
         .args([
             "--demo",
             "--quiet",

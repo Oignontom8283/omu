@@ -18,7 +18,7 @@ fn temp(name: &str) -> PathBuf {
 }
 
 fn start(dir: &Path, crash_test: Option<&str>) -> Child {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_omu-daemon"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_omud"));
     command
         .args([
             "--demo",
