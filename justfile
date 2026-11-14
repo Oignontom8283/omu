@@ -41,7 +41,7 @@ run target="demon" *args:
 # command-line client the daemon's code (and size).
 [private]
 _cargo verb target native:
-    {{ if target == "all" { just_executable() + " _each " + quote(verb) + " " + quote(native) } else { "cargo " + verb + " --bin " + (if target == "gui" { "omu-gui" } else if target == "cli" { "omu-cli" } else if target == "demon" { "omu-daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + " --no-default-features --features " + (if target == "demon" { "daemon" } else { target }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
+    {{ if target == "all" { just_executable() + " _each " + quote(verb) + " " + (if native == "" { "-" } else { quote(native) }) } else { "cargo " + verb + " --bin " + (if target == "gui" { "omu-gui" } else if target == "cli" { "omu-cli" } else if target == "demon" { "omu-daemon" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + " --no-default-features --features " + (if target == "demon" { "daemon" } else { target }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else if native == "-" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
 
 [private]
 _each verb native: (_cargo verb "cli" native) (_cargo verb "demon" native) (_cargo verb "gui" native)
