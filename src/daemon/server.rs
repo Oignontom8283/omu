@@ -86,9 +86,24 @@ pub async fn run(
             }
         })
     };
-    let result = axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown)
-        .await;
+    // Stopping waits for the open connections to end; a panel left open holds a WebSocket for as long as it likes. Give
+    // them a few seconds, then stop anyway.
+    let (stopping_tx, stopping_rx) = tokio::sync::oneshot::channel::<()>();
+    let graceful = async move {
+        shutdown.await;
+        let _ = stopping_tx.send(());
+    };
+    let serving = axum::serve(listener, router).with_graceful_shutdown(graceful);
+    let result = tokio::select! {
+        r = serving => r,
+        () = async {
+            let _ = stopping_rx.await;
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        } => {
+            tracing::warn!("some clients were still connected 3 s after the stop: closing them");
+            Ok(())
+        }
+    };
     ticker.abort();
     result
 }

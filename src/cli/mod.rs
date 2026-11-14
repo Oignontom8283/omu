@@ -43,6 +43,8 @@ pub enum Command {
     },
     /// Stop the engine (the graph is kept and starts again with `route` or `graph set`).
     Stop,
+    /// Stop the daemon itself (not only its engine): everything it created goes away.
+    Shutdown,
     /// Show the daemon's latest log lines (and follow them as they come with --follow).
     Logs(LogsArgs),
     /// Print the address of the web panel (and open it with --open).
@@ -348,6 +350,10 @@ where
         Command::Stop => {
             client.call::<EngineStop>(&())?;
             writeln!(out, "engine stopped")?;
+        }
+        Command::Shutdown => {
+            client.call::<SystemShutdown>(&())?;
+            writeln!(out, "the daemon is stopping")?;
         }
         Command::Logs(args) => {
             let mut lines = client.call::<LogsRecent>(&LogsParams {

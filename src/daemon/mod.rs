@@ -44,6 +44,8 @@ pub struct Daemon {
     state: Mutex<State>,
     listeners: Mutex<Vec<EventListener>>,
     previous: Mutex<crate::diagnostics::PreviousSession>,
+    /// Woken when a client asks the daemon to stop (`system.shutdown`).
+    stop: Arc<tokio::sync::Notify>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -88,7 +90,13 @@ impl Daemon {
             }),
             listeners: Mutex::new(vec![]),
             previous: Mutex::default(),
+            stop: Arc::default(),
         }
+    }
+
+    /// Completes when a client has asked the daemon to stop.
+    pub fn stop_signal(&self) -> Arc<tokio::sync::Notify> {
+        self.stop.clone()
     }
 
     /// Tells the daemon what the previous run left behind, for `system.info`.
@@ -235,6 +243,12 @@ impl Daemon {
                 st.saved.running = false;
                 let _ = self.store.save_state(&st.saved);
                 st.status = EngineStatus::default();
+                result(())
+            }
+            m::SystemShutdown::NAME => {
+                tracing::info!("a client asked the daemon to stop");
+                // the permit is kept if nobody waits yet; the reply goes out before the server closes
+                self.stop.notify_one();
                 result(())
             }
             m::LogsRecent::NAME => {

@@ -115,6 +115,11 @@ method!(
     EngineStop, "engine.stop", () => ()
 );
 method!(
+    /// Stops the daemon itself, cleanly: the engine, the streams, the virtual devices and the discovery file go away.
+    /// The reply is sent first; clients see the connection close.
+    SystemShutdown, "system.shutdown", () => ()
+);
+method!(
     /// The daemon's latest log lines, to read or to follow (see [`LogsParams`]).
     LogsRecent, "logs.recent", LogsParams => Vec<Line>
 );
@@ -142,6 +147,7 @@ pub const ALL_METHODS: &[&str] = &[
     GraphSet::NAME,
     EngineStatusMethod::NAME,
     EngineStop::NAME,
+    SystemShutdown::NAME,
     LogsRecent::NAME,
     LayoutGet::NAME,
     LayoutSet::NAME,
