@@ -3,9 +3,9 @@
 
 use clap::Parser;
 use omu::daemon::launch::{serve, Options, DEFAULT_LISTEN};
+use omu::diagnostics::{self, Settings};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::process::ExitCode;
 
 #[derive(Parser, Debug)]
 #[command(name = omu::branding::DAEMON_EXECUTABLE, version, about = "Audio routing daemon")]
@@ -26,26 +26,69 @@ struct Args {
     /// Use a simulated audio system (fake applications and devices): try the panel without any real audio.
     #[arg(long)]
     demo: bool,
+    /// Do not print the logs on the console (they still go to the log file).
+    #[arg(long)]
+    quiet: bool,
+    /// Break on purpose once started, to check that crashes are handled (used by the tests).
+    #[arg(long, hide = true, value_name = "KIND")]
+    crash_test: Option<String>,
 }
 
-fn main() -> ExitCode {
+/// Fails the way the named kind of bug would.
+fn crash_on_purpose(kind: &str) {
+    match kind {
+        // a panic where nothing guards it: fatal
+        "panic" => panic!("crash test: panic on the main thread"),
+        "thread-panic" => {
+            let _ = std::thread::Builder::new()
+                .name("crash-test".into())
+                .spawn(|| panic!("crash test: panic on a worker thread"))
+                .map(|t| t.join());
+            // the daemon must be gone before this line is reached
+            std::thread::sleep(std::time::Duration::from_secs(30));
+        }
+        // a panic inside a guarded block: reported, and the daemon goes on
+        "contained" => {
+            let outcome = diagnostics::contained(|| panic!("crash test: contained panic"));
+            tracing::info!(
+                survived = outcome.is_err(),
+                "the contained panic was handled"
+            );
+        }
+        // a native crash: writing to address 0
+        "violation" => {
+            // SAFETY: none, this is the point: it must crash with an access violation.
+            unsafe { std::ptr::write_volatile(std::ptr::null_mut::<u8>(), 1) }
+        }
+        other => tracing::error!("unknown crash test {other:?}"),
+    }
+}
+
+fn main() -> std::process::ExitCode {
     let args = Args::parse();
-    let mut opts = Options::new(args.data_dir.unwrap_or_else(omu::discovery::data_dir));
+    let data_dir = args.data_dir.unwrap_or_else(omu::discovery::data_dir);
+    let diag = diagnostics::init(Settings {
+        program: omu::branding::DAEMON_EXECUTABLE,
+        data_dir: data_dir.clone(),
+        dialog: true,
+        console_log: !args.quiet,
+        track_session: true,
+    });
+    let mut opts = Options::new(data_dir);
     opts.listen = args.listen;
     opts.allowed_origins = args.allow_origin;
     opts.restore = !args.no_restore;
     opts.demo = args.demo;
+    opts.previous_session = diag.previous.clone();
     let loopback = opts.listen.ip().is_loopback();
+    let crash_test = args.crash_test;
 
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
         Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: cannot start the runtime: {e}");
-            return ExitCode::FAILURE;
-        }
+        Err(e) => diagnostics::fail(&format!("cannot start the async runtime: {e}"), 1),
     };
     let ready = move |info: &omu::daemon::launch::Info| {
         println!(
@@ -56,19 +99,19 @@ fn main() -> ExitCode {
         println!("audio backend: {}", info.backend);
         println!("web panel: {}", info.panel_url);
         if !loopback {
-            eprintln!("warning: listening on a non-local address; the access token is sent in clear text over the network");
+            tracing::warn!("listening on a non-local address; the access token is sent in clear text over the network");
         }
         println!("press Ctrl-C to stop");
+        if let Some(kind) = &crash_test {
+            crash_on_purpose(kind);
+        }
     };
     let shutdown = async {
         let _ = tokio::signal::ctrl_c().await;
-        println!("stopping");
+        tracing::info!("Ctrl-C received, stopping");
     };
     match runtime.block_on(serve(opts, ready, shutdown)) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("error: {e}");
-            ExitCode::FAILURE
-        }
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(e) => diagnostics::fail(&e, 1),
     }
 }
