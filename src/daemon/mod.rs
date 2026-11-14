@@ -42,6 +42,7 @@ pub struct Daemon {
     store: Store,
     state: Mutex<State>,
     listeners: Mutex<Vec<EventListener>>,
+    previous: Mutex<crate::diagnostics::PreviousSession>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -85,15 +86,27 @@ impl Daemon {
                 status: EngineStatus::default(),
             }),
             listeners: Mutex::new(vec![]),
+            previous: Mutex::default(),
         }
+    }
+
+    /// Tells the daemon what the previous run left behind, for `system.info`.
+    pub fn set_previous_session(&self, previous: crate::diagnostics::PreviousSession) {
+        *lock(&self.previous) = previous;
     }
 
     /// Starts again what was running when the daemon last stopped.
     pub fn restore(&self) {
         let saved = lock(&self.state).saved.clone();
         if saved.running {
-            if let Ok(valid) = validate(&saved.graph) {
-                self.engine.apply(valid);
+            match validate(&saved.graph) {
+                Ok(valid) => {
+                    tracing::info!("restoring the graph that was running at the last stop");
+                    self.engine.apply(valid);
+                }
+                Err(e) => {
+                    tracing::warn!("the saved graph is no longer valid and was not restored: {e:?}")
+                }
             }
         }
     }
@@ -132,7 +145,27 @@ impl Daemon {
                 )
             });
         }
-        let outcome = self.dispatch(&request.method, request.params);
+        let method = request.method.clone();
+        let started = std::time::Instant::now();
+        // A bug in one method must answer that request with an error, not take the daemon down.
+        let outcome =
+            crate::diagnostics::contained(|| self.dispatch(&request.method, request.params))
+                .unwrap_or_else(|_| {
+                    Err(RpcError::internal(
+                        "internal error while handling the request (a crash report was written)",
+                    ))
+                });
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+        match &outcome {
+            // the panel asks for the status several times a second: that is not worth a line
+            Ok(_) if method == m::EngineStatusMethod::NAME || method == m::LogsRecent::NAME => {
+                tracing::trace!(%method, elapsed_ms, "request")
+            }
+            Ok(_) => tracing::debug!(%method, elapsed_ms, "request"),
+            Err(e) => {
+                tracing::warn!(%method, code = e.code, elapsed_ms, "request failed: {}", e.message)
+            }
+        }
         let id = id?;
         Some(match outcome {
             Ok(v) => Response::ok(Some(id), v),
@@ -195,12 +228,24 @@ impl Daemon {
             }
             m::EngineStatusMethod::NAME => result(lock(&self.state).status.clone()),
             m::EngineStop::NAME => {
+                tracing::info!("engine stop requested");
                 self.engine.stop();
                 let mut st = lock(&self.state);
                 st.saved.running = false;
                 let _ = self.store.save_state(&st.saved);
                 st.status = EngineStatus::default();
                 result(())
+            }
+            m::LogsRecent::NAME => {
+                let p = params::<m::LogsRecent>(p)?;
+                let limit = p
+                    .limit
+                    .unwrap_or(200)
+                    .clamp(1, crate::diagnostics::ring::CAPACITY);
+                result(match p.after {
+                    Some(seq) => crate::diagnostics::ring::since(seq, limit),
+                    None => crate::diagnostics::ring::recent(limit),
+                })
             }
             m::LayoutGet::NAME => result(lock(&self.state).layout.clone()),
             m::LayoutSet::NAME => {
@@ -217,7 +262,10 @@ impl Daemon {
     }
 
     fn system_info(&self) -> SystemInfo {
+        let previous = lock(&self.previous).clone();
         SystemInfo {
+            previous_run_unclean: previous.unclean,
+            crash_report: previous.crash_report.map(|p| p.display().to_string()),
             name: crate::branding::DISPLAY_NAME.into(),
             version: env!("CARGO_PKG_VERSION").into(),
             protocol_version: PROTOCOL_VERSION,
@@ -320,12 +368,22 @@ impl Daemon {
     fn set_graph(&self, graph: GraphSpec) -> Result<(), RpcError> {
         let errors = self.problems(&graph);
         if !errors.is_empty() {
+            tracing::warn!(?errors, "a client sent an invalid graph; refused");
             return Err(RpcError::new(
                 RpcError::VALIDATION,
                 format!("the graph is invalid: {}", errors.join("; ")),
             )
             .with_data(serde_json::json!(errors)));
         }
+        tracing::info!(
+            nodes = graph.nodes.len(),
+            edges = graph.edges.len(),
+            "graph set by a client"
+        );
+        crate::diagnostics::note(
+            "graph",
+            format!("{} nodes, {} edges", graph.nodes.len(), graph.edges.len()),
+        );
         // `problems` found none, so validation succeeds
         let valid = validate(&graph)
             .map_err(|_| RpcError::internal("the graph changed under validation"))?;

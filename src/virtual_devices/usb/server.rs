@@ -83,14 +83,14 @@ impl Server {
                                                 | io::ErrorKind::ConnectionReset
                                                 | io::ErrorKind::ConnectionAborted
                                         ) {
-                                            eprintln!("USB/IP client ended: {error}");
+                                            tracing::debug!("USB/IP client ended: {error}");
                                         }
                                     }
                                 },
                             );
                         }
                         Err(error) => {
-                            eprintln!("USB/IP accept failed: {error}");
+                            tracing::warn!("USB/IP accept failed: {error}");
                             thread::sleep(Duration::from_millis(100));
                         }
                     }
@@ -618,7 +618,7 @@ fn read_urbs(
 
 fn log_failure(what: &str) {
     if URB_ERRORS_LOGGED.fetch_add(1, Ordering::Relaxed) < 50 {
-        eprintln!("USB/IP: refused {what}");
+        tracing::warn!("USB/IP: refused {what}");
     }
 }
 

@@ -3,6 +3,7 @@
 //! Each method is a zero-sized type implementing [`Method`], so a client call is typed end to end
 //! (`client.call::<GraphSet>(&graph)`) and the daemon dispatches on the same names.
 
+use crate::diagnostics::Line;
 use crate::types::{AppInfo, Capabilities, DeviceInfo, EngineStatus, GraphSpec};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -46,6 +47,23 @@ pub struct SystemInfo {
     pub backend: String,
     pub capabilities: Capabilities,
     pub virtual_microphones: Option<ProviderInfo>,
+    /// The previous run of the daemon did not stop cleanly (crash, kill, power cut).
+    #[serde(default)]
+    pub previous_run_unclean: bool,
+    /// The crash report that run left, when there is one (a path on the daemon's machine).
+    #[serde(default)]
+    pub crash_report: Option<String>,
+}
+
+/// Which log lines `logs.recent` returns.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LogsParams {
+    /// Only the lines that came after this one (to follow the log): the `seq` of the last line already seen.
+    #[serde(default)]
+    pub after: Option<u64>,
+    /// At most this many lines (default 200, at most 2000): the most recent ones, or the oldest after `after`.
+    #[serde(default)]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +115,10 @@ method!(
     EngineStop, "engine.stop", () => ()
 );
 method!(
+    /// The daemon's latest log lines, to read or to follow (see [`LogsParams`]).
+    LogsRecent, "logs.recent", LogsParams => Vec<Line>
+);
+method!(
     /// The editor layout saved by the clients.
     LayoutGet, "layout.get", () => Layout
 );
@@ -120,6 +142,7 @@ pub const ALL_METHODS: &[&str] = &[
     GraphSet::NAME,
     EngineStatusMethod::NAME,
     EngineStop::NAME,
+    LogsRecent::NAME,
     LayoutGet::NAME,
     LayoutSet::NAME,
 ];

@@ -211,6 +211,15 @@ impl RenderStream for MicStream {
                 )));
             }
         };
+        tracing::info!(name = %self.name, busid = %self.busid, port, "virtual microphone attached");
+        // If the program dies before this stream is dropped, Windows would keep a ghost device: detach it anyway.
+        let cleanup = {
+            let (tool, server, busid) = (self.tool.clone(), server.clone(), self.busid.clone());
+            crate::diagnostics::on_crash_cleanup("virtual microphone", move || {
+                let _ = tool.detach(port);
+                server.remove(&busid);
+            })
+        };
         let stop = Arc::new(AtomicBool::new(false));
         let monitor = {
             let (server, busid, health, stop) = (
@@ -231,6 +240,7 @@ impl RenderStream for MicStream {
             port,
             stop,
             monitor,
+            _cleanup: cleanup,
         }))
     }
 }
@@ -247,6 +257,7 @@ fn watch(server: &Server, busid: &str, health: &StreamHealth, stop: &AtomicBool)
         } else if seen_attached {
             gone_for += 1;
             if gone_for >= 4 {
+                tracing::warn!(busid, "the virtual microphone was detached by the system");
                 health.fail("the virtual microphone was detached by the system");
                 return;
             }
@@ -261,6 +272,8 @@ struct MicRunning {
     port: u32,
     stop: Arc<AtomicBool>,
     monitor: Option<JoinHandle<()>>,
+    /// Forgets the crash cleanup once this stream has detached the device itself.
+    _cleanup: crate::diagnostics::Registration,
 }
 
 impl Running for MicRunning {}
@@ -272,7 +285,10 @@ impl Drop for MicRunning {
             let _ = m.join();
         }
         // Detach first (Windows removes the device), then stop serving it.
-        let _ = self.tool.detach(self.port);
+        tracing::info!(busid = %self.busid, port = self.port, "detaching the virtual microphone");
+        if let Err(e) = self.tool.detach(self.port) {
+            tracing::warn!(busid = %self.busid, "cannot detach the virtual microphone: {e}");
+        }
         self.server.remove(&self.busid);
     }
 }

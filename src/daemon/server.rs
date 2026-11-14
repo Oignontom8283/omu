@@ -96,11 +96,15 @@ pub async fn run(
 /// `Some(response)` when the request must be refused.
 fn refuse(state: &AppState, headers: &HeaderMap, query: Option<&str>) -> Option<Response> {
     if !auth::origin_allowed(headers, &state.origins) {
+        tracing::warn!(origin = ?headers.get(header::ORIGIN), "request refused: origin not allowed");
         return Some((StatusCode::FORBIDDEN, "origin not allowed").into_response());
     }
     match auth::presented_token(headers, query) {
         Some(t) if auth::same_secret(&t, &state.token) => None,
-        _ => Some((StatusCode::UNAUTHORIZED, unauthorized_body()).into_response()),
+        _ => {
+            tracing::warn!("request refused: missing or wrong access token");
+            Some((StatusCode::UNAUTHORIZED, unauthorized_body()).into_response())
+        }
     }
 }
 
@@ -119,11 +123,14 @@ async fn rpc(State(state): State<AppState>, headers: HeaderMap, uri: Uri, body: 
     match tokio::task::spawn_blocking(move || daemon.handle_text(&text)).await {
         Ok(Some(reply)) => ([(header::CONTENT_TYPE, "application/json")], reply).into_response(),
         Ok(None) => StatusCode::NO_CONTENT.into_response(),
-        Err(_) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "the request handler failed",
-        )
-            .into_response(),
+        Err(e) => {
+            tracing::error!("the request handler failed: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "the request handler failed",
+            )
+                .into_response()
+        }
     }
 }
 
@@ -141,6 +148,7 @@ async fn ws(
 }
 
 async fn socket_loop(state: AppState, socket: WebSocket) {
+    tracing::info!("WebSocket client connected");
     let (mut tx, mut rx) = socket.split();
     let mut events = state.events.subscribe();
     loop {
@@ -176,4 +184,5 @@ async fn socket_loop(state: AppState, socket: WebSocket) {
             }
         }
     }
+    tracing::info!("WebSocket client disconnected");
 }
