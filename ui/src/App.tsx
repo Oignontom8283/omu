@@ -17,6 +17,7 @@ import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Palette } from './components/Palette.tsx';
 import { Modules } from './components/Modules.tsx';
+import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { Soundboards } from './components/Soundboards.tsx';
 import {
   KINDS_BY_CATEGORY,
@@ -78,6 +79,7 @@ export function App() {
   const [boardsPanel, setBoardsPanel] = useState<{ first?: string } | null>(null);
   // the panel of the optional modules (FFmpeg); it and the soundboards panel share the right side, one at a time
   const [modulesPanel, setModulesPanel] = useState(false);
+  const [settingsPanel, setSettingsPanel] = useState(false);
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
@@ -294,6 +296,7 @@ export function App() {
       library,
       openSoundboards: (first?: string) => {
         setModulesPanel(false);
+        setSettingsPanel(false);
         setBoardsPanel({ first });
       },
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
@@ -359,6 +362,7 @@ export function App() {
           <button
             onClick={() => {
               setModulesPanel(false);
+              setSettingsPanel(false);
               setBoardsPanel((p) => (p ? null : {}));
             }}
             className={boardsPanel ? 'on' : ''}
@@ -368,11 +372,22 @@ export function App() {
           <button
             onClick={() => {
               setBoardsPanel(null);
+              setSettingsPanel(false);
               setModulesPanel((v) => !v);
             }}
             className={modulesPanel ? 'on' : ''}
           >
             {t('modules.title')}
+          </button>
+          <button
+            onClick={() => {
+              setBoardsPanel(null);
+              setModulesPanel(false);
+              setSettingsPanel((v) => !v);
+            }}
+            className={settingsPanel ? 'on' : ''}
+          >
+            {t('settings.title')}
           </button>
           <button onClick={autoLayout} disabled={nodes.length === 0}>
             {t('app.tidy')}
@@ -476,11 +491,13 @@ export function App() {
               notify={setNotice}
               onOpenModules={() => {
                 setBoardsPanel(null);
+                setSettingsPanel(false);
                 setModulesPanel(true);
               }}
             />
           )}
           {modulesPanel && <Modules daemon={daemon} onClose={() => setModulesPanel(false)} notify={setNotice} />}
+          {settingsPanel && <SettingsPanel daemon={daemon} onClose={() => setSettingsPanel(false)} notify={setNotice} />}
           {showJson && <textarea className="json" readOnly value={JSON.stringify(graph, null, 2)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">

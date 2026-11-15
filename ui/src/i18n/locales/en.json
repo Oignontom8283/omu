@@ -257,5 +257,8 @@
   "soundboards.addTriggerHint": "Adds an action input that plays a pad each time an action arrives (a keyboard shortcut, a timer, a condition changing...)",
   "soundboards.removeTrigger": "Remove the last pad input",
   "soundboards.playAction": "play",
-  "soundboards.stopAction": "stop everything"
+  "soundboards.stopAction": "stop everything",
+  "settings.title": "Settings",
+  "settings.tray": "Show the icon in the notification area",
+  "settings.trayHint": "A click on the icon opens the interface; its menu opens the interface, stops the engine or quits. The change applies at once."
 }
