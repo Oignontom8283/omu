@@ -251,11 +251,12 @@ pub struct Counters {
 }
 
 fn agent() -> ureq::Agent {
+    // rustls: the same pure-Rust TLS on every system (nothing to install on Linux), trusting the certificates the
+    // operating system trusts
     ureq::Agent::config_builder()
         .tls_config(
             ureq::tls::TlsConfig::builder()
-                .provider(ureq::tls::TlsProvider::NativeTls)
-                // the system's own certificate store (the same trust as the rest of the computer)
+                .provider(ureq::tls::TlsProvider::Rustls)
                 .root_certs(ureq::tls::RootCerts::PlatformVerifier)
                 .build(),
         )
