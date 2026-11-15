@@ -6,7 +6,10 @@ mod keys;
 mod node;
 mod status;
 
-pub use devices::{AppInfo, Capabilities, DeviceInfo, Direction};
+pub use devices::{
+    AppInfo, Capabilities, CleanOutcome, DeviceInfo, Direction, KeptDevices, StaleDevice,
+    StaleDevices,
+};
 pub use format::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 pub use keys::{Key, KeyCombo, Modifiers};
 pub use node::{

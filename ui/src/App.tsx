@@ -35,7 +35,7 @@ import {
 } from './graph.ts';
 import { LANGUAGES, languageName, useI18n } from './i18n/index.tsx';
 import { useTheme, type ThemeChoice } from './theme.tsx';
-import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeSpec, NodeType, SystemInfo } from './types.ts';
+import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeSpec, NodeType, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
@@ -66,6 +66,9 @@ export function App() {
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [problems, setProblems] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  // the old virtual devices Windows still remembers, and whether a cleanup is running
+  const [stale, setStale] = useState<StaleDevices | null>(null);
+  const [cleaning, setCleaning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showJson, setShowJson] = useState(false);
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,6 +121,10 @@ export function App() {
     [setNodes, setEdges],
   );
 
+  const refreshStale = useCallback(() => {
+    daemon.staleDevices().then(setStale).catch(() => setStale(null));
+  }, [daemon]);
+
   const load = useCallback(async () => {
     try {
       const [i, g, layout, a, d] = await Promise.all([daemon.systemInfo(), daemon.graphGet(), daemon.layoutGet(), daemon.apps(), daemon.devices()]);
@@ -126,10 +133,11 @@ export function App() {
       setDevices(d);
       show(g, layout);
       setProblems([]);
+      refreshStale();
     } catch (e) {
       setNotice(message(e));
     }
-  }, [daemon, show]);
+  }, [daemon, show, refreshStale]);
 
   // connection, first load, events
   useEffect(() => {
@@ -169,6 +177,8 @@ export function App() {
       await daemon.graphSet(graph);
       setApplied(graph);
       setProblems([]);
+      // a renamed or removed device leaves an old one behind in Windows: the button shows how many
+      refreshStale();
     } catch (e) {
       setProblems(e instanceof RpcError && e.problems.length ? e.problems : [message(e)]);
     } finally {
@@ -199,6 +209,22 @@ export function App() {
     } catch (e) {
       // the daemon may close the connection before the reply reaches us (or be gone already): that is the answer too
       if (e instanceof RpcError && e.code !== -1) setNotice(message(e));
+    }
+  };
+
+  // Makes Windows forget the old virtual devices. The daemon asks for administrator rights only if it has none already
+  // (the system shows its own confirmation window then).
+  const cleanDevices = async () => {
+    setCleaning(true);
+    setNotice(null);
+    try {
+      const done = await daemon.cleanDevices();
+      setNotice(done.removed > 0 ? t('app.cleanDone', { count: done.removed }) : t('app.cleanNothing'));
+    } catch (e) {
+      setNotice(e instanceof RpcError && e.code === -32004 ? 'app.cleanCancelled' : message(e));
+    } finally {
+      setCleaning(false);
+      refreshStale();
     }
   };
 
@@ -324,6 +350,11 @@ export function App() {
           <button onClick={stopEngine} disabled={conn !== 'open' || !status?.running}>
             {t('app.stopEngine')}
           </button>
+          {stale?.supported && (
+            <button onClick={cleanDevices} disabled={conn !== 'open' || cleaning || stale.stale.length === 0} title={stale.stale.map((s) => s.name).join(', ') || t('app.cleanDevicesHint')}>
+              {cleaning ? t('app.cleaning') : t('app.cleanDevices', { count: stale.stale.length })}
+            </button>
+          )}
           <button className={confirmShutdown ? 'danger' : ''} onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
             {confirmShutdown ? t('app.stopDaemonConfirm') : t('app.stopDaemon')}
           </button>

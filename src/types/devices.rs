@@ -44,3 +44,54 @@ pub struct Capabilities {
     /// Global keyboard shortcuts (the `Hotkey` trigger).
     pub hotkeys: bool,
 }
+
+/// The names of the virtual microphones and speakers a graph uses: what must never be forgotten when old devices are
+/// cleaned up.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeptDevices {
+    pub microphones: Vec<String>,
+    pub speakers: Vec<String>,
+}
+
+impl KeptDevices {
+    /// The virtual devices of `graph`.
+    pub fn of_graph(graph: &super::GraphSpec) -> KeptDevices {
+        let mut kept = KeptDevices::default();
+        for node in &graph.nodes {
+            match &node.kind {
+                super::NodeKind::VirtualMic { name } => kept.microphones.push(name.clone()),
+                super::NodeKind::VirtualSpeaker { name } => kept.speakers.push(name.clone()),
+                _ => {}
+            }
+        }
+        kept
+    }
+}
+
+/// A device the system still remembers although it is gone and no block of the graph uses its name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StaleDevice {
+    /// The name the user gave it.
+    pub name: String,
+}
+
+/// The answer of `devices.stale`: what could be cleaned up, and whether doing it would ask for rights.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StaleDevices {
+    /// False when this system has nothing to clean (no remembered devices, or no virtual devices).
+    pub supported: bool,
+    /// The daemon already has administrator rights: cleaning will not ask for anything.
+    pub elevated: bool,
+    pub stale: Vec<StaleDevice>,
+}
+
+/// The answer of `devices.clean`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CleanOutcome {
+    /// How many old devices were forgotten.
+    pub removed: usize,
+    /// How many are still there (some may be refused).
+    pub remaining: usize,
+    /// The system asked the user for administrator rights for this.
+    pub asked_for_rights: bool,
+}

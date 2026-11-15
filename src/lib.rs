@@ -39,6 +39,8 @@ pub mod types;
 #[cfg(feature = "daemon")]
 pub mod daemon;
 #[cfg(feature = "engine")]
+pub mod elevation;
+#[cfg(feature = "engine")]
 pub mod engine;
 #[cfg(feature = "engine")]
 pub mod virtual_devices;

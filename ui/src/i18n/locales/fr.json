@@ -152,5 +152,11 @@
   "node.removeCondition": "Retirer le dernier « sinon si »",
   "node.namePlaceholder": "Nom du bloc",
   "node.idLabel": "identifiant :",
-  "node.unnamed": "(bloc sans nom)"
+  "node.unnamed": "(bloc sans nom)",
+  "app.cleanDevices": "Nettoyer Windows ({count})",
+  "app.cleaning": "Nettoyage…",
+  "app.cleanDevicesHint": "Windows garde la trace de chaque ancien nom d’un micro ou haut-parleur virtuel. Aucun ancien périphérique à retirer.",
+  "app.cleanDone": "{count} ancien(s) périphérique(s) retiré(s) de Windows",
+  "app.cleanNothing": "Rien n’a été retiré",
+  "app.cleanCancelled": "Nettoyage annulé : les droits d’administrateur ont été refusés, rien n’a été retiré"
 }

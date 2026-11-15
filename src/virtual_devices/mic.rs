@@ -133,6 +133,31 @@ impl UsbMicProvider {
         }
     }
 
+    /// What the system remembers of devices of ours that are gone and not in `kept`, with the records to forget.
+    fn stale_records(
+        &self,
+        kept: &crate::types::KeptDevices,
+    ) -> Result<Vec<(crate::types::StaleDevice, Vec<String>)>, HalError> {
+        if !cfg!(windows) {
+            return Err(HalError::Unsupported(
+                "this system does not remember devices the way Windows does".into(),
+            ));
+        }
+        let all =
+            super::stale::remembered(self.vendor_id, self.product_id).map_err(|f| match f {
+                super::stale::Failure::NeedsAdministrator => {
+                    HalError::NeedsAdministrator("listing the devices".into())
+                }
+                super::stale::Failure::Other(m) => HalError::Backend(m),
+            })?;
+        Ok(super::stale::classify(
+            self.vendor_id,
+            self.product_id,
+            &all,
+            kept,
+        ))
+    }
+
     /// The same provider with its server on another port (tests, which must not take the product's own).
     pub fn with_server_port(mut self, port: u16) -> UsbMicProvider {
         self.server_port = port;
@@ -280,6 +305,34 @@ impl VirtualDeviceProvider for UsbMicProvider {
 
     fn microphone_names(&self) -> Vec<String> {
         lock(&self.names).clone()
+    }
+
+    fn stale_devices(
+        &self,
+        kept: &crate::types::KeptDevices,
+    ) -> Result<Vec<crate::types::StaleDevice>, HalError> {
+        Ok(self
+            .stale_records(kept)?
+            .into_iter()
+            .map(|(stale, _)| stale)
+            .collect())
+    }
+
+    fn forget_stale_devices(&self, kept: &crate::types::KeptDevices) -> Result<(), HalError> {
+        let ids: Vec<String> = self
+            .stale_records(kept)?
+            .into_iter()
+            .flat_map(|(_, ids)| ids)
+            .collect();
+        if ids.is_empty() {
+            return Ok(());
+        }
+        super::stale::forget(&ids).map(|_| ()).map_err(|f| match f {
+            super::stale::Failure::NeedsAdministrator => {
+                HalError::NeedsAdministrator("forgetting the old devices".into())
+            }
+            super::stale::Failure::Other(m) => HalError::Backend(m),
+        })
     }
 
     fn persist(&self) {

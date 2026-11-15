@@ -22,7 +22,8 @@ use crate::protocol::methods::{
 use crate::protocol::{
     Id, Notification, Request, Response, RpcError, JSONRPC_VERSION, PROTOCOL_VERSION,
 };
-use crate::types::{DeviceRef, EngineStatus, GraphSpec, NodeKind};
+use crate::types::{DeviceRef, EngineStatus, GraphSpec, KeptDevices, NodeKind};
+use crate::virtual_devices::clean;
 use serde_json::Value;
 use std::sync::{Arc, Mutex, MutexGuard};
 use store::{SavedState, Store};
@@ -46,6 +47,8 @@ pub struct Daemon {
     previous: Mutex<crate::diagnostics::PreviousSession>,
     /// Woken when a client asks the daemon to stop (`system.shutdown`).
     stop: Arc<tokio::sync::Notify>,
+    /// Administrator rights, for cleaning up old devices.
+    elevator: Arc<dyn crate::elevation::Elevator>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -91,7 +94,14 @@ impl Daemon {
             listeners: Mutex::new(vec![]),
             previous: Mutex::default(),
             stop: Arc::default(),
+            elevator: Arc::new(crate::elevation::SystemElevator),
         }
+    }
+
+    /// The same daemon asking for administrator rights another way (tests).
+    pub fn with_elevator(mut self, elevator: Arc<dyn crate::elevation::Elevator>) -> Daemon {
+        self.elevator = elevator;
+        self
     }
 
     /// Completes when a client has asked the daemon to stop.
@@ -220,6 +230,43 @@ impl Daemon {
         match method {
             m::SystemInfoMethod::NAME => result(self.system_info()),
             m::DevicesList::NAME => result(self.backend.list_devices().map_err(hal_error)?),
+            m::DevicesStale::NAME => {
+                let kept = KeptDevices::of_graph(&lock(&self.state).saved.graph);
+                result(clean::survey(
+                    self.virtual_devices.as_deref(),
+                    &kept,
+                    &*self.elevator,
+                ))
+            }
+            m::DevicesClean::NAME => {
+                let kept = KeptDevices::of_graph(&lock(&self.state).saved.graph);
+                let provider = self.virtual_devices.as_deref().ok_or_else(|| {
+                    RpcError::new(
+                        RpcError::UNAVAILABLE,
+                        "there are no virtual devices to clean up",
+                    )
+                })?;
+                let relaunch = clean::Relaunch::this_program(self.store.dir())
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
+                tracing::info!("cleaning up the old devices");
+                let outcome = clean::clean(provider, &kept, &*self.elevator, &relaunch).map_err(
+                    |e| match e {
+                        clean::CleanError::Unsupported(m) => {
+                            RpcError::new(RpcError::UNAVAILABLE, m)
+                        }
+                        clean::CleanError::Declined => {
+                            RpcError::new(RpcError::CANCELLED, e.to_string())
+                        }
+                        clean::CleanError::Failed(m) => RpcError::internal(m),
+                    },
+                )?;
+                tracing::info!(
+                    removed = outcome.removed,
+                    remaining = outcome.remaining,
+                    "old devices cleaned up"
+                );
+                result(outcome)
+            }
             m::AppsList::NAME => result(self.backend.list_apps().map_err(hal_error)?),
             m::GraphGet::NAME => result(lock(&self.state).saved.graph.clone()),
             m::GraphValidate::NAME => {
@@ -862,5 +909,201 @@ mod tests {
         let devs: Vec<crate::hal::DeviceInfo> =
             serde_json::from_value(call(&d, "devices.list", Value::Null).result.unwrap()).unwrap();
         assert!(devs.iter().any(|x| x.name == "mic"));
+    }
+
+    // ---- cleaning up the old devices the system remembers
+
+    use crate::elevation::{ElevateError, Elevator};
+    use crate::types::{CleanOutcome, StaleDevice, StaleDevices};
+
+    /// A provider that remembers old devices (and forgets them when told to, as an elevated process would).
+    struct Remembers {
+        stale: Mutex<Vec<StaleDevice>>,
+    }
+
+    impl VirtualDeviceProvider for Remembers {
+        fn name(&self) -> &str {
+            "remembers"
+        }
+        fn available(&self) -> Result<(), HalError> {
+            Ok(())
+        }
+        fn create_microphone(
+            &self,
+            _name: &str,
+        ) -> Result<Box<dyn crate::hal::RenderStream>, HalError> {
+            Err(HalError::Unsupported("test".into()))
+        }
+        fn stale_devices(&self, kept: &KeptDevices) -> Result<Vec<StaleDevice>, HalError> {
+            // what the graph uses is never stale
+            Ok(self
+                .stale
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|s| !kept.microphones.contains(&s.name))
+                .cloned()
+                .collect())
+        }
+        fn forget_stale_devices(&self, kept: &KeptDevices) -> Result<(), HalError> {
+            self.stale
+                .lock()
+                .unwrap()
+                .retain(|s| kept.microphones.contains(&s.name));
+            Ok(())
+        }
+    }
+
+    /// Rights that are there or not; a helper started without them is refused or accepted as the test says.
+    struct Rights {
+        elevated: bool,
+        user_accepts: bool,
+        helper_runs: Mutex<u32>,
+        provider: Arc<Remembers>,
+    }
+
+    impl Elevator for Rights {
+        fn is_elevated(&self) -> bool {
+            self.elevated
+        }
+        fn run(
+            &self,
+            _exe: &std::path::Path,
+            args: &[String],
+            _timeout: std::time::Duration,
+        ) -> Result<i32, ElevateError> {
+            *self.helper_runs.lock().unwrap() += 1;
+            assert!(
+                args.contains(&"--clean-devices".to_string())
+                    && args.contains(&"--elevated-helper".to_string())
+            );
+            if !self.user_accepts {
+                return Err(ElevateError::Declined);
+            }
+            self.provider.stale.lock().unwrap().clear();
+            Ok(0)
+        }
+    }
+
+    fn remembering_daemon(
+        names: &[&str],
+        elevated: bool,
+        user_accepts: bool,
+    ) -> (Daemon, Arc<Rights>, std::path::PathBuf) {
+        let dir = temp_dir("clean");
+        let provider = Arc::new(Remembers {
+            stale: Mutex::new(
+                names
+                    .iter()
+                    .map(|n| StaleDevice { name: (*n).into() })
+                    .collect(),
+            ),
+        });
+        let rights = Arc::new(Rights {
+            elevated,
+            user_accepts,
+            helper_runs: Mutex::new(0),
+            provider: provider.clone(),
+        });
+        let d = Daemon::new(
+            Arc::new(SimBackend::new()) as Arc<dyn Backend>,
+            Some(provider as Arc<dyn VirtualDeviceProvider>),
+            EngineConfig::default(),
+            Store::new(&dir),
+        )
+        .with_elevator(rights.clone());
+        (d, rights, dir)
+    }
+
+    #[test]
+    fn the_old_devices_are_listed_with_whether_cleaning_would_ask_for_rights() {
+        let (d, _, dir) = remembering_daemon(&["Old", "Older"], false, true);
+        let r: StaleDevices =
+            serde_json::from_value(call(&d, "devices.stale", Value::Null).result.unwrap()).unwrap();
+        assert!(r.supported && !r.elevated);
+        assert_eq!(r.stale.len(), 2);
+        let (d, _, dir2) = remembering_daemon(&["Old"], true, true);
+        let r: StaleDevices =
+            serde_json::from_value(call(&d, "devices.stale", Value::Null).result.unwrap()).unwrap();
+        assert!(
+            r.elevated,
+            "the developer who runs the daemon with rights is never asked"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn a_system_with_nothing_to_clean_says_so_and_the_panel_shows_nothing() {
+        // the simulated system remembers no devices
+        let dir = temp_dir("clean-none");
+        let d = daemon_in(&dir, &SimBackend::new());
+        let r: StaleDevices =
+            serde_json::from_value(call(&d, "devices.stale", Value::Null).result.unwrap()).unwrap();
+        assert_eq!(r, StaleDevices::default());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cleaning_with_the_rights_asks_for_nothing_and_without_them_asks_once() {
+        let (d, rights, dir) = remembering_daemon(&["Old"], true, true);
+        let done: CleanOutcome =
+            serde_json::from_value(call(&d, "devices.clean", Value::Null).result.unwrap()).unwrap();
+        assert_eq!(
+            done,
+            CleanOutcome {
+                removed: 1,
+                remaining: 0,
+                asked_for_rights: false
+            }
+        );
+        assert_eq!(
+            *rights.helper_runs.lock().unwrap(),
+            0,
+            "no helper, no window"
+        );
+
+        let (d, rights, dir2) = remembering_daemon(&["Old", "Older"], false, true);
+        let done: CleanOutcome =
+            serde_json::from_value(call(&d, "devices.clean", Value::Null).result.unwrap()).unwrap();
+        assert_eq!(
+            done,
+            CleanOutcome {
+                removed: 2,
+                remaining: 0,
+                asked_for_rights: true
+            }
+        );
+        assert_eq!(*rights.helper_runs.lock().unwrap(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn a_refused_confirmation_cancels_and_removes_nothing() {
+        let (d, rights, dir) = remembering_daemon(&["Old"], false, false);
+        let reply = call(&d, "devices.clean", Value::Null);
+        assert_eq!(reply.error.expect("an error").code, RpcError::CANCELLED);
+        assert_eq!(rights.provider.stale.lock().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn what_the_saved_graph_uses_is_never_cleaned() {
+        let (d, _, dir) = remembering_daemon(&["Old", "Mine"], true, true);
+        let mut g = GraphSpec::default();
+        g.nodes.push(NodeSpec::new(
+            "m",
+            NodeKind::VirtualMic {
+                name: "Mine".into(),
+            },
+        ));
+        assert!(call(&d, "graph.set", serde_json::to_value(&g).unwrap())
+            .error
+            .is_none());
+        let r: StaleDevices =
+            serde_json::from_value(call(&d, "devices.stale", Value::Null).result.unwrap()).unwrap();
+        assert_eq!(r.stale, vec![StaleDevice { name: "Old".into() }]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

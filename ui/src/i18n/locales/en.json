@@ -152,5 +152,11 @@
   "node.removeCondition": "Remove the last “else if”",
   "node.namePlaceholder": "Block name",
   "node.idLabel": "id:",
-  "node.unnamed": "(unnamed block)"
+  "node.unnamed": "(unnamed block)",
+  "app.cleanDevices": "Clean up Windows ({count})",
+  "app.cleaning": "Cleaning up…",
+  "app.cleanDevicesHint": "Windows keeps a record of every old name of a virtual microphone or speaker. No old device to remove.",
+  "app.cleanDone": "{count} old device(s) removed from Windows",
+  "app.cleanNothing": "Nothing was removed",
+  "app.cleanCancelled": "Cleaning cancelled: administrator rights were refused, nothing was removed"
 }

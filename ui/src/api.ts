@@ -2,7 +2,7 @@
 // The same endpoint serves a daemon on this machine or on another one: the page talks to whoever served it.
 
 import { DEV_TOKEN } from './types.ts';
-import type { AppInfo, DeviceInfo, EngineStatus, GraphSpec, Layout, SystemInfo, ValidateResult } from './types.ts';
+import type { AppInfo, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Layout, StaleDevices, SystemInfo, ValidateResult } from './types.ts';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -180,6 +180,8 @@ export class Rpc {
 export const api = (rpc: Rpc) => ({
   systemInfo: () => rpc.request<SystemInfo>('system.info'),
   devices: () => rpc.request<DeviceInfo[]>('devices.list'),
+  staleDevices: () => rpc.request<StaleDevices>('devices.stale'),
+  cleanDevices: () => rpc.request<CleanOutcome>('devices.clean'),
   apps: () => rpc.request<AppInfo[]>('apps.list'),
   graphGet: () => rpc.request<GraphSpec>('graph.get'),
   graphValidate: (g: GraphSpec) => rpc.request<ValidateResult>('graph.validate', g),

@@ -30,6 +30,13 @@ struct Args {
     /// Do not print the logs on the console (they still go to the log file).
     #[arg(long)]
     quiet: bool,
+    /// Make the system forget the old virtual devices it still remembers, then stop (the daemon does not start). Asks
+    /// for administrator rights only when this program does not have them already.
+    #[arg(long)]
+    clean_devices: bool,
+    /// Used by the program itself when it starts again with administrator rights for `--clean-devices`.
+    #[arg(long, hide = true)]
+    elevated_helper: bool,
     /// Break on purpose once started, to check that crashes are handled (used by the tests).
     #[arg(long, hide = true, value_name = "KIND")]
     crash_test: Option<String>,
@@ -65,9 +72,46 @@ fn crash_on_purpose(kind: &str) {
     }
 }
 
+/// `--clean-devices`: the old devices of the saved graph's neighbours, forgotten; no daemon is started, so it runs next
+/// to a daemon that is running.
+fn clean_devices(data_dir: PathBuf, helper: bool) -> std::process::ExitCode {
+    use omu::daemon::store::Store;
+    use omu::elevation::SystemElevator;
+    use omu::types::KeptDevices;
+    use omu::virtual_devices::clean::{self, Relaunch};
+    let _diag = diagnostics::init(Settings {
+        program: omu::branding::DAEMON_EXECUTABLE,
+        data_dir: data_dir.clone(),
+        // a helper started with rights has no window: it must not show an error box of its own
+        dialog: false,
+        console_log: false,
+    });
+    let kept = KeptDevices::of_graph(&Store::new(&data_dir).load_state().graph);
+    let relaunch = match Relaunch::this_program(&data_dir) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{e}");
+            return std::process::ExitCode::from(clean::EXIT_FAILED as u8);
+        }
+    };
+    let provider = omu::virtual_devices::platform_provider();
+    let code = clean::run_helper(
+        &*provider,
+        &kept,
+        &SystemElevator,
+        &relaunch,
+        helper,
+        &mut std::io::stdout(),
+    );
+    std::process::ExitCode::from(code as u8)
+}
+
 fn main() -> std::process::ExitCode {
     let args = Args::parse();
     let data_dir = args.data_dir.unwrap_or_else(omu::discovery::data_dir);
+    if args.clean_devices {
+        return clean_devices(data_dir, args.elevated_helper);
+    }
     let mut diag = diagnostics::init(Settings {
         program: omu::branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),

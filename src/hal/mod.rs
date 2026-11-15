@@ -30,6 +30,8 @@ pub enum HalError {
     Unsupported(String),
     #[error("the device is in use or refused the request: {0}")]
     Busy(String),
+    #[error("administrator rights are needed: {0}")]
+    NeedsAdministrator(String),
     #[error("{0}")]
     Backend(String),
 }
@@ -161,4 +163,21 @@ pub trait VirtualDeviceProvider: Send + Sync {
     /// asked after every change of the graph, it does something only when the set of devices changed. It is not asked
     /// when the program stops, so that the devices of the last graph stay permanent.
     fn persist(&self) {}
+    /// The devices the system still remembers although they are gone and `kept` (the names the graph uses) does not
+    /// have them: read only, no rights needed. Systems that remember nothing say so (the default).
+    fn stale_devices(
+        &self,
+        _kept: &crate::types::KeptDevices,
+    ) -> Result<Vec<crate::types::StaleDevice>, HalError> {
+        Err(HalError::Unsupported(
+            "this provider has no old devices to clean up".into(),
+        ))
+    }
+    /// Makes the system forget those devices, in this process: it fails with [`HalError::NeedsAdministrator`] when the
+    /// system wants rights this process does not have.
+    fn forget_stale_devices(&self, _kept: &crate::types::KeptDevices) -> Result<(), HalError> {
+        Err(HalError::Unsupported(
+            "this provider has no old devices to clean up".into(),
+        ))
+    }
 }
