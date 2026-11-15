@@ -72,3 +72,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Symphonia (reading sound files for the soundboards)
+
+Sound files imported into a soundboard (MP3, FLAC, OGG, WAV) are read with `symphonia` and its format and codec crates
+(https://github.com/pdeljanov/Symphonia), by Philip Deljanov and contributors. They are used unmodified, and their
+source is available at that address. Licence: MPL-2.0 (Mozilla Public License 2.0), whose full text is at
+https://www.mozilla.org/MPL/2.0/ and in each of those crates.
+
