@@ -210,5 +210,7 @@
   "soundboards.cacheLimit": "Most memory the soundboards may use (MB)",
   "soundboards.cacheSave": "Save",
   "soundboards.cacheInvalid": "The memory limit is a whole number of megabytes, {min} at least.",
-  "soundboards.cacheHint": "The change applies the next time a soundboard starts playing."
+  "soundboards.cacheHint": "The change applies the next time a soundboard starts playing.",
+  "soundboards.padKey": "Shortcut that plays it",
+  "soundboards.keyIdle": "Works while this soundboard is in the running graph"
 }

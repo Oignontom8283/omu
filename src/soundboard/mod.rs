@@ -4,10 +4,12 @@
 //! * [`pool`]: memory for sounds, as blocks of one size so that nothing ever fragments;
 //! * [`voices`]: the real-time side, what plays and the mixer the graph thread runs;
 //! * [`library`]: the soundboards people made and the sounds in them, saved in the data folder;
+//! * [`hotkeys`]: the keyboard shortcuts that play pads;
 //! * [`import`]: turns an MP3, FLAC, OGG or WAV file into a stored sound;
 //! * [`engine`]: ties it together: the pool, what is loaded, the thread that reads long sounds ahead of their voices.
 
 pub mod engine;
+pub mod hotkeys;
 pub mod import;
 pub mod library;
 pub mod pool;

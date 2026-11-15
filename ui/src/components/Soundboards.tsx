@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { IN_DESKTOP_WINDOW, RpcError, uploadSound, type api } from '../api.ts';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
+import { ShortcutField } from './ShortcutField.tsx';
 import {
   boardInGraph,
   cleanCacheMb,
@@ -419,6 +420,18 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                 </span>
                 <input type="range" min={-30} max={12} step={0.5} value={pad.gain_db ?? 0} onChange={(e) => change(pad, { gain_db: Number(e.target.value) })} />
               </label>
+              <div className="field">
+                <span>{t('soundboards.padKey')}</span>
+                <ShortcutField value={pad.key ?? ''} onChange={(keys) => change(pad, { key: keys || null })} />
+                {(status?.hotkey_problems ?? [])
+                  .filter((h) => h.board === current && h.pad === pad.id)
+                  .map((h) => (
+                    <small key={h.message} className="warn">
+                      {h.message}
+                    </small>
+                  ))}
+                {pad.key && !active && <small className="muted">{t('soundboards.keyIdle')}</small>}
+              </div>
               <label className="check" title={t('soundboards.loopHint')}>
                 <input type="checkbox" checked={pad.looped ?? false} onChange={(e) => change(pad, { looped: e.target.checked })} />
                 {t('soundboards.loop')}

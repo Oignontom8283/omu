@@ -210,5 +210,7 @@
   "soundboards.cacheLimit": "Mémoire maximale des soundboards (Mo)",
   "soundboards.cacheSave": "Enregistrer",
   "soundboards.cacheInvalid": "La limite de mémoire est un nombre entier de mégaoctets, {min} au minimum.",
-  "soundboards.cacheHint": "Le changement s’applique la prochaine fois qu’un soundboard se met à jouer."
+  "soundboards.cacheHint": "Le changement s’applique la prochaine fois qu’un soundboard se met à jouer.",
+  "soundboards.padKey": "Raccourci qui le joue",
+  "soundboards.keyIdle": "Fonctionne quand ce soundboard est dans le graphe en cours"
 }

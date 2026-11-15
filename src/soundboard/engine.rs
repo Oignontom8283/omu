@@ -547,6 +547,7 @@ impl SoundEngine {
                 .map(|r| r.late_frames.load(Ordering::Relaxed))
                 .sum(),
             streams: self.shared.streams.load(Ordering::Relaxed),
+            hotkey_problems: vec![],
         }
     }
 
@@ -701,6 +702,7 @@ mod tests {
                     sound: Some((*s).into()),
                     gain_db: 0.0,
                     looped: false,
+                    key: None,
                 })
                 .collect(),
         });

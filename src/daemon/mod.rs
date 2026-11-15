@@ -51,6 +51,8 @@ pub struct Daemon {
     elevator: Arc<dyn crate::elevation::Elevator>,
     /// The soundboards: their memory, their sounds and what they play.
     sounds: Arc<crate::soundboard::SoundEngine>,
+    /// The keyboard shortcuts that play pads.
+    pad_hotkeys: crate::soundboard::hotkeys::PadHotkeys,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -114,7 +116,26 @@ impl Daemon {
             stop: Arc::default(),
             elevator: Arc::new(crate::elevation::SystemElevator),
             sounds,
+            pad_hotkeys: Default::default(),
         }
+    }
+
+    /// Makes the system's registered pad shortcuts those of the pads whose soundboard is in the running graph. Called
+    /// whenever that can change: a graph is applied or stopped, or the pads are edited.
+    fn sync_pad_hotkeys(&self) {
+        let wanted = {
+            let st = lock(&self.state);
+            if st.saved.running {
+                crate::soundboard::hotkeys::wanted(
+                    &self.sounds.library().get().boards,
+                    &st.saved.graph,
+                )
+            } else {
+                vec![]
+            }
+        };
+        self.pad_hotkeys
+            .sync(self.backend.as_ref(), &self.sounds, &wanted);
     }
 
     /// The soundboards' engine (the panel's upload route imports through it).
@@ -146,6 +167,7 @@ impl Daemon {
                 Ok(valid) => {
                     tracing::info!("restoring the graph that was running at the last stop");
                     self.engine.apply(valid);
+                    self.sync_pad_hotkeys();
                 }
                 Err(e) => {
                     tracing::warn!("the saved graph is no longer valid and was not restored: {e:?}")
@@ -298,6 +320,7 @@ impl Daemon {
                     .library()
                     .set_boards(boards)
                     .map_err(RpcError::invalid_params)?;
+                self.sync_pad_hotkeys();
                 result(())
             }
             m::SoundsImport::NAME => {
@@ -329,7 +352,11 @@ impl Daemon {
                 let p = params::<m::SoundboardPlaying>(p)?;
                 result(self.sounds.playing(&p.board))
             }
-            m::SoundboardsStatus::NAME => result(self.sounds.status()),
+            m::SoundboardsStatus::NAME => {
+                let mut status = self.sounds.status();
+                status.hotkey_problems = self.pad_hotkeys.problems();
+                result(status)
+            }
             m::SettingsGet::NAME => result(self.sounds.settings()),
             m::SettingsSet::NAME => {
                 let settings = params::<m::SettingsSet>(p)?;
@@ -361,6 +388,8 @@ impl Daemon {
                 st.saved.running = false;
                 let _ = self.store.save_state(&st.saved);
                 st.status = EngineStatus::default();
+                drop(st);
+                self.sync_pad_hotkeys();
                 result(())
             }
             m::SystemShutdown::NAME => {
@@ -588,6 +617,7 @@ impl Daemon {
                 )));
             }
         }
+        self.sync_pad_hotkeys();
         if let Ok(v) = serde_json::to_value(&graph) {
             self.publish(EVENT_GRAPH, v);
         }
@@ -1360,6 +1390,121 @@ mod tests {
         assert_eq!(settings.sound_cache_mb, 256);
         ok(call(&d, "settings.set", json!({"sound_cache_mb": 64})));
         assert_eq!(status(&d).cache_limit_bytes, 64 * 1024 * 1024);
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_pad_shortcut_plays_the_pad_while_its_soundboard_runs_and_not_otherwise() {
+        let dir = temp_dir("padkeys");
+        let sim = SimBackend::new();
+        let d = daemon_in(&dir, &sim);
+        let ok = |r: Response| -> Value {
+            assert!(r.error.is_none(), "{:?}", r.error);
+            r.result.unwrap_or(Value::Null)
+        };
+        std::fs::create_dir_all(&dir).unwrap();
+        write_tone_wav(&dir.join("tone.wav"));
+        let info: crate::types::SoundInfo = serde_json::from_value(ok(call(
+            &d,
+            "sounds.import",
+            json!({"path": dir.join("tone.wav").display().to_string()}),
+        )))
+        .unwrap();
+
+        // a shortcut that is not one is refused; a good one is saved the way it is normally written
+        let bad = call(
+            &d,
+            "soundboards.set",
+            json!([{"id": "b1", "name": "x", "pads": [{"id": "p1", "name": "p", "sound": info.id, "key": "Ctrl+Nope"}]}]),
+        );
+        assert_eq!(bad.error.unwrap().code, RpcError::INVALID_PARAMS);
+        ok(call(
+            &d,
+            "soundboards.set",
+            json!([{"id": "b1", "name": "x", "pads": [{"id": "p1", "name": "p", "sound": info.id, "key": "ctrl+alt+1"}]}]),
+        ));
+        let library: crate::types::SoundLibrary =
+            serde_json::from_value(ok(call(&d, "soundboards.get", Value::Null))).unwrap();
+        assert_eq!(library.boards[0].pads[0].key.as_deref(), Some("Ctrl+Alt+1"));
+
+        // the soundboard is not in a running graph: the keys are not taken from other programs
+        assert!(!sim.press("Ctrl+Alt+1"), "nothing listens yet");
+
+        let graph = GraphSpec {
+            nodes: vec![
+                NodeSpec::new("sb", NodeKind::Soundboard { board: "b1".into() }),
+                NodeSpec::new("mic", NodeKind::VirtualMic { name: "K".into() }),
+            ],
+            edges: vec![EdgeSpec {
+                from: PortRef::new("sb", "out"),
+                to: PortRef::new("mic", "in"),
+            }],
+        };
+        ok(call(&d, "graph.set", serde_json::to_value(&graph).unwrap()));
+        std::thread::sleep(Duration::from_millis(600));
+        assert!(sim.press("Ctrl+Alt+1"), "listening now");
+        std::thread::sleep(Duration::from_millis(300));
+        let playing: Vec<String> =
+            serde_json::from_value(ok(call(&d, "soundboard.playing", json!({"board": "b1"}))))
+                .unwrap();
+        assert_eq!(
+            playing,
+            vec!["p1".to_string()],
+            "the shortcut played the pad"
+        );
+
+        // changing the shortcut moves the registration
+        ok(call(
+            &d,
+            "soundboards.set",
+            json!([{"id": "b1", "name": "x", "pads": [{"id": "p1", "name": "p", "sound": info.id, "key": "F9"}]}]),
+        ));
+        assert!(!sim.press("Ctrl+Alt+1"), "the old keys are free again");
+        assert!(sim.press("F9"));
+
+        // stopping the engine gives the keys back
+        ok(call(&d, "engine.stop", Value::Null));
+        assert!(!sim.press("F9"));
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_pad_shortcut_another_program_owns_is_reported_not_fatal() {
+        let dir = temp_dir("padkeys-busy");
+        let sim = SimBackend::new();
+        let d = daemon_in(&dir, &sim);
+        let ok = |r: Response| -> Value {
+            assert!(r.error.is_none(), "{:?}", r.error);
+            r.result.unwrap_or(Value::Null)
+        };
+        // somebody else already owns F7
+        let _taken = sim
+            .open_hotkey(
+                &crate::types::KeyCombo::parse("F7").unwrap(),
+                Box::new(|| {}),
+            )
+            .unwrap();
+        ok(call(
+            &d,
+            "soundboards.set",
+            json!([{"id": "b1", "name": "x", "pads": [{"id": "p1", "name": "p", "key": "F7"}]}]),
+        ));
+        let graph = GraphSpec {
+            nodes: vec![NodeSpec::new(
+                "sb",
+                NodeKind::Soundboard { board: "b1".into() },
+            )],
+            edges: vec![],
+        };
+        ok(call(&d, "graph.set", serde_json::to_value(&graph).unwrap()));
+        std::thread::sleep(Duration::from_millis(400));
+        let status: crate::types::SoundStatus =
+            serde_json::from_value(ok(call(&d, "soundboards.status", Value::Null))).unwrap();
+        assert_eq!(status.hotkey_problems.len(), 1, "{status:?}");
+        assert_eq!(status.hotkey_problems[0].pad, "p1");
+        assert!(status.hotkey_problems[0].message.contains("already used"));
         drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }
