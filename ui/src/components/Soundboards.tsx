@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { IN_DESKTOP_WINDOW, RpcError, uploadSound, type api } from '../api.ts';
+import { IN_DESKTOP_WINDOW, RpcError, pickSoundFiles, uploadSound, type api } from '../api.ts';
 import { MODULE_NEEDED } from '../modules.ts';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
@@ -283,7 +283,7 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       notify(t('soundboards.compressInvalid'));
       return;
     }
-    const next = { sound_cache_mb: mb, compress_above_mb: packMb };
+    const next: Settings = { show_tray_icon: true, start_at_logon: false, ...settings, sound_cache_mb: mb, compress_above_mb: packMb };
     try {
       await daemon.setSettings(next);
       setSettings(next);
@@ -359,6 +359,9 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
           <div className="row">
             {IN_DESKTOP_WINDOW ? (
               <>
+                <button className="primary" onClick={() => void pickSoundFiles().then((paths) => addPaths(paths)).catch((e) => notify(message(e)))}>
+                  {t('soundboards.addSounds')}
+                </button>
                 <input
                   className="grow"
                   value={path}

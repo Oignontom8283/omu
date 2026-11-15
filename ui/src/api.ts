@@ -212,6 +212,12 @@ export const api = (rpc: Rpc) => ({
 export const EVENT_STATUS = 'engine.status';
 export const EVENT_GRAPH = 'graph.changed';
 
+/** Desktop window only: the system's dialog to choose sound or video files; the paths chosen (none when dismissed). */
+export async function pickSoundFiles(): Promise<string[]> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return (await invoke('pick_sound_files')) as string[];
+}
+
 /** Desktop window only: starts the daemon that sits next to the window's executable. */
 export async function startDaemon(): Promise<void> {
   const { invoke } = await import('@tauri-apps/api/core');

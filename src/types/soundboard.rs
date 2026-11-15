@@ -121,6 +121,16 @@ pub struct Settings {
     /// imported; 0 never compresses. A sound can also be compressed by hand.
     #[serde(default = "default_compress_mb")]
     pub compress_above_mb: u32,
+    /// Show the program's icon in the notification area (the daemon carries it).
+    #[serde(default = "default_true")]
+    pub show_tray_icon: bool,
+    /// Start the daemon when the user logs in (an entry in the user's own startup list).
+    #[serde(default)]
+    pub start_at_logon: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 fn default_compress_mb() -> u32 {
@@ -136,6 +146,8 @@ impl Default for Settings {
         Settings {
             sound_cache_mb: default_cache_mb(),
             compress_above_mb: default_compress_mb(),
+            show_tray_icon: true,
+            start_at_logon: false,
         }
     }
 }

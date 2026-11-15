@@ -185,7 +185,7 @@
   "soundboards.addPad": "Pad vide",
   "soundboards.pathPlaceholder": "Chemin d’un fichier son sur cet ordinateur",
   "soundboards.dropHint": "Déposez des fichiers son ou vidéo ici (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). Une vidéo ne garde que son son. Chaque fichier devient un pad ; il est copié et converti une seule fois.",
-  "soundboards.dropHintDesktop": "Déposez des fichiers son ou vidéo sur cette fenêtre, ou tapez un chemin (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). Une vidéo ne garde que son son. Chaque fichier devient un pad ; il est copié et converti une seule fois.",
+  "soundboards.dropHintDesktop": "Choisissez des fichiers avec le bouton, déposez-les sur cette fenêtre, ou tapez un chemin (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). Une vidéo ne garde que son son. Chaque fichier devient un pad ; il est copié et converti une seule fois.",
   "soundboards.importing": "Import de {count} fichier(s)",
   "soundboards.noPads": "Aucun pad. Ajoutez des sons, ou faites un pad vide.",
   "soundboards.cannotPlay": "Les pads ne jouent que lorsqu’un bloc de ce soundboard est dans le graphe en cours",
@@ -257,5 +257,10 @@
   "soundboards.addTriggerHint": "Ajoute une entrée d’action qui joue un pad à chaque action reçue (raccourci clavier, minuteur, changement d’une condition…)",
   "soundboards.removeTrigger": "Retirer la dernière entrée de pad",
   "soundboards.playAction": "jouer",
-  "soundboards.stopAction": "tout arrêter"
+  "soundboards.stopAction": "tout arrêter",
+  "settings.title": "Réglages",
+  "settings.tray": "Afficher l’icône dans la zone de notification",
+  "settings.trayHint": "Un clic sur l’icône ouvre l’interface ; son menu ouvre l’interface, arrête le moteur ou quitte. Le changement s’applique tout de suite.",
+  "settings.logon": "Démarrer à l’ouverture de ma session",
+  "settings.logonHint": "Le démon démarre avec votre session, sans fenêtre, pour que les appareils virtuels et les raccourcis soient là. Il doit tourner dans votre session : il ne peut pas être un service Windows."
 }
