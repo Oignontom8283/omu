@@ -103,6 +103,12 @@ impl Library {
             }
             let mut pads = HashSet::new();
             for p in &mut b.pads {
+                if p.end_ms != 0 && p.end_ms <= p.start_ms {
+                    return Err(format!(
+                        "pad {:?}: the part that plays must end after it starts",
+                        p.name
+                    ));
+                }
                 if p.fade_ms > MAX_FADE_MS {
                     return Err(format!(
                         "pad {:?}: the fade is at most {MAX_FADE_MS} ms",
@@ -235,6 +241,8 @@ mod tests {
                     looped: false,
                     exclusive: false,
                     fade_ms: 0,
+                    start_ms: 0,
+                    end_ms: 0,
                     color: None,
                     key: None,
                 })
@@ -333,6 +341,18 @@ mod tests {
                 "{bad}"
             );
         }
+        assert!(lib
+            .set_boards(with(&|p| {
+                p.start_ms = 1000;
+                p.end_ms = 2000
+            }))
+            .is_ok());
+        assert!(lib
+            .set_boards(with(&|p| {
+                p.start_ms = 2000;
+                p.end_ms = 2000
+            }))
+            .is_err());
         assert!(lib.set_boards(with(&|p| p.fade_ms = MAX_FADE_MS)).is_ok());
         assert!(lib
             .set_boards(with(&|p| p.fade_ms = MAX_FADE_MS + 1))

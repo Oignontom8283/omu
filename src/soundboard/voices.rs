@@ -76,6 +76,9 @@ pub struct PlayCommand {
     /// Linear gain.
     pub gain: f32,
     pub looped: bool,
+    /// The part of the sound that plays, in frames: from `start` to `end` (clamped to the sound's length).
+    pub start: u64,
+    pub end: u64,
     /// For a long sound: where the rest of its blocks come from.
     pub stream: Option<Arc<StreamShared>>,
 }
@@ -112,6 +115,10 @@ struct Voice {
     sound: Arc<LoadedSound>,
     /// Next frame to read in the part in memory.
     frame: u64,
+    /// Where the played part starts and ends, and the position in the whole sound (for the end).
+    start: u64,
+    end: u64,
+    pos: u64,
     looped: bool,
     stream: Option<Arc<StreamShared>>,
     current: Option<BlockRef>,
@@ -125,11 +132,18 @@ struct Voice {
 
 impl Voice {
     fn new(c: PlayCommand, age: u64) -> Voice {
+        let end = c.end.min(c.sound.frames);
+        let start = if c.start < end { c.start } else { 0 };
+        // a start beyond what is in memory goes straight to the part the reader brings
+        let frame = start.min(c.sound.loaded_frames);
         Voice {
             pad: c.pad,
             gain: c.gain,
+            frame,
+            start,
+            end,
+            pos: start,
             sound: c.sound,
-            frame: 0,
             looped: c.looped,
             stream: c.stream,
             current: None,
@@ -156,16 +170,27 @@ impl Voice {
     /// The next frame, `Ok(None)` = silence for now (the disk is late), `Err(())` = the sound is over.
     fn next(&mut self) -> Result<Option<(i16, i16)>, ()> {
         loop {
+            if self.pos >= self.end {
+                if self.looped && !self.sound.streamed() && self.start < self.end {
+                    self.frame = self.start;
+                    self.pos = self.start;
+                } else {
+                    // the block just finished goes back to the reader like any other
+                    if let Some(done) = self.current.take() {
+                        if self.returned.len() < RETURN_ROOM {
+                            self.returned.push(done);
+                        }
+                    }
+                    return Err(());
+                }
+            }
             if self.frame < self.sound.loaded_frames {
                 let f = self.sound.frame(self.frame);
                 self.frame += 1;
+                self.pos += 1;
                 return Ok(Some(f));
             }
             if !self.sound.streamed() {
-                if self.looped && self.sound.frames > 0 {
-                    self.frame = 0;
-                    continue;
-                }
                 return Err(());
             }
             // the rest of a long sound comes from the reader
@@ -179,6 +204,7 @@ impl Voice {
                         l
                     };
                     self.current_at += self.sound.channels;
+                    self.pos += 1;
                     return Ok(Some((l, r)));
                 }
                 let last = b.last;
@@ -420,6 +446,8 @@ mod tests {
 
     fn play(sound: &Arc<LoadedSound>, pad: u32) -> Command {
         Command::Play(PlayCommand {
+            start: 0,
+            end: u64::MAX,
             pad,
             sound: sound.clone(),
             gain: 1.0,
@@ -461,6 +489,8 @@ mod tests {
         let sound = sound_of(&mut pool, 1, &[16_384, -16_384, 8192]);
         let mut v = Voices::default();
         v.apply(Command::Play(PlayCommand {
+            start: 0,
+            end: u64::MAX,
             pad: 1,
             sound,
             gain: 0.5,
@@ -520,6 +550,8 @@ mod tests {
         let s = sound_of(&mut pool, 1, &[16_384, 8192]);
         let mut v = Voices::default();
         v.apply(Command::Play(PlayCommand {
+            start: 0,
+            end: u64::MAX,
             pad: 1,
             sound: s.clone(),
             gain: 1.0,
@@ -533,6 +565,8 @@ mod tests {
         );
         for pad in 0..(MAX_VOICES as u32 + 5) {
             v.apply(Command::Play(PlayCommand {
+                start: 0,
+                end: u64::MAX,
                 pad: 100 + pad,
                 sound: s.clone(),
                 gain: 1.0,
@@ -579,6 +613,8 @@ mod tests {
         let (sound, shared) = streamed(&mut pool, &[1000; 10], &[vec![2000; 5], vec![3000; 4]]);
         let mut v = Voices::default();
         v.apply(Command::Play(PlayCommand {
+            start: 0,
+            end: u64::MAX,
             pad: 1,
             sound,
             gain: 1.0,
@@ -614,6 +650,8 @@ mod tests {
         sound.frames = 100; // a sound of 100 frames of which 4 are in memory
         let mut v = Voices::default();
         v.apply(Command::Play(PlayCommand {
+            start: 0,
+            end: u64::MAX,
             pad: 1,
             sound: Arc::new(sound),
             gain: 1.0,
@@ -664,5 +702,58 @@ mod tests {
         assert!(t.elapsed() < std::time::Duration::from_millis(50));
         assert!(out.iter().all(|s| *s == 0.0));
         drop(held);
+    }
+
+    #[test]
+    fn only_the_chosen_part_of_a_sound_plays_and_a_loop_repeats_that_part() {
+        let mut pool = BlockPool::new(1 << 20);
+        let samples: Vec<i16> = (0..1000).map(|i| (i + 1) as i16).collect();
+        let sound = sound_of(&mut pool, 1, &samples);
+        let part = |looped: bool| {
+            Command::Play(PlayCommand {
+                pad: 1,
+                sound: sound.clone(),
+                gain: 1.0,
+                looped,
+                start: 100,
+                end: 300,
+                stream: None,
+            })
+        };
+        let mut v = Voices::default();
+        v.apply(part(false));
+        let out = cycle(&mut v, 400);
+        for f in 0..200 {
+            assert!(
+                (out[2 * f] * 32768.0 - (101 + f) as f32).abs() < 0.01,
+                "frame {f}"
+            );
+        }
+        assert!(
+            out[2 * 200..].iter().all(|x| *x == 0.0),
+            "silence after the part"
+        );
+        assert_eq!(v.count(), 0);
+
+        v.apply(part(true));
+        let out = cycle(&mut v, 500);
+        // the 201st frame is the first of the part again
+        assert!((out[2 * 200] * 32768.0 - 101.0).abs() < 0.01);
+        assert!((out[2 * 450] * 32768.0 - (101 + 50) as f32).abs() < 0.01);
+        assert_eq!(v.count(), 1, "still looping");
+
+        // a start past the end, or an end before the start, means the whole sound
+        let mut v = Voices::default();
+        v.apply(Command::Play(PlayCommand {
+            pad: 1,
+            sound: sound.clone(),
+            gain: 1.0,
+            looped: false,
+            start: 5000,
+            end: u64::MAX,
+            stream: None,
+        }));
+        let out = cycle(&mut v, 10);
+        assert!((out[0] * 32768.0 - 1.0).abs() < 0.01, "from the beginning");
     }
 }

@@ -446,7 +446,13 @@ impl SoundEngine {
     }
 
     /// Starts the reading of the rest of a long sound ahead of its voice.
-    fn start_stream(&self, sound: &LoadedSound) -> Result<Arc<StreamShared>, SoundError> {
+    /// Starts reading the rest of a long sound; `from` is the first frame the reader must bring (never before the
+    /// end of what is in memory).
+    fn start_stream(
+        &self,
+        sound: &LoadedSound,
+        from: u64,
+    ) -> Result<Arc<StreamShared>, SoundError> {
         if self.shared.streams.load(Ordering::Relaxed) + lock(&self.shared.new_jobs).len()
             >= MAX_STREAMS
         {
@@ -461,7 +467,7 @@ impl SoundEngine {
             shared: shared.clone(),
             file,
             info,
-            next_frame: sound.loaded_frames,
+            next_frame: from.max(sound.loaded_frames),
             ahead: AHEAD_SEGMENTS as usize * segment_blocks,
         });
         Ok(shared)
@@ -490,8 +496,15 @@ impl SoundEngine {
             .runtime(board)
             .ok_or_else(|| SoundError::NotInGraph(board.to_owned()))?;
         let sound = self.load(&sound_id)?;
+        let ms_to_frames = |ms: u32| ms as u64 * ENGINE_RATE as u64 / 1000;
+        let start = ms_to_frames(p.start_ms);
+        let end = if p.end_ms == 0 {
+            u64::MAX
+        } else {
+            ms_to_frames(p.end_ms)
+        };
         let stream = if sound.streamed() {
-            Some(self.start_stream(&sound)?)
+            Some(self.start_stream(&sound, start)?)
         } else {
             None
         };
@@ -501,6 +514,8 @@ impl SoundEngine {
         runtime.send(Command::Play(PlayCommand {
             pad: pad_key(pad),
             looped: p.looped && stream.is_none(),
+            start,
+            end,
             gain: db_to_linear(p.gain_db),
             sound,
             stream,
@@ -718,6 +733,8 @@ mod tests {
                     looped: false,
                     exclusive: false,
                     fade_ms: 0,
+                    start_ms: 0,
+                    end_ms: 0,
                     color: None,
                     key: None,
                 })
@@ -969,6 +986,53 @@ mod tests {
         let used = e.status().cache_used_bytes;
         assert_eq!(
             used,
+            blocks_of(5 * 48_000) * 32 * 1024,
+            "only the first segment is kept"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_long_sound_can_start_beyond_its_first_segment_and_stop_early() {
+        let dir = temp("trim");
+        let e = SoundEngine::with_cache_bytes(&dir, 4 * 1024 * 1024);
+        add_sound(&e, "long", 30 * 48_000);
+        board(&e, "b", &[("p", "long")]);
+        let mut boards = e.library().get().boards;
+        boards[0].pads[0].start_ms = 12_000;
+        boards[0].pads[0].end_ms = 14_000;
+        e.library().set_boards(boards).unwrap();
+        e.sync(&["b".into()]);
+        e.play("b", "p").unwrap();
+        let rt = e.runtime("b").unwrap();
+        let mut heard = Vec::new();
+        for cycle in 0..600 {
+            let mut out = vec![0.0f32; 960];
+            rt.mix(&mut out);
+            heard.extend(out.iter().step_by(2).copied());
+            if cycle % 50 == 49 {
+                std::thread::sleep(Duration::from_millis(8));
+            }
+        }
+        // the first frames the disk was late for are silence: look at what was heard
+        let first = heard.iter().position(|s| *s != 0.0).expect("sound");
+        let last = heard.iter().rposition(|s| *s != 0.0).unwrap();
+        let begin = 12_000 * 48;
+        // every audible frame is the ramp from the chosen start, in order
+        let n = last + 1 - first;
+        assert!(n >= 90_000, "most of the two seconds was heard: {n} frames");
+        let wrong = (first..=last)
+            .filter(|&f| {
+                (heard[f] - ramp((begin + (f - first)) as u64) as f32 / 32768.0).abs() > 1e-6
+            })
+            .count();
+        assert_eq!(wrong, 0);
+        assert!(n <= 96_001, "and it stopped at 14 s: {n} frames");
+        // stopping early gives every block back to the pool
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(e.status().streams, 0);
+        assert_eq!(
+            e.status().cache_used_bytes,
             blocks_of(5 * 48_000) * 32 * 1024,
             "only the first segment is kept"
         );

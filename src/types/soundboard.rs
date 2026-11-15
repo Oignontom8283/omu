@@ -42,6 +42,11 @@ pub struct Pad {
     /// How long it takes to fade out when stopped, in milliseconds; 0 is the shortest fade that does not click.
     #[serde(default)]
     pub fade_ms: u32,
+    /// Only a part of the sound plays: from `start_ms` to `end_ms` (0 = to the end of the sound).
+    #[serde(default)]
+    pub start_ms: u32,
+    #[serde(default)]
+    pub end_ms: u32,
     /// The colour of its button in the panel, `#rrggbb`; the panel's own colour when missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,

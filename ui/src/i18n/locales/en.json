@@ -219,5 +219,8 @@
   "soundboards.fadeShort": "short",
   "soundboards.fadeHint": "How long this pad takes to fade out when it is stopped",
   "soundboards.color": "Colour",
-  "soundboards.colorReset": "Back to the usual colour"
+  "soundboards.colorReset": "Back to the usual colour",
+  "soundboards.start": "Start (s)",
+  "soundboards.end": "End (s, 0 = end)",
+  "soundboards.partHint": "Plays only a part of the sound. In a long sound read from the disk, a start far from the beginning may begin a moment late."
 }
