@@ -537,7 +537,7 @@ button.inline {
   padding: 8px;
   background: var(--field);
   border: 1px solid var(--line);
-  border-top: 3px solid var(--cat-input);
+  border-top: 3px solid var(--pad, var(--cat-input));
   border-radius: 6px;
 }
 .pad.empty {
@@ -547,6 +547,25 @@ button.inline {
   border-color: var(--ok);
   border-top-color: var(--ok);
   box-shadow: 0 0 0 2px var(--ok);
+}
+.pad .checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.color-row input[type='color'] {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: none;
 }
 .pad-top {
   display: flex;

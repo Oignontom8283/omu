@@ -139,6 +139,9 @@ mod tests {
                     sound: None,
                     gain_db: 0.0,
                     looped: false,
+                    exclusive: false,
+                    fade_ms: 0,
+                    color: None,
                     key: k.map(str::to_owned),
                 })
                 .collect(),

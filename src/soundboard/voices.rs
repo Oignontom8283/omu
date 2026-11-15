@@ -83,12 +83,25 @@ pub struct PlayCommand {
 #[derive(Debug)]
 pub enum Command {
     Play(PlayCommand),
-    /// Stops one pad (all of its voices), or everything.
-    Stop(Option<u32>),
+    /// Stops one pad (all of its voices), or everything, fading out over `fade` frames.
+    Stop {
+        pad: Option<u32>,
+        fade: u32,
+    },
 }
 
-/// Frames a stopping voice fades out over (10 ms), so that nothing clicks.
-const FADE_FRAMES: u32 = 480;
+impl Command {
+    /// A stop with the short fade that keeps it from clicking.
+    pub fn stop(pad: Option<u32>) -> Command {
+        Command::Stop {
+            pad,
+            fade: FADE_FRAMES,
+        }
+    }
+}
+
+/// Frames a stopping voice fades out over (10 ms), so that nothing clicks. A pad can ask for a longer fade.
+pub const FADE_FRAMES: u32 = 480;
 /// Finished blocks a voice keeps before it can hand them back (a lost lock for a few cycles).
 const RETURN_ROOM: usize = 32;
 
@@ -104,8 +117,8 @@ struct Voice {
     current: Option<BlockRef>,
     current_at: usize,
     returned: Vec<BlockRef>,
-    /// Frames of fade left, when the voice is being stopped.
-    fading: Option<u32>,
+    /// Frames of fade left and the frames the whole fade takes, when the voice is being stopped.
+    fading: Option<(u32, u32)>,
     finished: bool,
     age: u64,
 }
@@ -198,12 +211,12 @@ impl Voice {
         let mut late = 0;
         for frame in out.as_chunks_mut::<2>().0.iter_mut() {
             let fade = match &mut self.fading {
-                Some(0) => {
+                Some((0, _)) => {
                     self.finished = true;
                     break;
                 }
-                Some(n) => {
-                    let g = *n as f32 / FADE_FRAMES as f32;
+                Some((n, total)) => {
+                    let g = *n as f32 / *total as f32;
                     *n -= 1;
                     g
                 }
@@ -272,13 +285,14 @@ impl Voices {
                     *oldest = voice;
                 }
             }
-            Command::Stop(pad) => {
+            Command::Stop { pad, fade } => {
+                let fade = fade.max(1);
                 for v in self
                     .voices
                     .iter_mut()
                     .filter(|v| pad.is_none_or(|p| v.pad == p) && v.fading.is_none())
                 {
-                    v.fading = Some(FADE_FRAMES);
+                    v.fading = Some((fade, fade));
                 }
                 // stopping a long sound also tells its reader to give its blocks back
                 for v in self
@@ -478,7 +492,7 @@ mod tests {
         v.apply(play(&long, 1));
         v.apply(play(&long, 2));
         cycle(&mut v, 100);
-        v.apply(Command::Stop(Some(1)));
+        v.apply(Command::stop(Some(1)));
         assert_eq!(
             v.playing().collect::<Vec<_>>(),
             vec![2],
@@ -494,7 +508,7 @@ mod tests {
         );
         let _ = cycle(&mut v, 10);
         assert_eq!(v.count(), 1, "the stopped voice is gone");
-        v.apply(Command::Stop(None));
+        v.apply(Command::stop(None));
         cycle(&mut v, 480);
         cycle(&mut v, 10);
         assert_eq!(v.count(), 0);

@@ -212,5 +212,12 @@
   "soundboards.cacheInvalid": "La limite de mémoire est un nombre entier de mégaoctets, {min} au minimum.",
   "soundboards.cacheHint": "S’applique la prochaine fois que la mémoire est créée (quand un soundboard entre dans le graphe en cours alors qu’il n’y en avait aucun). Une variable d’environnement du démon, si elle existe, la remplace. Les sons sont lus en entier jusqu’à 20 Mo ; les plus longs sont lus depuis le disque, 5 secondes à la fois.",
   "soundboards.padKey": "Raccourci qui le joue",
-  "soundboards.keyIdle": "Fonctionne quand ce soundboard est dans le graphe en cours"
+  "soundboards.keyIdle": "Fonctionne quand ce soundboard est dans le graphe en cours",
+  "soundboards.exclusive": "Arrêter les autres",
+  "soundboards.exclusiveHint": "Jouer ce pad arrête d’abord tous les autres sons de ce soundboard",
+  "soundboards.fade": "Fondu à l’arrêt",
+  "soundboards.fadeShort": "court",
+  "soundboards.fadeHint": "Le temps que ce pad met à s’éteindre quand on l’arrête",
+  "soundboards.color": "Couleur",
+  "soundboards.colorReset": "Revenir à la couleur habituelle"
 }
