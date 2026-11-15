@@ -10,6 +10,8 @@ pub mod instance;
 pub mod launch;
 pub mod server;
 pub mod store;
+#[cfg(feature = "tray")]
+pub mod tray_host;
 pub mod web;
 
 use crate::engine::{Engine, EngineConfig};
@@ -53,7 +55,12 @@ pub struct Daemon {
     sounds: Arc<crate::soundboard::SoundEngine>,
     /// The keyboard shortcuts that play pads.
     pad_hotkeys: crate::soundboard::hotkeys::PadHotkeys,
+    /// What is told when the settings are saved (the notification-area icon shows or hides itself).
+    settings_listeners: Mutex<Vec<SettingsListener>>,
 }
+
+/// A function told when the settings are saved.
+type SettingsListener = Box<dyn Fn(&crate::types::Settings) + Send + Sync>;
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -119,6 +126,7 @@ impl Daemon {
             elevator: Arc::new(crate::elevation::SystemElevator),
             sounds,
             pad_hotkeys: Default::default(),
+            settings_listeners: Mutex::new(vec![]),
         }
     }
 
@@ -176,6 +184,11 @@ impl Daemon {
                 }
             }
         }
+    }
+
+    /// Registers a function called each time the settings are saved.
+    pub fn on_settings(&self, listener: impl Fn(&crate::types::Settings) + Send + Sync + 'static) {
+        lock(&self.settings_listeners).push(Box::new(listener));
     }
 
     /// Registers a listener for events (called from whichever thread publishes).
@@ -401,8 +414,11 @@ impl Daemon {
             m::SettingsSet::NAME => {
                 let settings = params::<m::SettingsSet>(p)?;
                 self.sounds
-                    .set_settings(settings)
+                    .set_settings(settings.clone())
                     .map_err(RpcError::internal)?;
+                for l in lock(&self.settings_listeners).iter() {
+                    l(&settings);
+                }
                 result(())
             }
             m::AppsList::NAME => result(self.backend.list_apps().map_err(hal_error)?),
@@ -1697,6 +1713,35 @@ mod tests {
             call(&d, "graph.set", bad).error.unwrap().code,
             RpcError::VALIDATION
         );
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn saving_the_settings_tells_whoever_listens_and_the_tray_icon_is_on_by_default() {
+        let dir = temp_dir("settings-listener");
+        let sim = SimBackend::new();
+        let d = daemon_in(&dir, &sim);
+        let seen = Arc::new(Mutex::new(vec![]));
+        let s2 = seen.clone();
+        d.on_settings(move |s| s2.lock().unwrap().push(s.show_tray_icon));
+        let current: crate::types::Settings =
+            serde_json::from_value(call(&d, "settings.get", Value::Null).result.unwrap()).unwrap();
+        assert!(current.show_tray_icon, "shown unless the user says no");
+        let off = crate::types::Settings {
+            show_tray_icon: false,
+            ..current
+        };
+        assert!(
+            call(&d, "settings.set", serde_json::to_value(&off).unwrap())
+                .error
+                .is_none()
+        );
+        assert_eq!(*seen.lock().unwrap(), vec![false]);
+        // settings saved by an older version have no such field: the icon is shown
+        let old: crate::types::Settings =
+            serde_json::from_value(json!({"sound_cache_mb": 64})).unwrap();
+        assert!(old.show_tray_icon);
         drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }

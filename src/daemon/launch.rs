@@ -27,6 +27,8 @@ pub struct Options {
     /// Use a simulated audio system (fake applications and devices) instead of the real one: to try the panel and
     /// the protocol on a machine without audio, or without touching the real audio.
     pub demo: bool,
+    /// Show the notification-area icon (when the settings allow it and the program has one).
+    pub tray: bool,
     /// What the previous run left behind (reported by `system.info`).
     pub previous_session: crate::diagnostics::PreviousSession,
 }
@@ -41,6 +43,7 @@ impl Options {
             allowed_origins: vec![],
             restore: true,
             demo: false,
+            tray: false,
             previous_session: Default::default(),
         }
     }
@@ -188,6 +191,16 @@ pub async fn serve(
         panel_url: discovery.panel_url(),
     });
 
+    // the icon in the notification area: it follows the setting for as long as the daemon runs
+    #[cfg(feature = "tray")]
+    let tray = opts.tray.then(|| {
+        let host = super::tray_host::TrayHost::new(&daemon, discovery.panel_url());
+        let h = host.clone();
+        daemon.on_settings(move |s| h.set_visible(s.show_tray_icon));
+        host.set_visible(daemon.sounds().settings().show_tray_icon);
+        host
+    });
+
     // stop on the caller's signal (Ctrl-C...) or when a client asks for it
     let asked = daemon.stop_signal();
     let shutdown = async move {
@@ -199,6 +212,8 @@ pub async fn serve(
     let result = server::run(daemon.clone(), listener, router, shutdown).await;
     tracing::info!("shutting down");
     Discovery::remove_if_mine(&opts.data_dir);
+    #[cfg(feature = "tray")]
+    drop(tray);
     // Dropping the daemon stops the engine and every stream.
     drop(daemon);
     result.map_err(|e| e.to_string())
