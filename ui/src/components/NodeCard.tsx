@@ -136,6 +136,28 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
   );
 }
 
+/** A port number: a whole number from 1 to 65535. */
+function PortField({ label, value, onChange }: { label: string; value: number; onChange: (port: number) => void }) {
+  const t = useT();
+  return (
+    <label className="field">
+      <span>{t(label)}</span>
+      <input className="nodrag" type="number" min={1} max={65535} value={value} onChange={(e) => onChange(Math.max(1, Math.min(65535, Math.round(Number(e.target.value) || 1))))} />
+    </label>
+  );
+}
+
+/** A line of text (a host, a stream name). */
+function TextField({ label, value, placeholder, onChange }: { label: string; value: string; placeholder?: string; onChange: (text: string) => void }) {
+  const t = useT();
+  return (
+    <label className="field">
+      <span>{t(label)}</span>
+      <input className="nodrag" value={value} placeholder={placeholder} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
+    </label>
+  );
+}
+
 function Params({ spec }: { spec: NodeSpec }) {
   const { update } = useEditor();
   const t = useT();
@@ -154,6 +176,24 @@ function Params({ spec }: { spec: NodeSpec }) {
       );
     case 'soundboard':
       return <SoundboardEditor spec={spec} />;
+    case 'network_in':
+      return (
+        <>
+          <PortField label="field.listenPort" value={spec.port} onChange={(port) => update(spec.id, { ...spec, port })} />
+          <TextField label="field.streamName" value={spec.stream ?? ''} placeholder={t('field.anyStream')} onChange={(stream) => update(spec.id, { ...spec, stream })} />
+          <TextField label="field.fromComputer" value={spec.from ?? ''} placeholder={t('field.anyComputer')} onChange={(from) => update(spec.id, { ...spec, from })} />
+          <small className="hint">{t('kind.network_in.hint')}</small>
+        </>
+      );
+    case 'network_out':
+      return (
+        <>
+          <TextField label="field.sendTo" value={spec.host} placeholder="192.168.1.20" onChange={(host) => update(spec.id, { ...spec, host })} />
+          <PortField label="field.sendPort" value={spec.port} onChange={(port) => update(spec.id, { ...spec, port })} />
+          <TextField label="field.streamName" value={spec.stream ?? ''} placeholder="Stream1" onChange={(stream) => update(spec.id, { ...spec, stream })} />
+          <small className="hint">{t('kind.network_out.hint')}</small>
+        </>
+      );
     case 'virtual_mic':
       return (
         <label className="field">
