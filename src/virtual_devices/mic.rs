@@ -18,7 +18,8 @@ use crate::hal::{
     VirtualDeviceProvider,
 };
 use crate::types::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -57,12 +58,58 @@ impl Uac2Streams for MicFeed {
 
 pub(super) struct Shared {
     pub server: Arc<Server>,
-    pub next_bus: AtomicU32,
+    /// Whether the server listens on the product's fixed port: only then can the driver attach the devices again by
+    /// itself (it remembers where the server is).
+    pub fixed_port: bool,
+    /// The bus id of each device, by kind and name: the same name is always the same bus id, so the driver finds a
+    /// permanent device again after a restart.
+    busids: Mutex<HashMap<String, String>>,
+    /// The port number the driver gave to each attached device, by bus id.
+    ports: Mutex<BTreeMap<String, u32>>,
+    /// The ports last made permanent, to ask the driver only when the set changes.
+    persisted: Mutex<Option<BTreeSet<u32>>>,
+    /// Said once: other permanent devices are in the way, so ours are left alone.
+    foreign_said: AtomicBool,
+}
+
+impl Shared {
+    fn new(server: Server, fixed_port: bool) -> Shared {
+        Shared {
+            server: Arc::new(server),
+            fixed_port,
+            busids: Mutex::new(HashMap::new()),
+            ports: Mutex::new(BTreeMap::new()),
+            persisted: Mutex::new(None),
+            foreign_said: AtomicBool::new(false),
+        }
+    }
+
+    /// The bus id of the device called `name` on bus `bus` (1 for microphones, 2 for speakers), made from the name
+    /// (`1-418`) and kept: nothing else takes it while this program runs.
+    pub(super) fn busid_for(&self, bus: u32, name: &str) -> String {
+        let key = format!("{bus}:{}", name.trim().to_lowercase());
+        let mut ids = lock(&self.busids);
+        if let Some(id) = ids.get(&key) {
+            return id.clone();
+        }
+        let mut n = name_hash(&key) % 900 + 1;
+        let id = loop {
+            let candidate = format!("{bus}-{n}");
+            if !ids.values().any(|v| *v == candidate) {
+                break candidate;
+            }
+            n = n % 999 + 1;
+        };
+        ids.insert(key, id.clone());
+        id
+    }
 }
 
 /// The provider of virtual microphones through USB/IP.
 pub struct UsbMicProvider {
     tool: Arc<dyn UsbipTool>,
+    /// The TCP port of the USB/IP server: the product's fixed one (0 would be any free one).
+    server_port: u16,
     vendor_id: u16,
     product_id: u16,
     manufacturer: String,
@@ -76,6 +123,7 @@ impl UsbMicProvider {
     pub fn new(tool: Arc<dyn UsbipTool>) -> UsbMicProvider {
         UsbMicProvider {
             tool,
+            server_port: crate::branding::VIRTUAL_SERVER_PORT,
             vendor_id: crate::branding::VIRTUAL_VENDOR_ID,
             product_id: crate::branding::VIRTUAL_PRODUCT_ID,
             manufacturer: crate::branding::VIRTUAL_MANUFACTURER.into(),
@@ -85,19 +133,37 @@ impl UsbMicProvider {
         }
     }
 
+    /// The same provider with its server on another port (tests, which must not take the product's own).
+    pub fn with_server_port(mut self, port: u16) -> UsbMicProvider {
+        self.server_port = port;
+        self
+    }
+
     /// The server is started on the first microphone and kept for the others.
     fn server(&self) -> Result<Arc<Shared>, HalError> {
         let mut shared = lock(&self.shared);
         if let Some(s) = shared.as_ref() {
             return Ok(s.clone());
         }
-        let server = Server::start(0, Arc::new(MonotonicClock::new()))
-            .map_err(|e| HalError::Backend(format!("cannot start the USB/IP server: {e}")))?;
+        // The fixed port is what lets the driver attach the permanent devices by itself; if something else holds it,
+        // work anyway on another one (the devices then only live as long as this run).
+        let wanted = self.server_port;
+        let (server, fixed) = match Server::start(wanted, Arc::new(MonotonicClock::new())) {
+            Ok(server) => (server, wanted != 0),
+            Err(e) => {
+                tracing::warn!(
+                    port = wanted,
+                    "the USB/IP port is not free ({e}): using another one; the virtual devices will not come back \
+                     by themselves after a restart"
+                );
+                let server = Server::start(0, Arc::new(MonotonicClock::new())).map_err(|e| {
+                    HalError::Backend(format!("cannot start the USB/IP server: {e}"))
+                })?;
+                (server, false)
+            }
+        };
         self.detach_leftovers(server.port());
-        let s = Arc::new(Shared {
-            server: Arc::new(server),
-            next_bus: AtomicU32::new(1),
-        });
+        let s = Arc::new(Shared::new(server, fixed));
         *shared = Some(s.clone());
         Ok(s)
     }
@@ -153,7 +219,7 @@ impl VirtualDeviceProvider for UsbMicProvider {
         }
         Ok(Box::new(MicStream {
             name: name.to_owned(),
-            busid: format!("1-{}", shared.next_bus.fetch_add(1, Ordering::Relaxed)),
+            busid: shared.busid_for(1, name),
             config: Uac2Config {
                 vendor_id: self.vendor_id,
                 product_id: self.product_id,
@@ -187,7 +253,7 @@ impl VirtualDeviceProvider for UsbMicProvider {
         }
         Ok(Box::new(SpeakerStream {
             name: name.to_owned(),
-            busid: format!("1-{}", shared.next_bus.fetch_add(1, Ordering::Relaxed)),
+            busid: shared.busid_for(2, name),
             config: Uac2Config {
                 vendor_id: self.vendor_id,
                 product_id: self.product_id,
@@ -214,6 +280,46 @@ impl VirtualDeviceProvider for UsbMicProvider {
 
     fn microphone_names(&self) -> Vec<String> {
         lock(&self.names).clone()
+    }
+
+    fn persist(&self) {
+        let Some(shared) = lock(&self.shared).clone() else {
+            return;
+        };
+        if !shared.fixed_port {
+            return; // the driver could not find the server again on its own
+        }
+        let wanted: BTreeSet<u32> = lock(&shared.ports).values().copied().collect();
+        if lock(&shared.persisted).as_ref() == Some(&wanted) {
+            return;
+        }
+        // The driver keeps ONE list for every program: asking replaces it. Leave it alone when it holds devices that
+        // are not ours (we could not put them back).
+        let ours = shared.server.port().to_string();
+        match self.tool.stashed() {
+            Ok(lines) if lines.iter().any(|l| !l.contains(&ours)) => {
+                if !shared.foreign_said.swap(true, Ordering::Relaxed) {
+                    tracing::info!(
+                        "other permanent USB/IP devices are set up on this computer: ours are not made permanent"
+                    );
+                }
+                return;
+            }
+            Ok(_) => {}
+            Err(e) => {
+                tracing::warn!("cannot read the permanent USB/IP devices: {e}");
+                return;
+            }
+        }
+        let ports: Vec<u32> = wanted.iter().copied().collect();
+        match self.tool.stash(&ports) {
+            Ok(()) => tracing::info!(
+                ?ports,
+                "the virtual devices are permanent: the driver attaches them again at every start"
+            ),
+            Err(e) => tracing::warn!("cannot make the virtual devices permanent: {e}"),
+        }
+        *lock(&shared.persisted) = Some(wanted);
     }
 }
 
@@ -275,17 +381,22 @@ pub(super) fn attach(
 ) -> Result<Box<dyn Running>, HalError> {
     let server = a.shared.server.clone();
     server.add(a.busid, device);
-    let port = match a.tool.attach(server.port(), a.busid) {
-        Ok(p) => p,
-        Err(e) => {
-            server.remove(a.busid);
-            return Err(HalError::Busy(format!(
-                "cannot attach the {} {:?}: {e}",
-                a.what, a.name
-            )));
-        }
+    let (port, adopted) = match a.tool.attach(server.port(), a.busid) {
+        Ok(p) => (p, false),
+        Err(e) => match already_attached(a, &server) {
+            // the driver attached its permanent device by itself, a moment before us
+            Some(p) => (p, true),
+            None => {
+                server.remove(a.busid);
+                return Err(HalError::Busy(format!(
+                    "cannot attach the {} {:?}: {e}",
+                    a.what, a.name
+                )));
+            }
+        },
     };
-    tracing::info!(name = %a.name, busid = %a.busid, port, "{} attached", a.what);
+    lock(&a.shared.ports).insert(a.busid.to_owned(), port);
+    tracing::info!(name = %a.name, busid = %a.busid, port, adopted, "{} attached", a.what);
     // If the program dies before this stream is dropped, Windows would keep a ghost device: detach it anyway.
     let cleanup = {
         let (tool, server, busid) = (a.tool.clone(), server.clone(), a.busid.to_owned());
@@ -304,10 +415,11 @@ pub(super) fn attach(
         );
         std::thread::Builder::new()
             .name("virtual-device-monitor".into())
-            .spawn(move || watch(&server, &busid, &health, &stop))
+            .spawn(move || watch(&server, &busid, &health, &stop, adopted))
             .ok()
     };
     Ok(Box::new(UsbRunning {
+        shared: a.shared.clone(),
         what: a.what,
         tool: a.tool.clone(),
         server,
@@ -319,15 +431,39 @@ pub(super) fn attach(
     }))
 }
 
+/// The port the driver gave to a device of ours that is already attached (the driver attached its permanent device
+/// again by itself).
+fn already_attached(a: &Attach<'_>, server: &Server) -> Option<u32> {
+    a.tool
+        .imported()
+        .ok()?
+        .into_iter()
+        .find(|d| d.server_port == Some(server.port()) && d.busid.as_deref() == Some(a.busid))
+        .map(|d| d.port)
+}
+
 /// Flags the device as failed when the system detaches it (sleep, driver restart...): the engine then recreates it.
-fn watch(server: &Server, busid: &str, health: &StreamHealth, stop: &AtomicBool) {
+/// A device the driver attached by itself (`adopted`) must show up on our server within a few seconds, or it is a
+/// leftover of a connection that is gone: it is flagged too, and recreated.
+fn watch(server: &Server, busid: &str, health: &StreamHealth, stop: &AtomicBool, adopted: bool) {
     let mut seen_attached = false;
     let mut gone_for = 0;
+    let mut waited = 0;
     while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(Duration::from_millis(500));
         if server.is_attached(busid) {
             seen_attached = true;
             gone_for = 0;
+        } else if adopted && !seen_attached {
+            waited += 1;
+            if waited >= 20 {
+                tracing::warn!(
+                    busid,
+                    "the permanent device is not connected to this server"
+                );
+                health.fail("the permanent device is not connected to this server");
+                return;
+            }
         } else if seen_attached {
             gone_for += 1;
             if gone_for >= 4 {
@@ -340,6 +476,7 @@ fn watch(server: &Server, busid: &str, health: &StreamHealth, stop: &AtomicBool)
 }
 
 struct UsbRunning {
+    shared: Arc<Shared>,
     what: &'static str,
     tool: Arc<dyn UsbipTool>,
     server: Arc<Server>,
@@ -359,6 +496,7 @@ impl Drop for UsbRunning {
         if let Some(m) = self.monitor.take() {
             let _ = m.join();
         }
+        lock(&self.shared.ports).remove(&self.busid);
         // Detach first (Windows removes the device), then stop serving it.
         tracing::info!(busid = %self.busid, port = self.port, "detaching the {}", self.what);
         if let Err(e) = self.tool.detach(self.port) {
@@ -374,8 +512,19 @@ mod tests {
     use crate::virtual_devices::tool::fake::FakeTool;
     use crate::virtual_devices::usb::{IsoTiming, UsbDevice};
 
+    /// A provider whose server is on any free port (tests run side by side and must not fight over the real one).
     fn provider(tool: &Arc<FakeTool>) -> UsbMicProvider {
-        UsbMicProvider::new(tool.clone() as Arc<dyn UsbipTool>)
+        UsbMicProvider::new(tool.clone() as Arc<dyn UsbipTool>).with_server_port(0)
+    }
+
+    /// A provider whose server is on a port that is free now and stays "the fixed port" for this provider.
+    fn fixed_provider(tool: &Arc<FakeTool>) -> UsbMicProvider {
+        let free = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        UsbMicProvider::new(tool.clone() as Arc<dyn UsbipTool>).with_server_port(free)
     }
 
     #[test]
@@ -466,7 +615,11 @@ mod tests {
         {
             let attached = tool.attached.lock().unwrap();
             assert_eq!(attached.len(), 1);
-            assert_eq!(attached[0].1, "1-1");
+            assert_eq!(
+                attached[0].1,
+                p.server().unwrap().busid_for(1, "Stream"),
+                "the bus id of its name"
+            );
         }
         assert!(tool.detached.lock().unwrap().is_empty());
         drop(running);
@@ -520,7 +673,12 @@ mod tests {
             .iter()
             .map(|(_, b)| b.clone())
             .collect();
-        assert_eq!(ids, vec!["1-1", "1-2"]);
+        let shared = p.server().unwrap();
+        assert_eq!(
+            ids,
+            vec![shared.busid_for(1, "Alpha"), shared.busid_for(1, "Beta")]
+        );
+        assert_ne!(ids[0], ids[1]);
         assert_eq!(
             name_hash("Alpha"),
             name_hash("  alpha "),
@@ -540,18 +698,21 @@ mod tests {
                 vendor_id: crate::branding::VIRTUAL_VENDOR_ID,
                 product_id: crate::branding::VIRTUAL_PRODUCT_ID,
                 server_port: Some(40000),
+                busid: None,
             },
             Imported {
                 port: 6,
                 vendor_id: 0x046d,
                 product_id: 0xc52b,
                 server_port: Some(40001),
+                busid: None,
             },
             Imported {
                 port: 7,
                 vendor_id: crate::branding::VIRTUAL_VENDOR_ID,
                 product_id: crate::branding::VIRTUAL_PRODUCT_ID,
                 server_port: None,
+                busid: None,
             },
         ];
         let p = provider(&tool);
@@ -572,13 +733,17 @@ mod tests {
     // ---- through the whole engine: what the user does in the panel (rename a block, remove it)
 
     fn engine_with(tool: &Arc<FakeTool>) -> crate::engine::Engine {
+        engine_over(provider(tool))
+    }
+
+    fn engine_over(provider: UsbMicProvider) -> crate::engine::Engine {
         use crate::engine::{Engine, EngineConfig};
         use crate::hal::sim::SimBackend;
         use crate::hal::{Backend, VirtualDeviceProvider};
         let sim = SimBackend::new();
         Engine::new(
             Arc::new(sim) as Arc<dyn Backend>,
-            Some(Arc::new(provider(tool)) as Arc<dyn VirtualDeviceProvider>),
+            Some(Arc::new(provider) as Arc<dyn VirtualDeviceProvider>),
             EngineConfig::default(),
         )
     }
@@ -666,5 +831,217 @@ mod tests {
         std::thread::sleep(Duration::from_millis(500));
         assert_eq!(tool.attached.lock().unwrap().len(), 1, "not attached again");
         assert!(tool.detached.lock().unwrap().is_empty(), "not detached");
+    }
+
+    // ---- permanent devices
+
+    #[test]
+    fn bus_ids_come_from_the_name_and_stay_the_same() {
+        let tool = Arc::new(FakeTool::default());
+        let shared = provider(&tool).server().unwrap();
+        let a = shared.busid_for(1, "Alpha");
+        assert_eq!(a, shared.busid_for(1, "  alpha "), "same name, same bus id");
+        assert_ne!(a, shared.busid_for(1, "Beta"));
+        assert_ne!(
+            a,
+            shared.busid_for(2, "Alpha"),
+            "a speaker is not the microphone of the same name"
+        );
+        for id in [&a, &shared.busid_for(2, "Alpha")] {
+            let (bus, dev) = id.split_once('-').expect("bus-device");
+            assert!(
+                bus.parse::<u32>().is_ok() && dev.parse::<u32>().is_ok(),
+                "{id}"
+            );
+            assert!(id.len() < 32, "USB/IP bus ids are at most 31 bytes");
+        }
+        // the same answer in another run: that is what lets the driver find a permanent device again
+        let again = provider(&tool).server().unwrap();
+        assert_eq!(a, again.busid_for(1, "Alpha"));
+    }
+
+    #[test]
+    fn bus_ids_never_collide_even_when_names_hash_alike() {
+        let tool = Arc::new(FakeTool::default());
+        let shared = provider(&tool).server().unwrap();
+        let ids: std::collections::HashSet<String> = (0..600)
+            .map(|i| shared.busid_for(1, &format!("device number {i}")))
+            .collect();
+        assert_eq!(ids.len(), 600, "600 names, 600 different bus ids");
+    }
+
+    #[test]
+    fn the_devices_are_made_permanent_when_the_set_changes_and_only_then() {
+        let tool = Arc::new(FakeTool::default());
+        let p = fixed_provider(&tool);
+        let a = p
+            .create_microphone("Alpha")
+            .unwrap()
+            .start(Box::new(|_| {}))
+            .unwrap();
+        let b = p
+            .create_microphone("Beta")
+            .unwrap()
+            .start(Box::new(|_| {}))
+            .unwrap();
+        p.persist();
+        assert_eq!(
+            *tool.stashes.lock().unwrap(),
+            vec![vec![1, 2]],
+            "both, by their driver ports"
+        );
+        p.persist();
+        assert_eq!(
+            tool.stashes.lock().unwrap().len(),
+            1,
+            "nothing changed, nothing asked"
+        );
+        // a device that is gone is no longer permanent (the list is replaced, not added to)
+        drop(a);
+        p.persist();
+        assert_eq!(tool.stashes.lock().unwrap().last().unwrap(), &vec![2]);
+        drop(b);
+        p.persist();
+        assert_eq!(
+            tool.stashes.lock().unwrap().last().unwrap(),
+            &Vec::<u32>::new()
+        );
+    }
+
+    #[test]
+    fn the_permanent_devices_of_other_programs_are_left_alone() {
+        let tool = Arc::new(FakeTool::default());
+        *tool.stashed_lines.lock().unwrap() = vec!["host=192.168.1.5;port=3240;busid=3-2".into()];
+        let p = fixed_provider(&tool);
+        let _a = p
+            .create_microphone("Alpha")
+            .unwrap()
+            .start(Box::new(|_| {}))
+            .unwrap();
+        p.persist();
+        assert!(
+            tool.stashes.lock().unwrap().is_empty(),
+            "asking would have erased theirs"
+        );
+        // ours alone in the list are replaced as usual
+        let tool = Arc::new(FakeTool::default());
+        let p = fixed_provider(&tool);
+        let port = p.server().unwrap().server.port();
+        *tool.stashed_lines.lock().unwrap() = vec![format!("host=127.0.0.1;port={port};busid=1-5")];
+        let _a = p
+            .create_microphone("Alpha")
+            .unwrap()
+            .start(Box::new(|_| {}))
+            .unwrap();
+        p.persist();
+        assert_eq!(tool.stashes.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn without_the_fixed_port_nothing_is_made_permanent() {
+        // something else holds the port: the provider works on another one, but the driver could not find it again
+        let busy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = busy.local_addr().unwrap().port();
+        let tool = Arc::new(FakeTool::default());
+        let p = UsbMicProvider::new(tool.clone() as Arc<dyn UsbipTool>).with_server_port(port);
+        let _a = p
+            .create_microphone("Alpha")
+            .unwrap()
+            .start(Box::new(|_| {}))
+            .unwrap();
+        assert_eq!(tool.attached.lock().unwrap().len(), 1, "it still works");
+        p.persist();
+        assert!(tool.stashes.lock().unwrap().is_empty());
+        drop(busy);
+    }
+
+    #[test]
+    fn a_device_the_driver_already_attached_by_itself_is_taken_over() {
+        use crate::virtual_devices::tool::Imported;
+        let tool = Arc::new(FakeTool::default());
+        let p = fixed_provider(&tool);
+        let shared = p.server().unwrap();
+        // the driver brought the permanent device back a moment before we asked: our own attach is refused
+        *tool.attach_error.lock().unwrap() = Some("already attached".into());
+        tool.imported.lock().unwrap().push(Imported {
+            port: 9,
+            vendor_id: crate::branding::VIRTUAL_VENDOR_ID,
+            product_id: crate::branding::VIRTUAL_PRODUCT_ID,
+            server_port: Some(shared.server.port()),
+            busid: Some(shared.busid_for(1, "Alpha")),
+        });
+        let running = p
+            .create_microphone("Alpha")
+            .unwrap()
+            .start(Box::new(|_| {}))
+            .unwrap();
+        // it is ours now: dropping it detaches that port
+        drop(running);
+        assert_eq!(*tool.detached.lock().unwrap(), vec![9]);
+        // a refused attach with nothing of ours attached is still an error
+        let err = p
+            .create_microphone("Beta")
+            .unwrap()
+            .start(Box::new(|_| {}))
+            .err()
+            .unwrap();
+        assert!(matches!(err, HalError::Busy(_)), "{err}");
+    }
+
+    #[test]
+    fn stopping_the_engine_keeps_the_virtual_devices_and_ending_the_program_removes_them() {
+        let tool = Arc::new(FakeTool::default());
+        let engine = engine_with(&tool);
+        engine.apply(mic_graph(&["Alpha"]));
+        wait_until("the device", || tool.attached.lock().unwrap().len() == 1);
+        engine.stop();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            tool.detached.lock().unwrap().is_empty(),
+            "the microphone stays while the engine is stopped"
+        );
+        // the same graph again reuses it
+        engine.apply(mic_graph(&["Alpha"]));
+        std::thread::sleep(Duration::from_millis(500));
+        assert_eq!(
+            tool.attached.lock().unwrap().len(),
+            1,
+            "not attached a second time"
+        );
+        assert!(tool.detached.lock().unwrap().is_empty());
+        // a graph without it removes it, even after a stop
+        engine.stop();
+        engine.apply(mic_graph(&[]));
+        wait_until("the device of the removed block", || {
+            *tool.detached.lock().unwrap() == vec![1]
+        });
+        // and when the program ends nothing is left attached
+        engine.apply(mic_graph(&["Gamma"]));
+        wait_until("a new device", || tool.attached.lock().unwrap().len() == 2);
+        drop(engine);
+        assert_eq!(*tool.detached.lock().unwrap(), vec![1, 2]);
+    }
+
+    #[test]
+    fn the_engine_makes_the_devices_permanent_and_updates_the_list_as_blocks_change() {
+        let tool = Arc::new(FakeTool::default());
+        let engine = engine_over(fixed_provider(&tool));
+        let last = || tool.stashes.lock().unwrap().last().cloned();
+        engine.apply(mic_graph(&["Alpha"]));
+        wait_until("permanent", || last() == Some(vec![1]));
+        engine.apply(mic_graph(&["Beta"])); // renamed: a new device, on a new driver port
+        wait_until("the renamed device", || last() == Some(vec![2]));
+        engine.apply(mic_graph(&[])); // removed
+        wait_until("nothing permanent", || last() == Some(vec![]));
+        // ending the program does not empty the list: the devices of the last graph come back at the next start
+        engine.apply(mic_graph(&["Gamma"]));
+        wait_until("permanent again", || last() == Some(vec![3]));
+        let asked = tool.stashes.lock().unwrap().len();
+        drop(engine);
+        assert_eq!(
+            tool.stashes.lock().unwrap().len(),
+            asked,
+            "the program ending asks nothing"
+        );
     }
 }

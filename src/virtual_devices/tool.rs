@@ -18,6 +18,12 @@ pub trait UsbipTool: Send + Sync {
     fn detach(&self, port: u32) -> Result<(), String>;
     /// The devices currently attached through the tool (by any program).
     fn imported(&self) -> Result<Vec<Imported>, String>;
+    /// Makes exactly the devices on `ports` permanent: the driver attaches them again by itself every time it is
+    /// loaded (at every boot) and whenever their connection drops, as long as the server answers. The tool keeps one
+    /// list for everybody: this REPLACES it, so a port that is left out stops being permanent.
+    fn stash(&self, ports: &[u32]) -> Result<(), String>;
+    /// The permanent devices now, one line each (as the tool prints them).
+    fn stashed(&self) -> Result<Vec<String>, String>;
 }
 
 /// A device attached through the USB/IP client.
@@ -28,6 +34,8 @@ pub struct Imported {
     pub product_id: u16,
     /// The TCP port of the server it comes from, when it is on this machine.
     pub server_port: Option<u16>,
+    /// Its bus id on that server.
+    pub busid: Option<String>,
 }
 
 /// Reads the output of `usbip port`, for example:
@@ -51,6 +59,7 @@ pub fn parse_imported(text: &str) -> Vec<Imported> {
                     vendor_id: 0,
                     product_id: 0,
                     server_port: None,
+                    busid: None,
                 });
             }
         } else if let Some(current) = out.last_mut() {
@@ -64,7 +73,9 @@ pub fn parse_imported(text: &str) -> Vec<Imported> {
                 }
             }
             if let Some(url) = line.strip_prefix("-> usbip://127.0.0.1:") {
-                current.server_port = url.split('/').next().and_then(|p| p.parse().ok());
+                let (port, busid) = url.split_once('/').unwrap_or((url, ""));
+                current.server_port = port.parse().ok();
+                current.busid = (!busid.is_empty()).then(|| busid.to_owned());
             }
         }
     }
@@ -166,6 +177,43 @@ impl UsbipTool for UsbipExe {
             .map_err(|e| format!("could not run {}: {e}", path.display()))?;
         Ok(parse_imported(&String::from_utf8_lossy(&output.stdout)))
     }
+
+    fn stash(&self, ports: &[u32]) -> Result<(), String> {
+        // `port --stash` with no port number makes EVERY attached device permanent. With nothing attached at all that
+        // is exactly what empties the list; with other devices attached it must never be called that way.
+        if ports.is_empty() && !self.imported()?.is_empty() {
+            return Err(
+                "other USB/IP devices are attached: the permanent list is left as it is".into(),
+            );
+        }
+        let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
+        let output = Self::command(&path)
+            .args(["port", "--stash"])
+            .args(ports.iter().map(|p| p.to_string()))
+            .output()
+            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        output.status.success().then_some(()).ok_or_else(|| {
+            format!(
+                "usbip port --stash failed: {}{}",
+                String::from_utf8_lossy(&output.stdout).trim(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
+        })
+    }
+
+    fn stashed(&self) -> Result<Vec<String>, String> {
+        let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
+        let output = Self::command(&path)
+            .args(["list", "--stashed"])
+            .output()
+            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        Ok(String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_owned)
+            .collect())
+    }
 }
 
 #[cfg(test)]
@@ -181,6 +229,10 @@ pub(crate) mod fake {
         pub attached: Mutex<Vec<(u16, String)>>,
         pub detached: Mutex<Vec<u32>>,
         pub imported: Mutex<Vec<Imported>>,
+        /// Every list of ports made permanent, in the order they were asked.
+        pub stashes: Mutex<Vec<Vec<u32>>>,
+        /// What `list --stashed` prints.
+        pub stashed_lines: Mutex<Vec<String>>,
     }
 
     impl UsbipTool for FakeTool {
@@ -201,6 +253,13 @@ pub(crate) mod fake {
         }
         fn imported(&self) -> Result<Vec<Imported>, String> {
             Ok(self.imported.lock().unwrap().clone())
+        }
+        fn stash(&self, ports: &[u32]) -> Result<(), String> {
+            self.stashes.lock().unwrap().push(ports.to_vec());
+            Ok(())
+        }
+        fn stashed(&self) -> Result<Vec<String>, String> {
+            Ok(self.stashed_lines.lock().unwrap().clone())
         }
     }
 }
@@ -229,13 +288,15 @@ Port 02: device in use at Full Speed(12Mbps)
                     port: 1,
                     vendor_id: 0x1209,
                     product_id: 0x0001,
-                    server_port: Some(43108)
+                    server_port: Some(43108),
+                    busid: Some("1-1".into()),
                 },
                 Imported {
                     port: 2,
                     vendor_id: 0x046d,
                     product_id: 0xc52b,
-                    server_port: None
+                    server_port: None,
+                    busid: None,
                 },
             ]
         );
