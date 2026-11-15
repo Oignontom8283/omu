@@ -17,5 +17,5 @@ pub use node::{
     port_number, AppTarget, Category, DeviceRef, EdgeSpec, GraphSpec, LogicOp, NodeId, NodeKind,
     NodeSpec, PortDirection, PortRef, PortSpec, PortType, MAX_BRANCHES, MAX_DELAY_MS, MAX_WAIT_MS,
 };
-pub use soundboard::{Board, Pad, Settings, SoundInfo, SoundLibrary, SoundStatus};
+pub use soundboard::{Board, HotkeyProblem, Pad, Settings, SoundInfo, SoundLibrary, SoundStatus};
 pub use status::{EngineStatus, NodeState, NodeStatus};

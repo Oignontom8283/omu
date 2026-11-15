@@ -210,5 +210,7 @@
   "soundboards.cacheLimit": "Most memory the soundboards may use (MB)",
   "soundboards.cacheSave": "Save",
   "soundboards.cacheInvalid": "The memory limit is a whole number of megabytes, {min} at least.",
-  "soundboards.cacheHint": "Applies the next time the memory is made (when a soundboard enters the running graph and none was there). An environment variable of the daemon, when set, replaces it. Sounds are read whole up to 20 MB; longer ones are read from the disk 5 seconds at a time."
+  "soundboards.cacheHint": "Applies the next time the memory is made (when a soundboard enters the running graph and none was there). An environment variable of the daemon, when set, replaces it. Sounds are read whole up to 20 MB; longer ones are read from the disk 5 seconds at a time.",
+  "soundboards.padKey": "Shortcut that plays it",
+  "soundboards.keyIdle": "Works while this soundboard is in the running graph"
 }

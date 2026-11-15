@@ -36,6 +36,10 @@ pub struct Pad {
     /// Plays again and again until stopped (not for the long sounds that are read from the disk).
     #[serde(default)]
     pub looped: bool,
+    /// A global keyboard shortcut that plays the pad ("Ctrl+Alt+1"). The daemon listens for it while the pad's
+    /// soundboard is in the running graph.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -73,6 +77,17 @@ pub struct SoundStatus {
     pub late_frames: u64,
     /// Long sounds being read from the disk now.
     pub streams: usize,
+    /// Pad shortcuts that could not be registered (another program uses the keys, or the system has no shortcuts).
+    #[serde(default)]
+    pub hotkey_problems: Vec<HotkeyProblem>,
+}
+
+/// A pad whose keyboard shortcut is not working.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HotkeyProblem {
+    pub board: String,
+    pub pad: String,
+    pub message: String,
 }
 
 /// The settings of the daemon that people change in the panel.

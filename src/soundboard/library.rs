@@ -88,10 +88,10 @@ impl Library {
 
     /// Replaces the soundboards (the sounds are left as they are). Refuses a list that repeats an identifier or whose
     /// pad plays a sound that does not exist.
-    pub fn set_boards(&self, boards: Vec<Board>) -> Result<(), String> {
+    pub fn set_boards(&self, mut boards: Vec<Board>) -> Result<(), String> {
         let mut data = lock(&self.data);
         let mut ids = HashSet::new();
-        for b in &boards {
+        for b in &mut boards {
             if b.id.is_empty() || !ids.insert(b.id.as_str()) {
                 return Err(format!(
                     "the soundboard id {:?} is empty or used twice",
@@ -99,7 +99,16 @@ impl Library {
                 ));
             }
             let mut pads = HashSet::new();
-            for p in &b.pads {
+            for p in &mut b.pads {
+                // a shortcut is kept the way it is written normally ("ctrl+alt+1" -> "Ctrl+Alt+1"); none if empty
+                p.key = match p.key.as_deref().map(str::trim) {
+                    None | Some("") => None,
+                    Some(text) => Some(
+                        crate::types::KeyCombo::parse(text)
+                            .map_err(|e| format!("pad {:?}: {e}", p.name))?
+                            .to_string(),
+                    ),
+                };
                 if p.id.is_empty() || !pads.insert(p.id.as_str()) {
                     return Err(format!(
                         "the pad id {:?} of {:?} is empty or used twice",
@@ -204,6 +213,7 @@ mod tests {
                     sound: s.map(str::to_owned),
                     gain_db: 0.0,
                     looped: false,
+                    key: None,
                 })
                 .collect(),
         }

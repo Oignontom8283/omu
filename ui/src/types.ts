@@ -107,7 +107,9 @@ export type CleanOutcome = { removed: number; remaining: number; asked_for_right
 /** A sound that was imported (converted once to the format sounds are stored in). */
 export type SoundInfo = { id: string; name: string; channels: number; frames: number; bytes: number };
 /** One button of a soundboard. */
-export type Pad = { id: string; name: string; sound?: string | null; gain_db?: number; looped?: boolean };
+export type Pad = { id: string; name: string; sound?: string | null; gain_db?: number; looped?: boolean; key?: string | null };
+/** A pad whose keyboard shortcut is not working (another program has the keys, or the system has no shortcuts). */
+export type HotkeyProblem = { board: string; pad: string; message: string };
 export type Board = { id: string; name: string; pads: Pad[] };
 /** Everything saved about soundboards (they are not part of the graph: a soundboard block only names one). */
 export type SoundLibrary = { sounds: SoundInfo[]; boards: Board[] };
@@ -121,5 +123,6 @@ export type SoundStatus = {
   active_boards: string[];
   late_frames: number;
   streams: number;
+  hotkey_problems?: HotkeyProblem[];
 };
 export type Settings = { sound_cache_mb: number };
