@@ -51,6 +51,8 @@ pub struct PortSpec {
     pub multi: bool,
 }
 
+/// The longest name of a network stream (what VBAN allows).
+pub const MAX_STREAM_NAME: usize = 16;
 /// The most conditions a `branch` or `select` block can have.
 pub const MAX_BRANCHES: u32 = 16;
 /// The longest delay of a `delay` block, in milliseconds.
@@ -151,6 +153,15 @@ pub enum NodeKind {
     /// they play into it is the sound of this block (useful for programs that cannot be captured one by one, or to
     /// gather several of them on one device).
     VirtualSpeaker { name: String },
+    /// Input: sound sent by another computer or program, in VBAN (UDP). Listens on `port`; `stream` is the stream name it
+    /// accepts (empty: any) and `from` the address of the one computer it accepts sound from (empty: any).
+    NetworkIn {
+        port: u16,
+        #[serde(default)]
+        stream: String,
+        #[serde(default)]
+        from: String,
+    },
     /// Input: a soundboard: the sound of its pads, as many as are playing at once. The soundboards themselves (their
     /// pads and sounds) are saved by the daemon, not in the graph: this block only names one.
     ///
@@ -166,6 +177,14 @@ pub enum NodeKind {
     DeviceRender { device: DeviceRef },
     /// Output: a virtual microphone created and owned by this product; other applications record from it.
     VirtualMic { name: String },
+    /// Output: sends the sound to another computer or program, in VBAN (UDP), to `host`:`port` under the stream name
+    /// `stream`.
+    NetworkOut {
+        host: String,
+        port: u16,
+        #[serde(default)]
+        stream: String,
+    },
     // ---- processing
     /// Processing: gain in decibels.
     Gain { db: f32 },
@@ -264,6 +283,7 @@ impl NodeKind {
         match self {
             NodeKind::AppCapture { .. }
             | NodeKind::DeviceCapture { .. }
+            | NodeKind::NetworkIn { .. }
             | NodeKind::VirtualSpeaker { .. } => vec![out_audio()],
             NodeKind::Soundboard { triggers, .. } => {
                 let count = (triggers.len() as u32).min(MAX_BRANCHES);
@@ -278,7 +298,9 @@ impl NodeKind {
                         .collect()
                 }
             }
-            NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],
+            NodeKind::DeviceRender { .. }
+            | NodeKind::VirtualMic { .. }
+            | NodeKind::NetworkOut { .. } => vec![in_audio()],
             NodeKind::Gain { .. } | NodeKind::Delay { .. } | NodeKind::NoiseReduction => {
                 vec![in_audio(), out_audio()]
             }
@@ -342,9 +364,12 @@ impl NodeKind {
         match self {
             NodeKind::AppCapture { .. }
             | NodeKind::DeviceCapture { .. }
+            | NodeKind::NetworkIn { .. }
             | NodeKind::VirtualSpeaker { .. }
             | NodeKind::Soundboard { .. } => Category::Input,
-            NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => Category::Output,
+            NodeKind::DeviceRender { .. }
+            | NodeKind::VirtualMic { .. }
+            | NodeKind::NetworkOut { .. } => Category::Output,
             NodeKind::Gain { .. }
             | NodeKind::Mixer
             | NodeKind::Gate
@@ -576,6 +601,16 @@ mod tests {
                 device: DeviceRef::Default,
             },
             NodeKind::VirtualMic { name: "m".into() },
+            NodeKind::NetworkIn {
+                port: 6980,
+                stream: "s".into(),
+                from: String::new(),
+            },
+            NodeKind::NetworkOut {
+                host: "192.168.1.20".into(),
+                port: 6980,
+                stream: "s".into(),
+            },
             NodeKind::Gain { db: 0.0 },
             NodeKind::Mixer,
             NodeKind::Gate,
@@ -743,13 +778,24 @@ mod tests {
     #[test]
     fn only_streams_nodes_need_the_system() {
         let needs: Vec<bool> = every_kind().iter().map(|k| k.needs_stream()).collect();
-        assert_eq!(
-            needs,
-            vec![
-                true, true, true, true, false, false, false, false, false, false, true, false,
-                false, false, false, false, false, false, false, false, false, false, false
-            ]
-        );
+        // the first six kinds (devices, microphones, network) and the keyboard shortcut need the system; no other does
+        let expected: Vec<bool> = every_kind()
+            .iter()
+            .map(|k| {
+                matches!(
+                    k,
+                    NodeKind::AppCapture { .. }
+                        | NodeKind::DeviceCapture { .. }
+                        | NodeKind::DeviceRender { .. }
+                        | NodeKind::VirtualMic { .. }
+                        | NodeKind::NetworkIn { .. }
+                        | NodeKind::NetworkOut { .. }
+                        | NodeKind::Hotkey { .. }
+                )
+            })
+            .collect();
+        assert_eq!(needs, expected);
+        assert_eq!(needs.iter().filter(|n| **n).count(), 7);
     }
 
     #[test]

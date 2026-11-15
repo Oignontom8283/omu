@@ -48,6 +48,7 @@ export function portsOf(kind: KindLike): PortMeta[] {
   switch (kind.type) {
     case 'app_capture':
     case 'device_capture':
+    case 'network_in':
     case 'virtual_speaker':
       return [p('out', 'out', 'audio')];
     case 'soundboard': {
@@ -57,6 +58,7 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [...range(n).map((k) => p(`play${k}`, 'in', 'action', true, { label: 'port.play', n: k })), p('stop', 'in', 'action', true), p('out', 'out', 'audio')];
     }
     case 'device_render':
+    case 'network_out':
     case 'virtual_mic':
       return [p('in', 'in', 'audio')];
     case 'gain':
@@ -108,8 +110,8 @@ export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'conditi
 
 /** The kinds of each family, in the order of the drop-down. */
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
-  input: ['app_capture', 'device_capture', 'virtual_speaker', 'soundboard'],
-  output: ['virtual_mic', 'device_render'],
+  input: ['app_capture', 'device_capture', 'virtual_speaker', 'soundboard', 'network_in'],
+  output: ['virtual_mic', 'device_render', 'network_out'],
   processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction'],
   condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after'],
   trigger: ['hotkey', 'timer', 'change'],
@@ -202,6 +204,10 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, name: 'Omu' };
     case 'soundboard':
       return { type, board: '' };
+    case 'network_in':
+      return { type, port: 6980, stream: '', from: '' };
+    case 'network_out':
+      return { type, host: '', port: 6980, stream: '' };
     case 'gain':
       return { type, db: 0 };
     case 'mixer':

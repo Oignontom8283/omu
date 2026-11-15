@@ -1770,4 +1770,71 @@ mod tests {
         drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn sound_goes_through_the_network_blocks_and_bad_settings_are_refused() {
+        let dir = temp_dir("network");
+        let sim = SimBackend::new();
+        sim.add_app(77, "tone.exe", SimSource::tone(440.0));
+        let d = daemon_in(&dir, &sim);
+        // a free UDP port: ask for one, then let it go
+        let port = std::net::UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let graph = json!({
+            "nodes": [
+                {"id": "app", "type": "app_capture", "target": {"process_name": "tone.exe"}},
+                {"id": "send", "type": "network_out", "host": "127.0.0.1", "port": port, "stream": "T"},
+                {"id": "recv", "type": "network_in", "port": port, "stream": "T", "from": "127.0.0.1"},
+                {"id": "mic", "type": "virtual_mic", "name": "Net"}
+            ],
+            "edges": [
+                {"from": {"node": "app", "port": "out"}, "to": {"node": "send", "port": "in"}},
+                {"from": {"node": "recv", "port": "out"}, "to": {"node": "mic", "port": "in"}}
+            ]
+        });
+        let applied = call(&d, "graph.set", graph);
+        assert!(applied.error.is_none(), "{:?}", applied.error);
+        std::thread::sleep(Duration::from_millis(1800));
+        let recorded = sim
+            .recording_of("virtual:Net")
+            .expect("the virtual microphone")
+            .lock()
+            .unwrap()
+            .clone();
+        let left: Vec<f32> = recorded.chunks(2).map(|f| f[0]).collect();
+        // after the first moments, the tone is heard (440 Hz, about the level the source has)
+        let tail = &left[left.len().saturating_sub(24_000)..];
+        let level = rms(tail);
+        assert!(
+            level > 0.1,
+            "the sound came back through the network: rms {level}"
+        );
+        let rising = tail
+            .windows(2)
+            .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+            .count() as f32
+            * 48_000.0
+            / tail.len() as f32;
+        assert!((rising - 440.0).abs() < 40.0, "pitch {rising} Hz");
+
+        // refused: a port of 0, two blocks on one port, a bad name, an address that is not one
+        for bad in [
+            json!({"nodes": [{"id": "r", "type": "network_in", "port": 0}], "edges": []}),
+            json!({"nodes": [{"id": "a", "type": "network_in", "port": 7000}, {"id": "b", "type": "network_in", "port": 7000}], "edges": []}),
+            json!({"nodes": [{"id": "r", "type": "network_in", "port": 7001, "stream": "a name that is far too long"}], "edges": []}),
+            json!({"nodes": [{"id": "r", "type": "network_in", "port": 7002, "from": "not an address"}], "edges": []}),
+            json!({"nodes": [{"id": "s", "type": "network_out", "host": " ", "port": 6980}], "edges": []}),
+        ] {
+            assert_eq!(
+                call(&d, "graph.set", bad.clone()).error.unwrap().code,
+                RpcError::VALIDATION,
+                "{bad}"
+            );
+        }
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
