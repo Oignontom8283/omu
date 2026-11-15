@@ -142,6 +142,8 @@ fn main() -> std::process::ExitCode {
     opts.demo = args.demo;
     opts.previous_session = previous;
     opts.tray = !args.no_tray;
+    // a daemon that only simulates audio is not one to start at logon
+    opts.autostart = !args.demo;
     let background = args.background;
     #[cfg(windows)]
     if background {

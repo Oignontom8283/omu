@@ -260,5 +260,7 @@
   "soundboards.stopAction": "tout arrêter",
   "settings.title": "Réglages",
   "settings.tray": "Afficher l’icône dans la zone de notification",
-  "settings.trayHint": "Un clic sur l’icône ouvre l’interface ; son menu ouvre l’interface, arrête le moteur ou quitte. Le changement s’applique tout de suite."
+  "settings.trayHint": "Un clic sur l’icône ouvre l’interface ; son menu ouvre l’interface, arrête le moteur ou quitte. Le changement s’applique tout de suite.",
+  "settings.logon": "Démarrer à l’ouverture de ma session",
+  "settings.logonHint": "Le démon démarre avec votre session, sans fenêtre, pour que les appareils virtuels et les raccourcis soient là. Il doit tourner dans votre session : il ne peut pas être un service Windows."
 }

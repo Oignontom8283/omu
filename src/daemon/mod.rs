@@ -57,6 +57,8 @@ pub struct Daemon {
     pad_hotkeys: crate::soundboard::hotkeys::PadHotkeys,
     /// What is told when the settings are saved (the notification-area icon shows or hides itself).
     settings_listeners: Mutex<Vec<SettingsListener>>,
+    /// Whether saving the settings also updates the startup list (a real daemon does; tests and demos do not).
+    manages_autostart: std::sync::atomic::AtomicBool,
 }
 
 /// A function told when the settings are saved.
@@ -127,6 +129,7 @@ impl Daemon {
             sounds,
             pad_hotkeys: Default::default(),
             settings_listeners: Mutex::new(vec![]),
+            manages_autostart: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -184,6 +187,21 @@ impl Daemon {
                 }
             }
         }
+    }
+
+    /// From now on the startup list follows the setting "start at logon" (and is made to match it now).
+    pub fn manage_autostart(&self) {
+        self.manages_autostart
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let enabled = self.sounds.settings().start_at_logon;
+        if let Err(e) = self.apply_autostart(enabled) {
+            tracing::warn!("the startup list: {e}");
+        }
+    }
+
+    fn apply_autostart(&self, enabled: bool) -> Result<(), String> {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        crate::autostart::apply(crate::autostart::ENTRY, enabled, &exe)
     }
 
     /// Registers a function called each time the settings are saved.
@@ -413,6 +431,13 @@ impl Daemon {
             m::SettingsGet::NAME => result(self.sounds.settings()),
             m::SettingsSet::NAME => {
                 let settings = params::<m::SettingsSet>(p)?;
+                if self
+                    .manages_autostart
+                    .load(std::sync::atomic::Ordering::Relaxed)
+                {
+                    self.apply_autostart(settings.start_at_logon)
+                        .map_err(RpcError::internal)?;
+                }
                 self.sounds
                     .set_settings(settings.clone())
                     .map_err(RpcError::internal)?;

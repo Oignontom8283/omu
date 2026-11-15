@@ -124,6 +124,9 @@ pub struct Settings {
     /// Show the program's icon in the notification area (the daemon carries it).
     #[serde(default = "default_true")]
     pub show_tray_icon: bool,
+    /// Start the daemon when the user logs in (an entry in the user's own startup list).
+    #[serde(default)]
+    pub start_at_logon: bool,
 }
 
 fn default_true() -> bool {
@@ -144,6 +147,7 @@ impl Default for Settings {
             sound_cache_mb: default_cache_mb(),
             compress_above_mb: default_compress_mb(),
             show_tray_icon: true,
+            start_at_logon: false,
         }
     }
 }

@@ -38,6 +38,8 @@ pub mod modules;
 pub mod protocol;
 pub mod types;
 
+#[cfg(feature = "engine")]
+pub mod autostart;
 #[cfg(feature = "daemon")]
 pub mod daemon;
 #[cfg(feature = "engine")]
