@@ -294,6 +294,11 @@ export function App() {
       apps,
       devices,
       library,
+      openModules: () => {
+        setBoardsPanel(null);
+        setSettingsPanel(false);
+        setModulesPanel(true);
+      },
       openSoundboards: (first?: string) => {
         setModulesPanel(false);
         setSettingsPanel(false);

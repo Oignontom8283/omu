@@ -273,5 +273,11 @@
   "field.anyStream": "n’importe quel flux",
   "field.fromComputer": "Seulement depuis cet ordinateur",
   "field.anyComputer": "n’importe quel ordinateur",
-  "field.sendTo": "Envoyer à (nom ou adresse de l’ordinateur)"
+  "field.sendTo": "Envoyer à (nom ou adresse de l’ordinateur)",
+  "kind.deep_filter": "Réduction de bruit profonde",
+  "kind.deep_filter.hint": "Une réduction de bruit plus forte que celle intégrée (DeepFilterNet) : elle garde la voix et enlève presque tout le reste. Elle demande le module DeepFilterNet, prend du temps de processeur et ajoute environ 40 ms de retard. Sans le module, le son passe sans changement.",
+  "field.maxReduction": "Réduction du bruit au plus de",
+  "field.noLimit": "sans limite",
+  "modules.open": "Ouvrir les modules",
+  "modules.notSupported": "Cette version du programme ne contient pas le code qui fait fonctionner ce module."
 }

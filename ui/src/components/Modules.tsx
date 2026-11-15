@@ -90,11 +90,12 @@ export function Modules({ daemon, onClose, notify }: Props) {
               </div>
             )}
             {m.error && <p className="warn">{m.error}</p>}
-            {!m.available && !m.installing && (
+            {m.supported === false && <p className="warn">{t('modules.notSupported')}</p>}
+            {!m.available && !m.installing && m.supported !== false && (
               <p className="muted">{m.downloadable ? t('modules.downloadNote', { mb: m.download_mb }) : t('modules.noDownload')}</p>
             )}
             <div className="row">
-              {!m.installing && !m.enabled && (m.available || m.downloadable) && (
+              {!m.installing && !m.enabled && m.supported !== false && (m.available || m.downloadable) && (
                 <button className="primary" disabled={busy} onClick={() => void run(() => daemon.installModule(m.id))}>
                   {m.available ? t('modules.switchOn') : t('modules.install', { mb: m.download_mb })}
                 </button>
