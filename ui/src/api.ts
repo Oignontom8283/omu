@@ -2,7 +2,7 @@
 // The same endpoint serves a daemon on this machine or on another one: the page talks to whoever served it.
 
 import { DEV_TOKEN } from './types.ts';
-import type { AppInfo, Board, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Layout, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices, SystemInfo, ValidateResult } from './types.ts';
+import type { AppInfo, Board, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Layout, ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices, SystemInfo, ValidateResult } from './types.ts';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -194,6 +194,10 @@ export const api = (rpc: Rpc) => ({
   soundboards: () => rpc.request<SoundLibrary>('soundboards.get'),
   setSoundboards: (boards: Board[]) => rpc.request<null>('soundboards.set', boards),
   importSound: (path: string, name?: string) => rpc.request<SoundInfo>('sounds.import', name ? { path, name } : { path }),
+  modules: () => rpc.request<ModuleInfo[]>('modules.list'),
+  installModule: (id: string) => rpc.request<null>('modules.install', { id }),
+  enableModule: (id: string, enabled: boolean) => rpc.request<null>('modules.enable', { id, enabled }),
+  removeModule: (id: string) => rpc.request<null>('modules.remove', { id }),
   compressSound: (id: string) => rpc.request<SoundInfo>('sounds.compress', { id }),
   removeSound: (id: string) => rpc.request<boolean>('sounds.remove', { id }),
   playPad: (board: string, pad: string) => rpc.request<null>('soundboard.play', { board, pad }),
