@@ -196,6 +196,7 @@ export const api = (rpc: Rpc) => ({
   importSound: (path: string, name?: string) => rpc.request<SoundInfo>('sounds.import', name ? { path, name } : { path }),
   modules: () => rpc.request<ModuleInfo[]>('modules.list'),
   installModule: (id: string) => rpc.request<null>('modules.install', { id }),
+  cancelModule: (id: string) => rpc.request<null>('modules.cancel', { id }),
   enableModule: (id: string, enabled: boolean) => rpc.request<null>('modules.enable', { id, enabled }),
   removeModule: (id: string) => rpc.request<null>('modules.remove', { id }),
   compressSound: (id: string) => rpc.request<SoundInfo>('sounds.compress', { id }),

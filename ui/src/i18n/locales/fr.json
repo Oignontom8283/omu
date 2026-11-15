@@ -247,5 +247,6 @@
   "modules.remove": "Supprimer la copie téléchargée",
   "modules.needed": "{name} est nécessaire pour lire ce fichier. Installer le module ?",
   "modules.neededInstall": "Installer le module",
-  "modules.neededLater": "Pas maintenant"
+  "modules.neededLater": "Pas maintenant",
+  "modules.cancel": "Annuler le téléchargement"
 }

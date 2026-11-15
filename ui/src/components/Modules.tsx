@@ -82,6 +82,13 @@ export function Modules({ daemon, onClose, notify }: Props) {
                 </small>
               </div>
             )}
+            {m.installing && (
+              <div className="row">
+                <button disabled={busy} onClick={() => void run(() => daemon.cancelModule(m.id))}>
+                  {t('modules.cancel')}
+                </button>
+              </div>
+            )}
             {m.error && <p className="warn">{m.error}</p>}
             {!m.available && !m.installing && (
               <p className="muted">{m.downloadable ? t('modules.downloadNote', { mb: m.download_mb }) : t('modules.noDownload')}</p>

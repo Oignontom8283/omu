@@ -344,6 +344,14 @@ impl Daemon {
                     .map_err(RpcError::invalid_params)?;
                 result(())
             }
+            m::ModulesCancel::NAME => {
+                let p = params::<m::ModulesCancel>(p)?;
+                self.sounds
+                    .modules()
+                    .cancel(&p.id)
+                    .map_err(RpcError::invalid_params)?;
+                result(())
+            }
             m::ModulesEnable::NAME => {
                 let p = params::<m::ModulesEnable>(p)?;
                 self.sounds
