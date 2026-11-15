@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { IN_DESKTOP_WINDOW, RpcError, uploadSound, type api } from '../api.ts';
+import { IN_DESKTOP_WINDOW, RpcError, pickSoundFiles, uploadSound, type api } from '../api.ts';
 import { MODULE_NEEDED } from '../modules.ts';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
@@ -359,6 +359,9 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
           <div className="row">
             {IN_DESKTOP_WINDOW ? (
               <>
+                <button className="primary" onClick={() => void pickSoundFiles().then((paths) => addPaths(paths)).catch((e) => notify(message(e)))}>
+                  {t('soundboards.addSounds')}
+                </button>
                 <input
                   className="grow"
                   value={path}

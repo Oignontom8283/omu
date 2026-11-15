@@ -52,7 +52,7 @@ client = ["dep:ureq"]
 # the desktop window: the panel embedded in a Tauri window that talks to the daemon through the client. `custom-protocol`
 # is Tauri's own switch for "serve the panel from inside the executable" (without it the window would load a
 # development server's address and stay blank).
-gui = ["client", "logging", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol"]
+gui = ["client", "logging", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol", "dep:rfd"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -80,6 +80,8 @@ sha2 = { version = "0.10", optional = true }
 flate2 = { version = "1", optional = true, default-features = false, features = ["rust_backend"] }
 zip = { version = "9", optional = true, default-features = false, features = ["deflate-flate2"] }
 tauri = { version = "2", optional = true }
+# the system's own file dialog (the window's "add sounds" button)
+rfd = { version = "0.18", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", optional = true, features = [

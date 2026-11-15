@@ -123,6 +123,28 @@ async fn rpc(method: String, params: Value) -> Result<Value, IpcError> {
         })?
 }
 
+/// The file extensions the sound dialog offers first: what the soundboards can import.
+const SOUND_EXTENSIONS: &[&str] = &[
+    "wav", "mp3", "flac", "ogg", "oga", "aac", "m4a", "mp4", "m4v", "mov", "mkv", "webm",
+];
+
+/// Shows the system's dialog to choose sound or video files, and returns the paths (none when it is dismissed).
+#[tauri::command]
+async fn pick_sound_files() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        rfd::FileDialog::new()
+            .add_filter("Sound and video files", SOUND_EXTENSIONS)
+            .add_filter("All files", &["*"])
+            .pick_files()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.display().to_string())
+            .collect()
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn launch_daemon() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(start_daemon)
@@ -132,7 +154,11 @@ async fn launch_daemon() -> Result<(), String> {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![rpc, launch_daemon])
+        .invoke_handler(tauri::generate_handler![
+            rpc,
+            launch_daemon,
+            pick_sound_files
+        ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| crate::diagnostics::fail(&format!("the window could not run: {e}"), 1));
 }

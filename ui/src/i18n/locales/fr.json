@@ -185,7 +185,7 @@
   "soundboards.addPad": "Pad vide",
   "soundboards.pathPlaceholder": "Chemin d’un fichier son sur cet ordinateur",
   "soundboards.dropHint": "Déposez des fichiers son ou vidéo ici (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). Une vidéo ne garde que son son. Chaque fichier devient un pad ; il est copié et converti une seule fois.",
-  "soundboards.dropHintDesktop": "Déposez des fichiers son ou vidéo sur cette fenêtre, ou tapez un chemin (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). Une vidéo ne garde que son son. Chaque fichier devient un pad ; il est copié et converti une seule fois.",
+  "soundboards.dropHintDesktop": "Choisissez des fichiers avec le bouton, déposez-les sur cette fenêtre, ou tapez un chemin (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). Une vidéo ne garde que son son. Chaque fichier devient un pad ; il est copié et converti une seule fois.",
   "soundboards.importing": "Import de {count} fichier(s)",
   "soundboards.noPads": "Aucun pad. Ajoutez des sons, ou faites un pad vide.",
   "soundboards.cannotPlay": "Les pads ne jouent que lorsqu’un bloc de ce soundboard est dans le graphe en cours",
