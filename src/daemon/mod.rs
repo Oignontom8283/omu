@@ -462,6 +462,18 @@ impl Daemon {
                 result(())
             }
             m::EngineStatusMethod::NAME => result(lock(&self.state).status.clone()),
+            m::EngineStart::NAME => {
+                let graph = lock(&self.state).saved.graph.clone();
+                if graph.nodes.is_empty() {
+                    return Err(RpcError::new(
+                        RpcError::UNAVAILABLE,
+                        "there is no graph to start: build one and apply it",
+                    ));
+                }
+                tracing::info!("engine start requested");
+                self.set_graph(graph)?;
+                result(())
+            }
             m::EngineStop::NAME => {
                 tracing::info!("engine stop requested");
                 self.engine.stop();
@@ -1925,6 +1937,38 @@ mod tests {
             "the tone is taken away: rms {}",
             rms(tail)
         );
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_stopped_engine_starts_again_with_the_last_graph_and_has_nothing_to_start_without_one() {
+        let dir = temp_dir("engine-start");
+        let sim = SimBackend::new();
+        let d = daemon_in(&dir, &sim);
+        let running = |d: &Daemon| -> bool {
+            d.tick();
+            call(d, "engine.status", Value::Null).result.unwrap()["running"] == true
+        };
+        // nothing was ever applied: there is nothing to start, and it says so
+        let none = call(&d, "engine.start", Value::Null);
+        assert_eq!(none.error.unwrap().code, RpcError::UNAVAILABLE);
+
+        assert!(
+            call(&d, "graph.set", serde_json::to_value(chain()).unwrap())
+                .error
+                .is_none()
+        );
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(running(&d));
+        assert!(call(&d, "engine.stop", Value::Null).error.is_none());
+        assert!(!running(&d));
+        // the graph is still the saved one: starting runs it again
+        assert!(call(&d, "engine.start", Value::Null).error.is_none());
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(running(&d));
+        // and it is what a restart would bring back too
+        assert!(lock(&d.state).saved.running);
         drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }
