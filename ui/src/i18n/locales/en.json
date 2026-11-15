@@ -262,5 +262,16 @@
   "settings.tray": "Show the icon in the notification area",
   "settings.trayHint": "A click on the icon opens the interface; its menu opens the interface, stops the engine or quits. The change applies at once.",
   "settings.logon": "Start when I log in",
-  "settings.logonHint": "The daemon starts with your session, without a window, so that the virtual devices and the shortcuts are there. It must run in your session: it cannot be a Windows service."
+  "settings.logonHint": "The daemon starts with your session, without a window, so that the virtual devices and the shortcuts are there. It must run in your session: it cannot be a Windows service.",
+  "kind.network_in": "Network sound in",
+  "kind.network_out": "Network sound out",
+  "kind.network_in.hint": "Sound sent over the network (VBAN, like Voicemeeter). Anyone on your network who knows the port can send sound here: name the stream, or the one computer, you accept.",
+  "kind.network_out.hint": "Sends the sound to another computer or program over the network (VBAN, like Voicemeeter). The network is not encrypted: use it on a network you trust.",
+  "field.listenPort": "Listen on UDP port",
+  "field.sendPort": "UDP port",
+  "field.streamName": "Stream name",
+  "field.anyStream": "any stream",
+  "field.fromComputer": "Only from this computer",
+  "field.anyComputer": "any computer",
+  "field.sendTo": "Send to (computer name or address)"
 }

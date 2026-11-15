@@ -17,6 +17,8 @@ export type NodeKind =
   | { type: 'virtual_speaker'; name: string }
   | { type: 'soundboard'; board: string; triggers?: string[] }
   | { type: 'virtual_mic'; name: string }
+  | { type: 'network_in'; port: number; stream?: string; from?: string }
+  | { type: 'network_out'; host: string; port: number; stream?: string }
   | { type: 'gain'; db: number }
   | { type: 'mixer' }
   | { type: 'gate' }

@@ -262,5 +262,16 @@
   "settings.tray": "Afficher l’icône dans la zone de notification",
   "settings.trayHint": "Un clic sur l’icône ouvre l’interface ; son menu ouvre l’interface, arrête le moteur ou quitte. Le changement s’applique tout de suite.",
   "settings.logon": "Démarrer à l’ouverture de ma session",
-  "settings.logonHint": "Le démon démarre avec votre session, sans fenêtre, pour que les appareils virtuels et les raccourcis soient là. Il doit tourner dans votre session : il ne peut pas être un service Windows."
+  "settings.logonHint": "Le démon démarre avec votre session, sans fenêtre, pour que les appareils virtuels et les raccourcis soient là. Il doit tourner dans votre session : il ne peut pas être un service Windows.",
+  "kind.network_in": "Son du réseau (entrée)",
+  "kind.network_out": "Son vers le réseau (sortie)",
+  "kind.network_in.hint": "Son envoyé par le réseau (VBAN, comme Voicemeeter). Toute personne de votre réseau qui connaît le port peut envoyer du son ici : indiquez le nom du flux, ou l’ordinateur, que vous acceptez.",
+  "kind.network_out.hint": "Envoie le son vers un autre ordinateur ou programme par le réseau (VBAN, comme Voicemeeter). Le réseau n’est pas chiffré : à utiliser sur un réseau de confiance.",
+  "field.listenPort": "Écouter sur le port UDP",
+  "field.sendPort": "Port UDP",
+  "field.streamName": "Nom du flux",
+  "field.anyStream": "n’importe quel flux",
+  "field.fromComputer": "Seulement depuis cet ordinateur",
+  "field.anyComputer": "n’importe quel ordinateur",
+  "field.sendTo": "Envoyer à (nom ou adresse de l’ordinateur)"
 }
