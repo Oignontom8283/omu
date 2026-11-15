@@ -257,5 +257,8 @@
   "soundboards.addTriggerHint": "Ajoute une entrée d’action qui joue un pad à chaque action reçue (raccourci clavier, minuteur, changement d’une condition…)",
   "soundboards.removeTrigger": "Retirer la dernière entrée de pad",
   "soundboards.playAction": "jouer",
-  "soundboards.stopAction": "tout arrêter"
+  "soundboards.stopAction": "tout arrêter",
+  "settings.title": "Réglages",
+  "settings.tray": "Afficher l’icône dans la zone de notification",
+  "settings.trayHint": "Un clic sur l’icône ouvre l’interface ; son menu permet aussi d’arrêter le moteur ou de quitter."
 }

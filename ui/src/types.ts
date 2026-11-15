@@ -125,7 +125,7 @@ export type SoundStatus = {
   streams: number;
   hotkey_problems?: HotkeyProblem[];
 };
-export type Settings = { sound_cache_mb: number; compress_above_mb: number };
+export type Settings = { sound_cache_mb: number; compress_above_mb: number; show_tray_icon: boolean };
 
 /** How far a download is (`total` is 0 when the size is not known). */
 export type DownloadProgress = { done: number; total: number };
