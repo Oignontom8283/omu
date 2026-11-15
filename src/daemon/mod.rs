@@ -1837,4 +1837,95 @@ mod tests {
         drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// app (a tone) -> deep noise reduction -> virtual microphone; returns the recording of the microphone.
+    fn deep_filter_run(d: &Daemon, sim: &SimBackend) -> (Vec<f32>, Value) {
+        let graph = json!({
+            "nodes": [
+                {"id": "app", "type": "app_capture", "target": {"process_name": "tone.exe"}},
+                {"id": "df", "type": "deep_filter"},
+                {"id": "mic", "type": "virtual_mic", "name": "Clean"}
+            ],
+            "edges": [
+                {"from": {"node": "app", "port": "out"}, "to": {"node": "df", "port": "in"}},
+                {"from": {"node": "df", "port": "out"}, "to": {"node": "mic", "port": "in"}}
+            ]
+        });
+        let applied = call(d, "graph.set", graph);
+        assert!(applied.error.is_none(), "{:?}", applied.error);
+        std::thread::sleep(Duration::from_millis(2500));
+        d.tick();
+        let status = call(d, "engine.status", Value::Null).result.unwrap();
+        let df = status["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == "df")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let recorded = sim
+            .recording_of("virtual:Clean")
+            .expect("the virtual microphone")
+            .lock()
+            .unwrap()
+            .clone();
+        (recorded.chunks(2).map(|f| f[0]).collect(), df)
+    }
+
+    #[test]
+    fn the_deep_noise_block_lets_the_sound_through_and_says_why_while_its_module_is_missing() {
+        let dir = temp_dir("deepfilter-missing");
+        let sim = SimBackend::new();
+        sim.add_app(77, "tone.exe", SimSource::tone(440.0));
+        let d = daemon_in(&dir, &sim);
+        let (left, df) = deep_filter_run(&d, &sim);
+        let tail = &left[left.len().saturating_sub(24_000)..];
+        assert!(
+            rms(tail) > 0.1,
+            "the sound goes through as it is: rms {}",
+            rms(tail)
+        );
+        assert_eq!(df["state"], "failed", "{df}");
+        assert!(
+            df["message"].as_str().unwrap().contains("Modules panel"),
+            "{df}"
+        );
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// With the real model (set OMU_TEST_DF_MODEL to the DeepFilterNet3_onnx.tar.gz): a tone is not a voice, so the model
+    /// takes it away.
+    #[test]
+    #[cfg(feature = "deepfilter")]
+    fn the_deep_noise_block_with_the_real_model_takes_away_what_is_not_a_voice() {
+        let Some(model) = std::env::var_os("OMU_TEST_DF_MODEL") else {
+            eprintln!("OMU_TEST_DF_MODEL is not set: skipped");
+            return;
+        };
+        let dir = temp_dir("deepfilter-real");
+        let sim = SimBackend::new();
+        sim.add_app(77, "tone.exe", SimSource::tone(440.0));
+        let d = daemon_in(&dir, &sim);
+        let folder = dir.join("modules").join("deepfilter");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::copy(&model, folder.join(crate::modules::deepfilter::MODEL_FILE)).unwrap();
+        assert!(call(
+            &d,
+            "modules.enable",
+            json!({"id": "deepfilter", "enabled": true})
+        )
+        .error
+        .is_none());
+        let (left, df) = deep_filter_run(&d, &sim);
+        assert_eq!(df["state"], "running", "{df}");
+        let tail = &left[left.len().saturating_sub(24_000)..];
+        assert!(
+            rms(tail) < 0.05,
+            "the tone is taken away: rms {}",
+            rms(tail)
+        );
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

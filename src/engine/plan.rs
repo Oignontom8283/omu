@@ -165,6 +165,9 @@ pub enum NodeOp {
     /// Noise reduction. Shared with the plan that replaces this one, so that editing the graph does not make the
     /// network start again (it would let the filter's fade-in through).
     NoiseReduction(Arc<Mutex<Denoiser>>),
+    /// The larger noise reduction: the model runs on a thread of its own (see `dsp::deepfilter`); this hands it each
+    /// cycle's sound and takes back what it finished. The resource that owns the thread outlives plans.
+    DeepFilter(Arc<Mutex<crate::dsp::deepfilter::Endpoints>>),
     /// The sound, later: a ring of samples that is read before it is written.
     Delay {
         line: Vec<f32>,
@@ -221,6 +224,7 @@ impl NodeOp {
             | NodeOp::Gate(_)
             | NodeOp::Select { .. }
             | NodeOp::NoiseReduction(_)
+            | NodeOp::DeepFilter(_)
             | NodeOp::Soundboard(_)
             | NodeOp::Delay { .. } => 1,
             NodeOp::Branch { gains } => gains.len(),
@@ -490,6 +494,14 @@ impl Plan {
                             Port::StopAll if fired => board.request_stop(),
                             _ => {}
                         }
+                    }
+                }
+                NodeOp::DeepFilter(filter) => {
+                    let input = input_audio(Port::In);
+                    node.meter.record(input);
+                    match filter.try_lock() {
+                        Ok(mut f) => f.process(input, &mut audios[0]),
+                        Err(_) => audios[0].copy_from_slice(input),
                     }
                 }
                 NodeOp::NoiseReduction(denoiser) => {

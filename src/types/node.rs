@@ -60,6 +60,10 @@ pub const MAX_DELAY_MS: u32 = 5_000;
 /// The longest time a `hold` or `after` block can wait, in milliseconds.
 pub const MAX_WAIT_MS: u32 = 60_000;
 
+fn no_limit() -> f32 {
+    100.0
+}
+
 fn one() -> u32 {
     1
 }
@@ -211,6 +215,12 @@ pub enum NodeKind {
     /// Processing: takes the background noise out of a voice (a fan, a keyboard, hiss) with RNNoise, a small neural
     /// network that tells voice from noise. Adds 10 ms of delay.
     NoiseReduction,
+    /// Processing: the larger noise reduction (DeepFilterNet). It needs the DeepFilterNet module; `limit_db` is the most
+    /// the noise is reduced by (100: no limit).
+    DeepFilter {
+        #[serde(default = "no_limit")]
+        limit_db: f32,
+    },
     // ---- conditions
     /// Condition: a remembered yes/no. Actions change it: `set` makes it true, `clear` false, `toggle` flips it.
     Variable { initial: bool },
@@ -301,7 +311,10 @@ impl NodeKind {
             NodeKind::DeviceRender { .. }
             | NodeKind::VirtualMic { .. }
             | NodeKind::NetworkOut { .. } => vec![in_audio()],
-            NodeKind::Gain { .. } | NodeKind::Delay { .. } | NodeKind::NoiseReduction => {
+            NodeKind::Gain { .. }
+            | NodeKind::Delay { .. }
+            | NodeKind::NoiseReduction
+            | NodeKind::DeepFilter { .. } => {
                 vec![in_audio(), out_audio()]
             }
             NodeKind::Mixer => vec![in_audio(), out_audio()],
@@ -376,7 +389,8 @@ impl NodeKind {
             | NodeKind::Branch { .. }
             | NodeKind::Select { .. }
             | NodeKind::Delay { .. }
-            | NodeKind::NoiseReduction => Category::Processing,
+            | NodeKind::NoiseReduction
+            | NodeKind::DeepFilter { .. } => Category::Processing,
             NodeKind::Variable { .. }
             | NodeKind::Level { .. }
             | NodeKind::Logic { .. }
@@ -406,7 +420,7 @@ impl NodeKind {
     pub fn needs_stream(&self) -> bool {
         (matches!(self.category(), Category::Input | Category::Output)
             && !matches!(self, NodeKind::Soundboard { .. }))
-            || matches!(self, NodeKind::Hotkey { .. })
+            || matches!(self, NodeKind::Hotkey { .. } | NodeKind::DeepFilter { .. })
     }
 
     /// The types of the flows this node sends, one per output port (empty for a block that only receives).
@@ -601,6 +615,7 @@ mod tests {
                 device: DeviceRef::Default,
             },
             NodeKind::VirtualMic { name: "m".into() },
+            NodeKind::DeepFilter { limit_db: 100.0 },
             NodeKind::NetworkIn {
                 port: 6980,
                 stream: "s".into(),
@@ -791,11 +806,12 @@ mod tests {
                         | NodeKind::NetworkIn { .. }
                         | NodeKind::NetworkOut { .. }
                         | NodeKind::Hotkey { .. }
+                        | NodeKind::DeepFilter { .. }
                 )
             })
             .collect();
         assert_eq!(needs, expected);
-        assert_eq!(needs.iter().filter(|n| **n).count(), 7);
+        assert_eq!(needs.iter().filter(|n| **n).count(), 8);
     }
 
     #[test]

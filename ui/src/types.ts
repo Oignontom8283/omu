@@ -26,6 +26,7 @@ export type NodeKind =
   | { type: 'select'; branches: number }
   | { type: 'delay'; ms: number }
   | { type: 'noise_reduction' }
+  | { type: 'deep_filter'; limit_db?: number }
   | { type: 'variable'; initial: boolean }
   | { type: 'level'; threshold_db: number }
   | { type: 'logic'; op: LogicOp }
@@ -145,4 +146,6 @@ export type ModuleInfo = {
   error?: string;
   downloadable: boolean;
   download_mb: number;
+  /** This build of the program has what is needed to use the module. */
+  supported?: boolean;
 };

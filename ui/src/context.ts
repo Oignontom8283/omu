@@ -9,6 +9,8 @@ export type EditorContext = {
   library: SoundLibrary;
   /** Opens the soundboards panel, on this board when one is given. */
   openSoundboards: (board?: string) => void;
+  /** Opens the panel of the optional modules. */
+  openModules: () => void;
   statusOf: (id: string) => NodeStatus | undefined;
   /** Changes the settings of a block (its kind stays). */
   update: (id: string, kind: NodeKind) => void;

@@ -390,7 +390,8 @@ fn a_file_only_ffmpeg_can_read_asks_for_the_module_and_is_read_once_it_is_on() {
     assert_eq!(client.call::<SoundboardsGet>(&()).unwrap().sounds.len(), 0);
 
     let modules = client.call::<ModulesList>(&()).unwrap();
-    assert_eq!(modules.len(), 1);
+    assert_eq!(modules.len(), 2, "FFmpeg and DeepFilterNet");
+    let modules: Vec<_> = modules.into_iter().filter(|m| m.id == "ffmpeg").collect();
     assert!(!modules[0].enabled && modules[0].installing.is_none());
 
     // with an FFmpeg on this computer, switching the module on uses it at once (nothing is downloaded)
