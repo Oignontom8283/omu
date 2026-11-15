@@ -698,3 +698,46 @@ fn two_sounds_into_one_input_are_added_without_a_mixer_block() {
         );
     }
 }
+
+#[test]
+fn the_noise_reduction_block_runs_in_the_real_engine() {
+    // a steady tone is tonal like a voice, so the network lets it through: what matters here is that the block runs in
+    // the engine, keeps the stream going without a gap, and does not change the level of sound that is not noise
+    let sim = SimBackend::new();
+    sim.add_app(1234, "chrome.exe", SimSource::tone(1000.0));
+    let e = engine(&sim);
+    let spec = GraphSpec {
+        nodes: vec![
+            node("app", app_node()),
+            node("nr", NodeKind::NoiseReduction),
+            node(
+                "mic",
+                NodeKind::VirtualMic {
+                    name: "Clean".into(),
+                },
+            ),
+        ],
+        edges: vec![edge("app", "nr"), edge("nr", "mic")],
+    };
+    e.apply(validate(&spec).unwrap());
+    std::thread::sleep(Duration::from_millis(2500));
+    let status = e.status();
+    drop(e);
+    for n in &status.nodes {
+        assert_eq!(n.state, NodeState::Running, "{}", n.id);
+    }
+    let l = left(&sim_recording(&sim, "virtual:Clean"));
+    assert!(l.len() > 48_000 * 2, "{} frames", l.len());
+    assert!(l.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+    let tail = &l[l.len() - 24_000..];
+    println!(
+        "tone through the noise reduction: rms {:.4} (0.354 before)",
+        rms(tail)
+    );
+    assert!(
+        (0.30..0.40).contains(&rms(tail)),
+        "a tone is not noise: it keeps its level, rms {}",
+        rms(tail)
+    );
+    assert!(longest_silence_ms(tail) < 2.0, "no gap once running");
+}

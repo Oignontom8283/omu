@@ -22,6 +22,7 @@ export type NodeKind =
   | { type: 'branch'; branches: number }
   | { type: 'select'; branches: number }
   | { type: 'delay'; ms: number }
+  | { type: 'noise_reduction' }
   | { type: 'variable'; initial: boolean }
   | { type: 'level'; threshold_db: number }
   | { type: 'logic'; op: LogicOp }

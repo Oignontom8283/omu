@@ -40,7 +40,7 @@ required-features = ["gui"]
 [features]
 default = ["daemon", "cli"]
 # the audio engine and the platform backends (heavy: real-time code, Windows API bindings)
-engine = ["dep:rtrb", "dep:windows", "dep:windows-core"]
+engine = ["dep:rtrb", "dep:windows", "dep:windows-core", "dep:nnnoiseless"]
 # the daemon: control server (HTTP + WebSocket) and the embedded web panel
 daemon = ["engine", "logging", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed", "dep:getrandom", "dep:clap"]
 # logs (file, console, in-memory ring) and the Windows crash handlers; without it only the panic hook and the macros exist
@@ -62,6 +62,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", optional = true, default-features = false, features = ["std", "fmt", "env-filter", "registry", "tracing-log", "ansi"] }
 tracing-appender = { version = "0.2", optional = true }
 rtrb = { version = "0.4", optional = true }
+# Noise reduction: RNNoise (Xiph.Org, BSD-3-Clause) rewritten in pure Rust, model included: nothing to download or link
+nnnoiseless = { version = "0.5", optional = true, default-features = false }
 dirs = "7.0"
 tokio = { version = "1.54", optional = true, features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
 axum = { version = "0.8", optional = true, features = ["ws"] }
