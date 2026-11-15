@@ -108,6 +108,15 @@ impl Backend for WasapiBackend {
         hotkey::register(combo, on_press)
     }
 
+    fn open_hotkey_hold(
+        &self,
+        combo: &crate::types::KeyCombo,
+        on_press: crate::hal::HotkeyCallback,
+        on_release: crate::hal::HotkeyCallback,
+    ) -> Result<Box<dyn crate::hal::Running>, HalError> {
+        hotkey::register_hold(combo, on_press, on_release)
+    }
+
     fn list_apps(&self) -> Result<Vec<AppInfo>, HalError> {
         apps::list_apps()
     }

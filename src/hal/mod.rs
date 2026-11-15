@@ -127,6 +127,18 @@ pub trait Backend: Send + Sync {
     ) -> Result<Box<dyn Running>, HalError> {
         Err(HalError::Unsupported("global keyboard shortcuts".into()))
     }
+    /// Like [`Backend::open_hotkey`], and `on_release` is called when the key is let go (a sound that plays while the
+    /// key is held).
+    fn open_hotkey_hold(
+        &self,
+        _combo: &KeyCombo,
+        _on_press: HotkeyCallback,
+        _on_release: HotkeyCallback,
+    ) -> Result<Box<dyn Running>, HalError> {
+        Err(HalError::Unsupported(
+            "global keyboard shortcuts that notice the key being let go".into(),
+        ))
+    }
     /// Captures the sound of an application (and its child processes) before it reaches any device.
     fn open_app_capture(&self, _target: &AppTarget) -> Result<Box<dyn CaptureStream>, HalError> {
         Err(HalError::Unsupported(

@@ -248,5 +248,7 @@
   "modules.needed": "{name} est nécessaire pour lire ce fichier. Installer le module ?",
   "modules.neededInstall": "Installer le module",
   "modules.neededLater": "Pas maintenant",
-  "modules.cancel": "Annuler le téléchargement"
+  "modules.cancel": "Annuler le téléchargement",
+  "soundboards.hold": "Seulement tant que la touche est tenue",
+  "soundboards.holdHint": "Le pad joue tant que vous tenez le raccourci et s’arrête quand vous le relâchez"
 }

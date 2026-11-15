@@ -13,6 +13,8 @@ pub struct PadKey {
     pub board: String,
     pub pad: String,
     pub keys: String,
+    /// Plays while the key is held.
+    pub hold: bool,
 }
 
 /// The shortcuts that should be listening: those of the pads of the soundboards that have a block in the graph.
@@ -32,6 +34,7 @@ pub fn wanted(boards: &[Board], graph: &GraphSpec) -> Vec<PadKey> {
                     board: b.id.clone(),
                     pad: p.id.clone(),
                     keys: keys.clone(),
+                    hold: p.hold,
                 })
             })
         })
@@ -40,6 +43,7 @@ pub fn wanted(boards: &[Board], graph: &GraphSpec) -> Vec<PadKey> {
 
 struct Held {
     keys: String,
+    hold: bool,
     _listening: Box<dyn Running>,
 }
 
@@ -58,7 +62,7 @@ impl PadHotkeys {
         held.retain(|(board, pad), h| {
             wanted
                 .iter()
-                .any(|w| &w.board == board && &w.pad == pad && w.keys == h.keys)
+                .any(|w| &w.board == board && &w.pad == pad && w.keys == h.keys && w.hold == h.hold)
         });
         let mut problems = vec![];
         for w in wanted {
@@ -79,21 +83,31 @@ impl PadHotkeys {
                 }
             };
             let (engine, board, pad) = (sounds.clone(), w.board.clone(), w.pad.clone());
-            let opened = backend.open_hotkey(
-                &combo,
-                Box::new(move || {
-                    // pressed while the soundboard is not running, or a sound that is gone: nothing to play
-                    if let Err(e) = engine.play(&board, &pad) {
-                        tracing::debug!("pad shortcut: {e}");
-                    }
-                }),
-            );
+            let press: crate::hal::HotkeyCallback = Box::new(move || {
+                // pressed while the soundboard is not running, or a sound that is gone: nothing to play
+                if let Err(e) = engine.play(&board, &pad) {
+                    tracing::debug!("pad shortcut: {e}");
+                }
+            });
+            let opened = if w.hold {
+                let (engine, board, pad) = (sounds.clone(), w.board.clone(), w.pad.clone());
+                backend.open_hotkey_hold(
+                    &combo,
+                    press,
+                    Box::new(move || {
+                        let _ = engine.stop(&board, Some(&pad));
+                    }),
+                )
+            } else {
+                backend.open_hotkey(&combo, press)
+            };
             match opened {
                 Ok(listening) => {
                     held.insert(
                         id,
                         Held {
                             keys: w.keys.clone(),
+                            hold: w.hold,
                             _listening: listening,
                         },
                     );
@@ -144,6 +158,7 @@ mod tests {
                     start_ms: 0,
                     end_ms: 0,
                     color: None,
+                    hold: false,
                     key: k.map(str::to_owned),
                 })
                 .collect(),
@@ -178,7 +193,8 @@ mod tests {
             vec![PadKey {
                 board: "a".into(),
                 pad: "p1".into(),
-                keys: "F8".into()
+                keys: "F8".into(),
+                hold: false
             }]
         );
         assert!(wanted(&boards, &graph_with(&[])).is_empty());
