@@ -53,6 +53,8 @@ enum Io {
     Sink(Arc<Mutex<SinkProducer>>),
     /// Actions counted by the system's keyboard shortcut callback.
     Trigger(Arc<AtomicU32>),
+    /// The larger noise reduction, running on its own thread.
+    Filter(Arc<Mutex<crate::dsp::deepfilter::Endpoints>>),
 }
 
 struct Resource {
@@ -444,6 +446,9 @@ impl Inner {
                     (_, Some(Io::Source(c))) => NodeOp::Source(c.clone()),
                     (_, Some(Io::Sink(p))) => NodeOp::Sink(p.clone()),
                     (_, Some(Io::Trigger(t))) => NodeOp::Trigger(t.clone()),
+                    (_, Some(Io::Filter(f))) => NodeOp::DeepFilter(f.clone()),
+                    // the model is not there (not installed, not switched on): the sound goes through as it is
+                    (NodeKind::DeepFilter { .. }, None) => NodeOp::Gain(Plan::gain(0.0)),
                     // a soundboard needs nothing from the system: it plays what its pads are told to play
                     (NodeKind::Soundboard { board, triggers }, _) => {
                         match self.cfg.sounds.as_ref().and_then(|s| s.runtime(board)) {
@@ -552,6 +557,24 @@ impl Inner {
                 })?;
                 provider.available().map_err(describe)?;
                 self.start_source(kind, provider.create_speaker(name).map_err(describe)?)
+            }
+            NodeKind::DeepFilter { limit_db } => {
+                let model = self
+                    .cfg
+                    .sounds
+                    .as_ref()
+                    .and_then(|s| s.modules().deepfilter_model())
+                    .ok_or_else(|| {
+                        "the DeepFilterNet module is not installed or not switched on (see the Modules panel)".to_string()
+                    })?;
+                let (endpoints, worker) = crate::dsp::deepfilter::start(&model, *limit_db)?;
+                Ok(Resource {
+                    kind: kind.clone(),
+                    io: Io::Filter(endpoints),
+                    health: StreamHealth::new(),
+                    stats: Arc::default(),
+                    _running: Box::new(worker),
+                })
             }
             NodeKind::NetworkIn { port, stream, from } => {
                 let capture =

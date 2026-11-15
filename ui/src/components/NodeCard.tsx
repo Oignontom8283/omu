@@ -158,6 +158,27 @@ function TextField({ label, value, placeholder, onChange }: { label: string; val
   );
 }
 
+/** The larger noise reduction: how far the noise may be reduced, and a way to the module it needs. */
+function DeepFilterEditor({ spec }: { spec: Of<'deep_filter'> }) {
+  const { update, openModules } = useEditor();
+  const t = useT();
+  const limit = spec.limit_db ?? 100;
+  return (
+    <>
+      <label className="field">
+        <span>
+          {t('field.maxReduction')}: {limit >= 100 ? t('field.noLimit') : `${limit} dB`}
+        </span>
+        <input className="nodrag" type="range" min={6} max={100} step={1} value={limit} onChange={(e) => update(spec.id, { type: 'deep_filter', limit_db: Number(e.target.value) })} />
+      </label>
+      <button className="mini wide nodrag" onClick={openModules}>
+        {t('modules.open')}
+      </button>
+      <small className="hint">{t('kind.deep_filter.hint')}</small>
+    </>
+  );
+}
+
 function Params({ spec }: { spec: NodeSpec }) {
   const { update } = useEditor();
   const t = useT();
@@ -174,6 +195,8 @@ function Params({ spec }: { spec: NodeSpec }) {
           <input className="nodrag" value={spec.name} onChange={(e) => update(spec.id, { type: 'virtual_speaker', name: e.target.value })} />
         </label>
       );
+    case 'deep_filter':
+      return <DeepFilterEditor spec={spec} />;
     case 'soundboard':
       return <SoundboardEditor spec={spec} />;
     case 'network_in':

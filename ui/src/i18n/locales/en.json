@@ -273,5 +273,11 @@
   "field.anyStream": "any stream",
   "field.fromComputer": "Only from this computer",
   "field.anyComputer": "any computer",
-  "field.sendTo": "Send to (computer name or address)"
+  "field.sendTo": "Send to (computer name or address)",
+  "kind.deep_filter": "Deep noise reduction",
+  "kind.deep_filter.hint": "A larger noise reduction than the one built in (DeepFilterNet): it keeps the voice and takes out most other sounds. It needs the DeepFilterNet module, uses some processor time and adds about 40 ms of delay. Without the module the sound goes through unchanged.",
+  "field.maxReduction": "Most it reduces the noise by",
+  "field.noLimit": "no limit",
+  "modules.open": "Open the modules",
+  "modules.notSupported": "This build of the program does not include the code that runs this module."
 }
