@@ -33,6 +33,8 @@ pub mod graph;
 pub mod gui;
 #[cfg(feature = "engine")]
 pub mod hal;
+#[cfg(feature = "engine")]
+pub mod modules;
 pub mod protocol;
 pub mod types;
 
