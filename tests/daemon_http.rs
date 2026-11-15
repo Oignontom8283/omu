@@ -313,3 +313,42 @@ fn a_browser_uploads_a_sound_file_and_it_joins_the_library() {
     running.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_browser_uploads_a_video_and_only_its_sound_is_kept() {
+    let (running, client, dir) = start("video");
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let url = format!("http://{}/sounds?name=Clip.mp4", client.address());
+    let auth = format!("Bearer {}", running.info.token);
+    let video = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("media")
+            .join("tone-aac.mp4"),
+    )
+    .unwrap();
+    let mut reply = agent
+        .post(&url)
+        .header("Authorization", auth.as_str())
+        .send(video)
+        .unwrap();
+    assert_eq!(reply.status().as_u16(), 200);
+    let info: omu::types::SoundInfo = reply.body_mut().read_json().unwrap();
+    assert_eq!(info.name, "Clip.mp4");
+    assert!(
+        (info.frames as i64 - 48_000).abs() < 4_000,
+        "{} frames",
+        info.frames
+    );
+    // what is stored is a sound file: the video is not kept
+    let stored: Vec<String> = std::fs::read_dir(dir.join("sounds"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(stored, vec![format!("{}.wav", info.id)]);
+    running.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
