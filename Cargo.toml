@@ -67,7 +67,7 @@ nnnoiseless = { version = "0.5", optional = true, default-features = false }
 # Reads the sound files people import into a soundboard (MP3, WAV, FLAC, OGG Vorbis): pure Rust, MPL-2.0
 symphonia = { version = "0.6", optional = true, default-features = false, features = ["mp3", "flac", "ogg", "vorbis", "wav", "pcm"] }
 dirs = "7.0"
-tokio = { version = "1.54", optional = true, features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+tokio = { version = "1.54", optional = true, features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs", "io-util"] }
 axum = { version = "0.8", optional = true, features = ["ws"] }
 futures-util = { version = "0.3", optional = true }
 rust-embed = { version = "8.14", optional = true, features = ["mime-guess"] }

@@ -294,32 +294,36 @@ impl SoundEngine {
         Ok(info)
     }
 
-    /// Imports sound already read from a file, from its bytes (what a browser sends).
-    pub fn import_bytes(&self, bytes: &[u8], name: &str) -> Result<SoundInfo, SoundError> {
-        // the importer reads files: keep the upload next to the sounds while it is converted
-        let temp = self
-            .shared
-            .library
-            .sounds_dir()
-            .join(format!("{}.upload", new_id()));
-        std::fs::create_dir_all(self.shared.library.sounds_dir())
-            .map_err(|e| SoundError::Io(e.to_string()))?;
-        std::fs::write(&temp, bytes).map_err(|e| SoundError::Io(e.to_string()))?;
-        // the file extension helps the format detection: keep the one the name has
-        let with_ext = match std::path::Path::new(name)
+    /// Where an uploaded file is to be written (a browser sends the bytes of a file, not its path): next to the sounds,
+    /// with the extension of the name it came with (it helps to recognise the format). Finish with
+    /// [`SoundEngine::finish_upload`].
+    pub fn upload_slot(&self, name: &str) -> Result<PathBuf, SoundError> {
+        let dir = self.shared.library.sounds_dir();
+        std::fs::create_dir_all(&dir).map_err(|e| SoundError::Io(e.to_string()))?;
+        let ext = std::path::Path::new(name)
             .extension()
             .and_then(|e| e.to_str())
-        {
-            Some(ext) => {
-                let renamed = temp.with_extension(format!("upload.{ext}"));
-                std::fs::rename(&temp, &renamed).map_err(|e| SoundError::Io(e.to_string()))?;
-                renamed
-            }
-            None => temp.clone(),
-        };
-        let result = self.import(&with_ext, Some(name));
-        let _ = std::fs::remove_file(&with_ext);
+            .filter(|e| e.len() <= 8 && e.chars().all(|c| c.is_ascii_alphanumeric()))
+            .unwrap_or("bin");
+        Ok(dir.join(format!("{}.upload.{ext}", new_id())))
+    }
+
+    /// Imports the file written at an upload slot, and deletes it.
+    pub fn finish_upload(
+        &self,
+        path: &std::path::Path,
+        name: &str,
+    ) -> Result<SoundInfo, SoundError> {
+        let result = self.import(path, Some(name));
+        let _ = std::fs::remove_file(path);
         result
+    }
+
+    /// Imports sound already read from a file, from its bytes.
+    pub fn import_bytes(&self, bytes: &[u8], name: &str) -> Result<SoundInfo, SoundError> {
+        let slot = self.upload_slot(name)?;
+        std::fs::write(&slot, bytes).map_err(|e| SoundError::Io(e.to_string()))?;
+        self.finish_upload(&slot, name)
     }
 
     /// Removes a sound for good (its stored file too), and from memory if nobody is playing it.

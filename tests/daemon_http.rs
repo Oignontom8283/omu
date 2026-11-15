@@ -238,3 +238,78 @@ fn a_second_daemon_on_the_same_port_says_so() {
     running.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A 16-bit mono WAV of `frames` samples of a ramp, at 48 kHz.
+fn small_wav(frames: usize) -> Vec<u8> {
+    let data = (frames * 2) as u32;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&48_000u32.to_le_bytes());
+    b.extend_from_slice(&96_000u32.to_le_bytes());
+    b.extend_from_slice(&2u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data.to_le_bytes());
+    for i in 0..frames {
+        b.extend_from_slice(&((i % 2000) as i16 * 10).to_le_bytes());
+    }
+    b
+}
+
+#[test]
+fn a_browser_uploads_a_sound_file_and_it_joins_the_library() {
+    let (running, client, dir) = start("upload");
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let url = format!("http://{}/sounds?name=Door%20bell.wav", client.address());
+    let auth = format!("Bearer {}", running.info.token);
+
+    // without the token nothing is accepted
+    let refused = agent.post(&url).send(small_wav(4800)).unwrap();
+    assert_eq!(refused.status().as_u16(), 401);
+
+    let mut reply = agent
+        .post(&url)
+        .header("Authorization", auth.as_str())
+        .send(small_wav(48_000))
+        .unwrap();
+    assert_eq!(reply.status().as_u16(), 200);
+    let info: omu::types::SoundInfo = reply.body_mut().read_json().unwrap();
+    assert_eq!(info.name, "Door bell.wav");
+    assert_eq!((info.channels, info.frames), (1, 48_000));
+
+    let library = client.call::<SoundboardsGet>(&()).unwrap();
+    assert_eq!(library.sounds.len(), 1);
+    assert_eq!(library.sounds[0].id, info.id);
+
+    // something that is not a sound is refused with a reason, and leaves nothing behind
+    let mut bad = agent
+        .post(&url)
+        .header("Authorization", auth.as_str())
+        .send(b"this is only text".to_vec())
+        .unwrap();
+    assert_eq!(bad.status().as_u16(), 422);
+    let body: serde_json::Value = bad.body_mut().read_json().unwrap();
+    assert!(body["error"]["message"].is_string(), "{body}");
+    assert_eq!(client.call::<SoundboardsGet>(&()).unwrap().sounds.len(), 1);
+    let leftovers = std::fs::read_dir(dir.join("sounds"))
+        .unwrap()
+        .filter(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .contains(".upload.")
+        })
+        .count();
+    assert_eq!(leftovers, 0, "temporary files are removed");
+    running.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
