@@ -216,6 +216,10 @@ impl Modules {
                             st.error = None;
                             st.saved.ffmpeg_enabled = true;
                         }
+                        Err(e) if e == ffmpeg::CANCELLED => {
+                            tracing::info!("the FFmpeg download was cancelled");
+                            st.error = None;
+                        }
                         Err(e) => {
                             tracing::warn!("the FFmpeg module could not be installed: {e}");
                             st.error = Some(e.clone());
@@ -230,6 +234,13 @@ impl Modules {
             st.installing = false;
             return Err(format!("cannot start the download: {e}"));
         }
+        Ok(())
+    }
+
+    /// Stops a download that is running (what was downloaded so far is thrown away).
+    pub fn cancel(&self, id: &str) -> Result<(), String> {
+        Self::check_id(id)?;
+        self.counters.cancel.store(true, Ordering::Relaxed);
         Ok(())
     }
 
@@ -407,6 +418,72 @@ mod tests {
             !Modules::new(&dir).list()[0].enabled,
             "and that is remembered too"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A server whose file never finishes: it sends the sum file at once, and the archive a little at a time, forever.
+    fn serve_forever() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap().to_string();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { break };
+                std::thread::spawn(move || {
+                    let mut request = [0u8; 2048];
+                    let n = stream.read(&mut request).unwrap_or(0);
+                    let first = String::from_utf8_lossy(&request[..n]).to_string();
+                    let path = first.split_whitespace().nth(1).unwrap_or("/").to_owned();
+                    if path.ends_with(".sha256") {
+                        let body = "0".repeat(64);
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = stream.write_all(head.as_bytes());
+                        return;
+                    }
+                    let head = "HTTP/1.1 200 OK\r\nContent-Length: 1000000000\r\nConnection: close\r\n\r\n";
+                    if stream.write_all(head.as_bytes()).is_err() {
+                        return;
+                    }
+                    let chunk = [7u8; 4096];
+                    while stream.write_all(&chunk).is_ok() {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                });
+            }
+        });
+        address
+    }
+
+    #[test]
+    fn a_download_can_be_cancelled_and_leaves_nothing_and_no_error() {
+        let dir = temp("cancel");
+        let address = serve_forever();
+        let m = Arc::new(Modules::new(&dir).without_system().with_urls(Some(Urls {
+            archive: format!("http://{address}/big.zip"),
+            sha256: format!("http://{address}/big.zip.sha256"),
+        })));
+        m.install(FFMPEG).unwrap();
+        // it is running and making progress
+        let mut progressing = false;
+        for _ in 0..100 {
+            if m.list()[0].installing.is_some_and(|p| p.done > 0) {
+                progressing = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(progressing, "the download started");
+        m.cancel(FFMPEG).unwrap();
+        let info = wait_installed(&m);
+        assert!(
+            info.error.is_none(),
+            "a cancelled download is not a failure: {:?}",
+            info.error
+        );
+        assert!(!info.enabled && !info.available);
+        assert!(!ffmpeg::local_exe(m.dir()).exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

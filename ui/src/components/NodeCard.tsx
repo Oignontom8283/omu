@@ -84,11 +84,17 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
   const { library, update, openSoundboards } = useEditor();
   const t = useT();
   const known = library.boards.some((b) => b.id === spec.board);
+  const board = library.boards.find((b) => b.id === spec.board);
+  const triggers = spec.triggers ?? [];
+  const edges = useEdges();
+  const set = (next: string[]) => update(spec.id, next.length ? { type: 'soundboard', board: spec.board, triggers: next } : { type: 'soundboard', board: spec.board });
+  const free = board?.pads.find((p) => !triggers.includes(p.id));
+  // the last trigger cannot go while a link is on its input
   return (
     <>
       <label className="field">
         <span>{t('field.soundboard')}</span>
-        <select className="nodrag" value={spec.board} onChange={(e) => update(spec.id, { type: 'soundboard', board: e.target.value })}>
+        <select className="nodrag" value={spec.board} onChange={(e) => update(spec.id, { type: 'soundboard', board: e.target.value, ...(spec.triggers?.length ? { triggers: [] } : {}) })}>
           {!known && <option value={spec.board}>{spec.board ? t('field.notFound') : t('field.chooseSoundboard')}</option>}
           {library.boards.map((b) => (
             <option key={b.id} value={b.id}>
@@ -98,6 +104,30 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
         </select>
       </label>
       {!known && spec.board !== '' && <small className="warn">{t('field.soundboardMissing')}</small>}
+      {triggers.map((pad, i) => {
+        const linked = edges.some((e) => e.target === spec.id && e.targetHandle === `play${i + 1}`);
+        const last = i === triggers.length - 1;
+        return (
+          <div key={i} className="trigger-row">
+            <select className="nodrag" aria-label={t('soundboards.trigger', { n: i + 1 })} value={pad} onChange={(e) => set(triggers.map((x, j) => (j === i ? e.target.value : x)))}>
+              {!board?.pads.some((p) => p.id === pad) && <option value={pad}>{t('field.notFound')}</option>}
+              {board?.pads.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name || t('soundboards.unnamedPad')}
+                </option>
+              ))}
+            </select>
+            {last && !linked && (
+              <button className="mini nodrag" title={t('soundboards.removeTrigger')} aria-label={t('soundboards.removeTrigger')} onClick={() => set(triggers.slice(0, -1))}>
+                ×
+              </button>
+            )}
+          </div>
+        );
+      })}
+      <button className="mini nodrag" disabled={!free || triggers.length >= MAX_BRANCHES} title={t('soundboards.addTriggerHint')} onClick={() => free && set([...triggers, free.id])}>
+        + {t('soundboards.addTrigger')}
+      </button>
       <button className="mini wide nodrag" onClick={() => openSoundboards(known ? spec.board : undefined)}>
         {t('soundboards.open')}
       </button>
@@ -313,7 +343,7 @@ function EntriesRow({ port, node, asked }: { port: PortMeta; node: string; asked
 }
 
 /** One port: a label and the connection point (coloured by the flow it carries). */
-function PortRow({ port, node, inputs }: { port: PortMeta; node: string; inputs: number | undefined }) {
+function PortRow({ port, node, inputs, text }: { port: PortMeta; node: string; inputs: number | undefined; text?: string }) {
   const t = useT();
   const isInput = port.dir === 'in';
   if (hasEntries(port)) return <EntriesRow port={port} node={node} asked={inputs} />;
@@ -322,7 +352,7 @@ function PortRow({ port, node, inputs }: { port: PortMeta; node: string; inputs:
       {port.gapBefore && <div className="port gap" aria-hidden="true" />}
       <div className={`port ${isInput ? 'in' : 'out'}`} title={t(`flow.${port.flow}`)}>
         <Handle id={port.name} type={isInput ? 'target' : 'source'} position={isInput ? Position.Left : Position.Right} className={`flow-${port.flow}`} />
-        <span>{t(port.label, { n: port.n ?? '' }).trim()}</span>
+        <span>{text ?? t(port.label, { n: port.n ?? '' }).trim()}</span>
       </div>
     </>
   );
@@ -356,8 +386,17 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
   const t = useT();
   const spec = data.spec;
   const category = categoryOf(spec.type);
+  const { library } = useEditor();
   const ports = portsOf(spec);
   const failed = statusOf(spec.id)?.state === 'failed';
+  // the action inputs of a soundboard block are named after the pads they play
+  const padName = (port: PortMeta): string | undefined => {
+    if (spec.type !== 'soundboard') return undefined;
+    if (port.name === 'stop') return t('soundboards.stopAction');
+    const n = port.name.startsWith('play') ? Number(port.name.slice(4)) : 0;
+    const pad = library.boards.find((b) => b.id === spec.board)?.pads.find((p) => p.id === spec.triggers?.[n - 1]);
+    return n ? `${t('soundboards.playAction')} ${pad?.name || t('soundboards.unnamedPad')}` : undefined;
+  };
   return (
     <div className={`node cat-${category}${selected ? ' selected' : ''}${failed ? ' failed' : ''}`}>
       <header>
@@ -371,7 +410,7 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
         <NameField spec={spec} />
       </header>
       <div className="ports">
-        <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} />)}</div>
+        <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} text={padName(q)} />)}</div>
         <div>{ports.filter((q) => q.dir === 'out').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} />)}</div>
       </div>
       <div className="body">

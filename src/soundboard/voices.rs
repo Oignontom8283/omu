@@ -11,7 +11,7 @@ use super::pool::BlockRef;
 use super::{BLOCK_SAMPLES, MAX_VOICES};
 use std::collections::VecDeque;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 /// A sound in memory: all of it, or its first segment when it is longer than it is worth keeping whole.
@@ -371,7 +371,14 @@ pub struct BoardRuntime {
     voices: Mutex<Voices>,
     /// Frames of long sounds the disk was too late for.
     pub late_frames: AtomicU64,
+    /// The pads the graph can play (`play1`...): the graph thread counts the actions it gets, the control side plays.
+    trigger_pads: Mutex<Vec<String>>,
+    plays: [AtomicU32; MAX_TRIGGERS],
+    stops: AtomicU32,
 }
+
+/// The most trigger pads a soundboard block can have.
+pub const MAX_TRIGGERS: usize = 16;
 
 impl BoardRuntime {
     pub fn new(id: &str) -> BoardRuntime {
@@ -380,7 +387,43 @@ impl BoardRuntime {
             commands: Mutex::new(Vec::with_capacity(64)),
             voices: Mutex::new(Voices::default()),
             late_frames: AtomicU64::new(0),
+            trigger_pads: Mutex::new(vec![]),
+            plays: std::array::from_fn(|_| AtomicU32::new(0)),
+            stops: AtomicU32::new(0),
         }
+    }
+
+    /// Which pads the block's action inputs play, in order (set whenever a plan is built).
+    pub fn set_triggers(&self, pads: Vec<String>) {
+        *self.trigger_pads.lock().unwrap_or_else(|e| e.into_inner()) = pads;
+    }
+
+    /// Called by the graph thread: the action input `k` fired. Counting is all it does.
+    pub fn request_play(&self, k: usize) {
+        if let Some(c) = self.plays.get(k) {
+            c.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    /// Called by the graph thread: the `stop` input fired.
+    pub fn request_stop(&self) {
+        self.stops.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// For the control side: the pads that were asked for since the last call (each at most once), and whether the
+    /// soundboard was asked to stop.
+    pub fn take_requests(&self) -> (Vec<String>, bool) {
+        let stop = self.stops.swap(0, Ordering::Relaxed) > 0;
+        let pads = self.trigger_pads.lock().unwrap_or_else(|e| e.into_inner());
+        let mut asked = vec![];
+        for (k, counter) in self.plays.iter().enumerate() {
+            if counter.swap(0, Ordering::Relaxed) > 0 {
+                if let Some(p) = pads.get(k) {
+                    asked.push(p.clone());
+                }
+            }
+        }
+        (asked, stop)
     }
 
     /// Hands a command to the graph thread (it runs it at the start of its next cycle).

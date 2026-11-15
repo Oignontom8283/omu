@@ -195,6 +195,10 @@ method!(
     ModulesInstall, "modules.install", ModuleRef => ()
 );
 method!(
+    /// Stops a download that is running; nothing is installed.
+    ModulesCancel, "modules.cancel", ModuleRef => ()
+);
+method!(
     /// Switches a module on or off (it must be installed to be switched on).
     ModulesEnable, "modules.enable", EnableModule => ()
 );
@@ -294,6 +298,7 @@ pub const ALL_METHODS: &[&str] = &[
     ModulesList::NAME,
     ModulesInstall::NAME,
     ModulesEnable::NAME,
+    ModulesCancel::NAME,
     ModulesRemove::NAME,
     SoundsCompress::NAME,
     SoundsRemove::NAME,

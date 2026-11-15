@@ -344,6 +344,14 @@ impl Daemon {
                     .map_err(RpcError::invalid_params)?;
                 result(())
             }
+            m::ModulesCancel::NAME => {
+                let p = params::<m::ModulesCancel>(p)?;
+                self.sounds
+                    .modules()
+                    .cancel(&p.id)
+                    .map_err(RpcError::invalid_params)?;
+                result(())
+            }
             m::ModulesEnable::NAME => {
                 let p = params::<m::ModulesEnable>(p)?;
                 self.sounds
@@ -492,7 +500,7 @@ impl Daemon {
         out.extend(self.feedback_problems(graph));
         // a soundboard block must name a soundboard that exists
         for n in &graph.nodes {
-            if let NodeKind::Soundboard { board } = &n.kind {
+            if let NodeKind::Soundboard { board, .. } = &n.kind {
                 if self.sounds.library().board(board).is_none() {
                     out.push(format!(
                         "block {:?} plays the soundboard {board:?}, which does not exist",
@@ -1339,6 +1347,7 @@ mod tests {
                 "sb",
                 NodeKind::Soundboard {
                     board: "ghost".into(),
+                    triggers: vec![],
                 },
             )],
             edges: vec![],
@@ -1358,7 +1367,13 @@ mod tests {
         // the real graph: soundboard -> virtual microphone
         let graph = GraphSpec {
             nodes: vec![
-                NodeSpec::new("sb", NodeKind::Soundboard { board: "b1".into() }),
+                NodeSpec::new(
+                    "sb",
+                    NodeKind::Soundboard {
+                        board: "b1".into(),
+                        triggers: vec![],
+                    },
+                ),
                 NodeSpec::new("mic", NodeKind::VirtualMic { name: "SB".into() }),
             ],
             edges: vec![EdgeSpec {
@@ -1465,7 +1480,13 @@ mod tests {
 
         let graph = GraphSpec {
             nodes: vec![
-                NodeSpec::new("sb", NodeKind::Soundboard { board: "b1".into() }),
+                NodeSpec::new(
+                    "sb",
+                    NodeKind::Soundboard {
+                        board: "b1".into(),
+                        triggers: vec![],
+                    },
+                ),
                 NodeSpec::new("mic", NodeKind::VirtualMic { name: "K".into() }),
             ],
             edges: vec![EdgeSpec {
@@ -1526,7 +1547,10 @@ mod tests {
         let graph = GraphSpec {
             nodes: vec![NodeSpec::new(
                 "sb",
-                NodeKind::Soundboard { board: "b1".into() },
+                NodeKind::Soundboard {
+                    board: "b1".into(),
+                    triggers: vec![],
+                },
             )],
             edges: vec![],
         };
@@ -1537,6 +1561,142 @@ mod tests {
         assert_eq!(status.hotkey_problems.len(), 1, "{status:?}");
         assert_eq!(status.hotkey_problems[0].pad, "p1");
         assert!(status.hotkey_problems[0].message.contains("already used"));
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_pad_that_plays_while_its_key_is_held_stops_when_the_key_is_let_go() {
+        let dir = temp_dir("padhold");
+        let sim = SimBackend::new();
+        let d = daemon_in(&dir, &sim);
+        let ok = |r: Response| -> Value {
+            assert!(r.error.is_none(), "{:?}", r.error);
+            r.result.unwrap_or(Value::Null)
+        };
+        std::fs::create_dir_all(&dir).unwrap();
+        write_tone_wav(&dir.join("tone.wav"));
+        let info: crate::types::SoundInfo = serde_json::from_value(ok(call(
+            &d,
+            "sounds.import",
+            json!({"path": dir.join("tone.wav").display().to_string()}),
+        )))
+        .unwrap();
+        ok(call(
+            &d,
+            "soundboards.set",
+            json!([{"id": "b1", "name": "x", "pads": [
+                {"id": "held", "name": "held", "sound": info.id, "key": "F8", "hold": true, "looped": true},
+                {"id": "tap", "name": "tap", "sound": info.id, "key": "F9", "looped": true}
+            ]}]),
+        ));
+        let graph = GraphSpec {
+            nodes: vec![NodeSpec::new(
+                "sb",
+                NodeKind::Soundboard {
+                    board: "b1".into(),
+                    triggers: vec![],
+                },
+            )],
+            edges: vec![],
+        };
+        ok(call(&d, "graph.set", serde_json::to_value(&graph).unwrap()));
+        std::thread::sleep(Duration::from_millis(600));
+        let playing = |d: &Daemon| -> Vec<String> {
+            serde_json::from_value(ok(call(d, "soundboard.playing", json!({"board": "b1"}))))
+                .unwrap()
+        };
+
+        assert!(sim.press("F8"));
+        std::thread::sleep(Duration::from_millis(200));
+        assert_eq!(playing(&d), vec!["held".to_string()], "playing while held");
+        assert!(sim.release("F8"));
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(playing(&d).is_empty(), "stopped when let go");
+
+        // a pad without the option goes on playing when the key is let go (there is no release to hear)
+        assert!(sim.press("F9"));
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!sim.release("F9"), "no release is registered for it");
+        assert_eq!(playing(&d), vec!["tap".to_string()]);
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_graph_can_play_and_stop_the_pads_of_a_soundboard_with_actions() {
+        let dir = temp_dir("padtrigger");
+        let sim = SimBackend::new();
+        let d = daemon_in(&dir, &sim);
+        let ok = |r: Response| -> Value {
+            assert!(r.error.is_none(), "{:?}", r.error);
+            r.result.unwrap_or(Value::Null)
+        };
+        std::fs::create_dir_all(&dir).unwrap();
+        write_tone_wav(&dir.join("tone.wav"));
+        let info: crate::types::SoundInfo = serde_json::from_value(ok(call(
+            &d,
+            "sounds.import",
+            json!({"path": dir.join("tone.wav").display().to_string()}),
+        )))
+        .unwrap();
+        ok(call(
+            &d,
+            "soundboards.set",
+            json!([{"id": "b1", "name": "x", "pads": [
+                {"id": "p1", "name": "one", "sound": info.id, "looped": true},
+                {"id": "p2", "name": "two", "sound": info.id, "looped": true}
+            ]}]),
+        ));
+        let graph = json!({
+            "nodes": [
+                {"id": "sb", "type": "soundboard", "board": "b1", "triggers": ["p2", "p1"]},
+                {"id": "k1", "type": "hotkey", "keys": "F5"},
+                {"id": "k2", "type": "hotkey", "keys": "F6"},
+                {"id": "k3", "type": "hotkey", "keys": "F7"}
+            ],
+            "edges": [
+                {"from": {"node": "k1", "port": "pressed"}, "to": {"node": "sb", "port": "play1"}},
+                {"from": {"node": "k2", "port": "pressed"}, "to": {"node": "sb", "port": "play2"}},
+                {"from": {"node": "k3", "port": "pressed"}, "to": {"node": "sb", "port": "stop"}}
+            ]
+        });
+        ok(call(&d, "graph.set", graph));
+        std::thread::sleep(Duration::from_millis(700));
+        let playing = |d: &Daemon| -> Vec<String> {
+            let mut v: Vec<String> =
+                serde_json::from_value(ok(call(d, "soundboard.playing", json!({"board": "b1"}))))
+                    .unwrap();
+            v.sort();
+            v
+        };
+        assert!(playing(&d).is_empty());
+
+        // play1 is the first trigger: pad p2
+        assert!(sim.press("F5"));
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(playing(&d), vec!["p2".to_string()]);
+        // play2 is p1
+        assert!(sim.press("F6"));
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(playing(&d), vec!["p1".to_string(), "p2".to_string()]);
+        // stop stops the whole soundboard
+        assert!(sim.press("F7"));
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(playing(&d).is_empty());
+
+        // a link to a trigger that the block does not have is refused
+        let bad = json!({
+            "nodes": [
+                {"id": "sb", "type": "soundboard", "board": "b1", "triggers": ["p1"]},
+                {"id": "k", "type": "hotkey", "keys": "F5"}
+            ],
+            "edges": [{"from": {"node": "k", "port": "pressed"}, "to": {"node": "sb", "port": "play2"}}]
+        });
+        assert_eq!(
+            call(&d, "graph.set", bad).error.unwrap().code,
+            RpcError::VALIDATION
+        );
         drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }
