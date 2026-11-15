@@ -185,7 +185,7 @@
   "soundboards.addPad": "Empty pad",
   "soundboards.pathPlaceholder": "Path of a sound file on this computer",
   "soundboards.dropHint": "Drop sound or video files here (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). A video keeps only its sound. Each file becomes a pad; it is copied and converted once.",
-  "soundboards.dropHintDesktop": "Drop sound or video files on this window, or type a path (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). A video keeps only its sound. Each file becomes a pad; it is copied and converted once.",
+  "soundboards.dropHintDesktop": "Choose files with the button, drop them on this window, or type a path (WAV, MP3, FLAC, OGG, AAC, MP4, MOV, MKV, WebM). A video keeps only its sound. Each file becomes a pad; it is copied and converted once.",
   "soundboards.importing": "Importing {count} file(s)",
   "soundboards.noPads": "No pad yet. Add sounds, or make an empty pad.",
   "soundboards.cannotPlay": "The pads play only when a block of this soundboard is in the running graph",
