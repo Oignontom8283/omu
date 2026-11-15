@@ -10,6 +10,9 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard};
 
+/// The longest fade-out a pad can ask for (milliseconds).
+pub const MAX_FADE_MS: u32 = 10_000;
+
 /// A random identifier: 32 hexadecimal digits. (The standard library's hasher is seeded by the system's randomness.)
 pub fn new_id() -> String {
     use std::collections::hash_map::RandomState;
@@ -100,6 +103,23 @@ impl Library {
             }
             let mut pads = HashSet::new();
             for p in &mut b.pads {
+                if p.fade_ms > MAX_FADE_MS {
+                    return Err(format!(
+                        "pad {:?}: the fade is at most {MAX_FADE_MS} ms",
+                        p.name
+                    ));
+                }
+                if let Some(c) = &p.color {
+                    let ok = c.len() == 7
+                        && c.starts_with('#')
+                        && c[1..].chars().all(|d| d.is_ascii_hexdigit());
+                    if !ok {
+                        return Err(format!(
+                            "pad {:?}: the colour {c:?} is not written #rrggbb",
+                            p.name
+                        ));
+                    }
+                }
                 // a shortcut is kept the way it is written normally ("ctrl+alt+1" -> "Ctrl+Alt+1"); none if empty
                 p.key = match p.key.as_deref().map(str::trim) {
                     None | Some("") => None,
@@ -213,6 +233,9 @@ mod tests {
                     sound: s.map(str::to_owned),
                     gain_db: 0.0,
                     looped: false,
+                    exclusive: false,
+                    fade_ms: 0,
+                    color: None,
                     key: None,
                 })
                 .collect(),
@@ -288,6 +311,48 @@ mod tests {
         assert_eq!(b.pads[1].sound.as_deref(), Some("s2"));
         assert!(!lib.path_of("s1").exists());
         assert_eq!(lib.get().sounds.len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn pad_options_are_checked_and_shortcuts_are_written_the_normal_way() {
+        let dir = temp("options");
+        let lib = Library::load(&dir);
+        let with = |change: &dyn Fn(&mut crate::types::Pad)| {
+            let mut b = board("b", &[("p", None)]);
+            change(&mut b.pads[0]);
+            vec![b]
+        };
+        assert!(lib
+            .set_boards(with(&|p| p.color = Some("#12aBcd".into())))
+            .is_ok());
+        for bad in ["red", "#12345", "#12345g", "123456 "] {
+            assert!(
+                lib.set_boards(with(&|p| p.color = Some(bad.into())))
+                    .is_err(),
+                "{bad}"
+            );
+        }
+        assert!(lib.set_boards(with(&|p| p.fade_ms = MAX_FADE_MS)).is_ok());
+        assert!(lib
+            .set_boards(with(&|p| p.fade_ms = MAX_FADE_MS + 1))
+            .is_err());
+        assert!(lib
+            .set_boards(with(&|p| p.key = Some("ctrl+nope".into())))
+            .is_err());
+        lib.set_boards(with(&|p| p.key = Some(" alt+ctrl+f8 ".into())))
+            .unwrap();
+        assert_eq!(
+            lib.get().boards[0].pads[0].key.as_deref(),
+            Some("Ctrl+Alt+F8")
+        );
+        lib.set_boards(with(&|p| p.key = Some("  ".into())))
+            .unwrap();
+        assert_eq!(
+            lib.get().boards[0].pads[0].key,
+            None,
+            "an empty shortcut is none"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

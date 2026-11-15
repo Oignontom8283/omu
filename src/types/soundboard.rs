@@ -36,6 +36,15 @@ pub struct Pad {
     /// Plays again and again until stopped (not for the long sounds that are read from the disk).
     #[serde(default)]
     pub looped: bool,
+    /// Playing it stops every other sound of the soundboard first (a "choke group" of one soundboard).
+    #[serde(default)]
+    pub exclusive: bool,
+    /// How long it takes to fade out when stopped, in milliseconds; 0 is the shortest fade that does not click.
+    #[serde(default)]
+    pub fade_ms: u32,
+    /// The colour of its button in the panel, `#rrggbb`; the panel's own colour when missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
     /// A global keyboard shortcut that plays the pad ("Ctrl+Alt+1"). The daemon listens for it while the pad's
     /// soundboard is in the running graph.
     #[serde(default, skip_serializing_if = "Option::is_none")]

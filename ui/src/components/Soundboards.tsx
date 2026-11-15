@@ -390,7 +390,7 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
         {board?.pads.map((pad) => {
           const isPlaying = playing.includes(pad.id);
           return (
-            <div key={pad.id} className={`pad${isPlaying ? ' playing' : ''}${pad.sound ? '' : ' empty'}`}>
+            <div key={pad.id} className={`pad${isPlaying ? ' playing' : ''}${pad.sound ? '' : ' empty'}`} style={pad.color ? ({ '--pad': pad.color } as React.CSSProperties) : undefined}>
               <div className="pad-top">
                 <button className="pad-play" disabled={!pad.sound || !active} title={!active ? t('soundboards.cannotPlay') : (soundName(pad.sound) ?? '')} onClick={() => void play(pad)}>
                   <span aria-hidden="true">▶</span> {pad.name || t('soundboards.unnamedPad')}
@@ -432,10 +432,31 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                   ))}
                 {pad.key && !active && <small className="muted">{t('soundboards.keyIdle')}</small>}
               </div>
-              <label className="check" title={t('soundboards.loopHint')}>
-                <input type="checkbox" checked={pad.looped ?? false} onChange={(e) => change(pad, { looped: e.target.checked })} />
-                {t('soundboards.loop')}
+              <div className="checks">
+                <label className="check" title={t('soundboards.loopHint')}>
+                  <input type="checkbox" checked={pad.looped ?? false} onChange={(e) => change(pad, { looped: e.target.checked })} />
+                  {t('soundboards.loop')}
+                </label>
+                <label className="check" title={t('soundboards.exclusiveHint')}>
+                  <input type="checkbox" checked={pad.exclusive ?? false} onChange={(e) => change(pad, { exclusive: e.target.checked })} />
+                  {t('soundboards.exclusive')}
+                </label>
+              </div>
+              <label className="field" title={t('soundboards.fadeHint')}>
+                <span>
+                  {t('soundboards.fade')}: {pad.fade_ms ? `${pad.fade_ms} ms` : t('soundboards.fadeShort')}
+                </span>
+                <input type="range" min={0} max={5000} step={50} value={pad.fade_ms ?? 0} onChange={(e) => change(pad, { fade_ms: Number(e.target.value) })} />
               </label>
+              <div className="color-row">
+                <span>{t('soundboards.color')}</span>
+                <input type="color" aria-label={t('soundboards.color')} value={pad.color ?? '#0f9d8a'} onChange={(e) => change(pad, { color: e.target.value })} />
+                {pad.color && (
+                  <button type="button" className="plain" aria-label={t('soundboards.colorReset')} title={t('soundboards.colorReset')} onClick={() => change(pad, { color: null })}>
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}

@@ -10,7 +10,7 @@
 
 use super::library::{new_id, Library};
 use super::pool::{BlockPool, BlockRef};
-use super::voices::{BoardRuntime, Command, LoadedSound, PlayCommand, StreamShared};
+use super::voices::{BoardRuntime, Command, LoadedSound, PlayCommand, StreamShared, FADE_FRAMES};
 use super::wav::{self, WavInfo};
 use super::{
     AHEAD_SEGMENTS, BLOCK_SAMPLES, DEFAULT_CACHE_MB, ENGINE_RATE, MAX_STREAMS, SEGMENT_SECONDS,
@@ -52,6 +52,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// A key for a pad that the graph thread can compare without text.
+/// Frames a pad fades out over when stopped: its `fade_ms`, never shorter than the fade that keeps a stop from clicking.
+fn fade_frames(fade_ms: u32) -> u32 {
+    (fade_ms.min(super::library::MAX_FADE_MS) * ENGINE_RATE / 1000).max(FADE_FRAMES)
+}
+
 pub fn pad_key(pad: &str) -> u32 {
     pad.bytes().fold(0x811c_9dc5u32, |h, b| {
         (h ^ b as u32).wrapping_mul(0x0100_0193)
@@ -490,6 +495,9 @@ impl SoundEngine {
         } else {
             None
         };
+        if p.exclusive {
+            runtime.send(Command::stop(None));
+        }
         runtime.send(Command::Play(PlayCommand {
             pad: pad_key(pad),
             looped: p.looped && stream.is_none(),
@@ -505,7 +513,13 @@ impl SoundEngine {
         let runtime = self
             .runtime(board)
             .ok_or_else(|| SoundError::NotInGraph(board.to_owned()))?;
-        runtime.send(Command::Stop(pad.map(pad_key)));
+        let fade = pad
+            .and_then(|id| self.pad_of(board, id).ok())
+            .map_or(FADE_FRAMES, |(_, p)| fade_frames(p.fade_ms));
+        runtime.send(Command::Stop {
+            pad: pad.map(pad_key),
+            fade,
+        });
         Ok(())
     }
 
@@ -702,6 +716,9 @@ mod tests {
                     sound: Some((*s).into()),
                     gain_db: 0.0,
                     looped: false,
+                    exclusive: false,
+                    fade_ms: 0,
+                    color: None,
                     key: None,
                 })
                 .collect(),
@@ -843,6 +860,55 @@ mod tests {
             rt.mix(&mut vec![0.0; 960]);
         }
         assert!(e.playing("b").is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_pad_that_stops_the_others_does_so_and_a_pad_fades_out_over_the_time_it_asks_for() {
+        let dir = temp("options");
+        let e = SoundEngine::with_cache_bytes(&dir, 64 * 32 * 1024);
+        add_sound(&e, "a", 200_000);
+        board(&e, "b", &[("p1", "a"), ("p2", "a"), ("slow", "a")]);
+        let mut boards = e.library().get().boards;
+        boards[0].pads[1].exclusive = true;
+        boards[0].pads[2].fade_ms = 500;
+        e.library().set_boards(boards).unwrap();
+        e.sync(&["b".into()]);
+        let rt = e.runtime("b").unwrap();
+        let cycle = |frames: usize| {
+            let mut out = vec![0.0; frames * 2];
+            rt.mix(&mut out);
+            out
+        };
+
+        e.play("b", "p1").unwrap();
+        cycle(480);
+        assert_eq!(e.playing("b"), vec!["p1".to_string()]);
+        // p2 stops the others: p1 fades out within 10 ms and only p2 is left
+        e.play("b", "p2").unwrap();
+        cycle(480);
+        cycle(480);
+        assert_eq!(e.playing("b"), vec!["p2".to_string()]);
+
+        // a pad that is not exclusive leaves the others alone
+        e.play("b", "p1").unwrap();
+        cycle(480);
+        assert_eq!(e.playing("b").len(), 2);
+        e.stop("b", None).unwrap();
+        cycle(960);
+        assert!(e.playing("b").is_empty());
+
+        // a fade of 500 ms: still there after 400 ms, gone after 600
+        e.play("b", "slow").unwrap();
+        cycle(480);
+        e.stop("b", Some("slow")).unwrap();
+        // a pad on its way out is no longer "playing", but it is still heard until its fade ends
+        cycle(48_000 * 4 / 10);
+        let still = cycle(480);
+        assert!(still.iter().any(|x| *x != 0.0), "still audible at 400 ms");
+        cycle(48_000 * 2 / 10);
+        let gone = cycle(480);
+        assert!(gone.iter().all(|x| *x == 0.0), "silent after 600 ms");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

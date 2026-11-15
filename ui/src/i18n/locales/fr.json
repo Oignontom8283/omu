@@ -212,5 +212,12 @@
   "soundboards.cacheInvalid": "La limite de mémoire est un nombre entier de mégaoctets, {min} au minimum.",
   "soundboards.cacheHint": "Le changement s’applique la prochaine fois qu’un soundboard se met à jouer.",
   "soundboards.padKey": "Raccourci qui le joue",
-  "soundboards.keyIdle": "Fonctionne quand ce soundboard est dans le graphe en cours"
+  "soundboards.keyIdle": "Fonctionne quand ce soundboard est dans le graphe en cours",
+  "soundboards.exclusive": "Arrêter les autres",
+  "soundboards.exclusiveHint": "Jouer ce pad arrête d’abord tous les autres sons de ce soundboard",
+  "soundboards.fade": "Fondu à l’arrêt",
+  "soundboards.fadeShort": "court",
+  "soundboards.fadeHint": "Le temps que ce pad met à s’éteindre quand on l’arrête",
+  "soundboards.color": "Couleur",
+  "soundboards.colorReset": "Revenir à la couleur habituelle"
 }

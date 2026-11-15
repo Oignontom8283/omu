@@ -212,5 +212,12 @@
   "soundboards.cacheInvalid": "The memory limit is a whole number of megabytes, {min} at least.",
   "soundboards.cacheHint": "The change applies the next time a soundboard starts playing.",
   "soundboards.padKey": "Shortcut that plays it",
-  "soundboards.keyIdle": "Works while this soundboard is in the running graph"
+  "soundboards.keyIdle": "Works while this soundboard is in the running graph",
+  "soundboards.exclusive": "Stop others",
+  "soundboards.exclusiveHint": "Playing this pad first stops every other sound of this soundboard",
+  "soundboards.fade": "Fade out",
+  "soundboards.fadeShort": "short",
+  "soundboards.fadeHint": "How long this pad takes to fade out when it is stopped",
+  "soundboards.color": "Colour",
+  "soundboards.colorReset": "Back to the usual colour"
 }
