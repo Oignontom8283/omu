@@ -46,5 +46,7 @@ pub mod elevation;
 pub mod engine;
 #[cfg(feature = "engine")]
 pub mod soundboard;
+#[cfg(feature = "tray")]
+pub mod tray;
 #[cfg(feature = "engine")]
 pub mod virtual_devices;
