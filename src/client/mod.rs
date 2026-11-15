@@ -31,6 +31,17 @@ impl std::fmt::Display for ClientError {
 
 impl std::error::Error for ClientError {}
 
+/// How long a request may take before the client gives up: the daemon answers within moments, except when it waits
+/// for a person (cleaning up old devices asks the user for administrator rights, and the answer takes as long as the
+/// user does).
+pub fn wait_for(method: &str) -> Duration {
+    if method == crate::protocol::methods::DevicesClean::NAME {
+        Duration::from_secs(200)
+    } else {
+        Duration::from_secs(30)
+    }
+}
+
 pub struct Client {
     address: String,
     token: String,
@@ -84,6 +95,9 @@ impl Client {
         let mut response = self
             .agent
             .post(&url)
+            .config()
+            .timeout_global(Some(wait_for(&request.method)))
+            .build()
             .header("Authorization", format!("Bearer {}", self.token))
             .send_json(request)
             .map_err(|e| self.unreachable(e))?;
@@ -122,5 +136,18 @@ impl Client {
         }
         serde_json::from_value(response.result.unwrap_or(serde_json::Value::Null))
             .map_err(|e| ClientError::Transport(format!("{}: unexpected result: {e}", M::NAME)))
+    }
+}
+
+#[cfg(test)]
+mod wait_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_request_that_waits_for_a_person_gets_a_long_delay() {
+        assert!(wait_for("devices.clean") >= Duration::from_secs(190));
+        for m in ["system.info", "graph.set", "devices.stale", "engine.status"] {
+            assert_eq!(wait_for(m), Duration::from_secs(30), "{m}");
+        }
     }
 }

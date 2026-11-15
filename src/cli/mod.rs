@@ -52,6 +52,13 @@ pub enum Command {
         #[arg(long)]
         open: bool,
     },
+    /// Make the system forget the old virtual devices it still remembers (one per name a microphone or speaker ever
+    /// had). Asks for administrator rights only when the daemon does not have them already.
+    CleanDevices {
+        /// Only list what would be forgotten.
+        #[arg(long)]
+        list: bool,
+    },
 }
 
 #[derive(Args, Debug)]
@@ -383,6 +390,39 @@ where
                     limit: Some(500),
                 })?;
             }
+        }
+        Command::CleanDevices { list } => {
+            let survey = client.call::<DevicesStale>(&())?;
+            if cli.json && *list {
+                return print_json(out, &survey);
+            }
+            if !survey.supported {
+                writeln!(out, "this system has no old virtual devices to clean up")?;
+                return Ok(());
+            }
+            if survey.stale.is_empty() {
+                writeln!(out, "no old device to clean up")?;
+                return Ok(());
+            }
+            for s in &survey.stale {
+                writeln!(out, "old device: {}", s.name)?;
+            }
+            if *list {
+                return Ok(());
+            }
+            if !survey.elevated {
+                writeln!(out, "asking for administrator rights...")?;
+                out.flush()?;
+            }
+            let done = client.call::<DevicesClean>(&())?;
+            if cli.json {
+                return print_json(out, &done);
+            }
+            writeln!(
+                out,
+                "{} old device(s) forgotten, {} left",
+                done.removed, done.remaining
+            )?;
         }
         Command::Panel { open } => {
             let url = client.panel_url();

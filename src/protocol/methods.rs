@@ -4,7 +4,9 @@
 //! (`client.call::<GraphSet>(&graph)`) and the daemon dispatches on the same names.
 
 use crate::diagnostics::Line;
-use crate::types::{AppInfo, Capabilities, DeviceInfo, EngineStatus, GraphSpec};
+use crate::types::{
+    AppInfo, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, StaleDevices,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -110,6 +112,16 @@ method!(
     DevicesList, "devices.list", () => Vec<DeviceInfo>
 );
 method!(
+    /// The virtual devices that no longer exist but that the system still remembers (Windows keeps one record per
+    /// name a microphone or a speaker ever had), and whether cleaning them up would ask for administrator rights.
+    DevicesStale, "devices.stale", () => StaleDevices
+);
+method!(
+    /// Makes the system forget those old devices. Asks the user for administrator rights, through the system's own
+    /// confirmation window, unless the daemon already has them. Fails with `CANCELLED` when the user refuses.
+    DevicesClean, "devices.clean", () => CleanOutcome
+);
+method!(
     /// The applications known to the audio system, active ones first.
     AppsList, "apps.list", () => Vec<AppInfo>
 );
@@ -160,6 +172,8 @@ pub const EVENT_GRAPH: &str = "graph.changed";
 pub const ALL_METHODS: &[&str] = &[
     SystemInfoMethod::NAME,
     DevicesList::NAME,
+    DevicesStale::NAME,
+    DevicesClean::NAME,
     AppsList::NAME,
     GraphGet::NAME,
     GraphValidate::NAME,

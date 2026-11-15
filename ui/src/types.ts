@@ -95,3 +95,9 @@ export type SystemInfo = {
 export type NodeLayout = { x: number; y: number; inputs?: number; slots?: Record<string, number> };
 export type Layout = Record<string, NodeLayout>;
 export type ValidateResult = { ok: boolean; errors: string[] };
+
+/** An old virtual device the system still remembers (a name a microphone or speaker used to have). */
+export type StaleDevice = { name: string };
+/** What could be cleaned up, and whether doing it would ask for administrator rights. */
+export type StaleDevices = { supported: boolean; elevated: boolean; stale: StaleDevice[] };
+export type CleanOutcome = { removed: number; remaining: number; asked_for_rights: boolean };

@@ -72,6 +72,8 @@ impl RpcError {
     /// The request needs an audio facility this system does not have.
     pub const UNAVAILABLE: i32 = -32002;
     pub const UNAUTHORIZED: i32 = -32003;
+    /// The user refused something the system asked them (administrator rights); nothing was done.
+    pub const CANCELLED: i32 = -32004;
 
     pub fn new(code: i32, message: impl Into<String>) -> RpcError {
         RpcError {
