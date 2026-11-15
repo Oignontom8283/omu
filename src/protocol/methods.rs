@@ -264,6 +264,10 @@ method!(
     EngineStop, "engine.stop", () => ()
 );
 method!(
+    /// Starts again the graph that was last applied (after `engine.stop`). Fails when there is none.
+    EngineStart, "engine.start", () => ()
+);
+method!(
     /// Stops the daemon itself, cleanly: the engine, the streams, the virtual devices and the discovery file go away.
     /// The reply is sent first; clients see the connection close.
     SystemShutdown, "system.shutdown", () => ()
@@ -314,6 +318,7 @@ pub const ALL_METHODS: &[&str] = &[
     GraphSet::NAME,
     EngineStatusMethod::NAME,
     EngineStop::NAME,
+    EngineStart::NAME,
     SystemShutdown::NAME,
     LogsRecent::NAME,
     LayoutGet::NAME,

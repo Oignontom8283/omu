@@ -26,6 +26,7 @@ pub(crate) const WM_TRAY: u32 = WM_APP + 1;
 const ID_OPEN: usize = 1;
 const ID_STOP_ENGINE: usize = 2;
 const ID_QUIT: usize = 3;
+const ID_START_ENGINE: usize = 4;
 /// The one icon this program has in the notification area.
 const ICON_ID: u32 = 1;
 
@@ -114,6 +115,12 @@ fn show_menu(hwnd: HWND, texts: &Texts) -> usize {
         let _ = AppendMenuW(
             menu,
             MF_STRING,
+            ID_START_ENGINE,
+            PCWSTR(wide(texts.start_engine).as_ptr()),
+        );
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING,
             ID_STOP_ENGINE,
             PCWSTR(wide(texts.stop_engine).as_ptr()),
         );
@@ -142,6 +149,7 @@ fn run_command(shared: &Shared, id: usize) {
     // a failure of an action never takes the icon down with it
     let _ = crate::diagnostics::contained(|| match id {
         ID_OPEN => (shared.actions.open)(),
+        ID_START_ENGINE => (shared.actions.start_engine)(),
         ID_STOP_ENGINE => (shared.actions.stop_engine)(),
         ID_QUIT => (shared.actions.quit)(),
         _ => {}
@@ -321,7 +329,7 @@ mod tests {
     #[test]
     fn the_icon_is_there_a_click_and_the_menu_commands_reach_the_actions_and_it_goes_when_dropped()
     {
-        let counts: Arc<[AtomicU32; 3]> = Arc::new(Default::default());
+        let counts: Arc<[AtomicU32; 4]> = Arc::new(Default::default());
         let count = |k: usize| {
             let c = counts.clone();
             Box::new(move || {
@@ -332,6 +340,7 @@ mod tests {
             open: count(0),
             stop_engine: count(1),
             quit: count(2),
+            start_engine: count(3),
         })
         .expect("the icon starts");
 
@@ -367,9 +376,15 @@ mod tests {
                 Some(WPARAM(ID_QUIT)),
                 Some(LPARAM(0)),
             );
+            SendMessageW(
+                tray.window(),
+                WM_COMMAND,
+                Some(WPARAM(ID_START_ENGINE)),
+                Some(LPARAM(0)),
+            );
         }
         let seen: Vec<u32> = counts.iter().map(|c| c.load(Ordering::SeqCst)).collect();
-        assert_eq!(seen, vec![1, 1, 1]);
+        assert_eq!(seen, vec![1, 1, 1, 1]);
 
         let window = tray.window();
         drop(tray);
