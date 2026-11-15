@@ -74,6 +74,8 @@ impl RpcError {
     pub const UNAUTHORIZED: i32 = -32003;
     /// The user refused something the system asked them (administrator rights); nothing was done.
     pub const CANCELLED: i32 = -32004;
+    /// What was asked needs an optional module that is not switched on; `data` is the module's id.
+    pub const MODULE_NEEDED: i32 = -32005;
 
     pub fn new(code: i32, message: impl Into<String>) -> RpcError {
         RpcError {

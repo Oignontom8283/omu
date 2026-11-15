@@ -5,8 +5,8 @@
 
 use crate::diagnostics::Line;
 use crate::types::{
-    AppInfo, Board, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Settings,
-    SoundInfo, SoundLibrary, SoundStatus, StaleDevices,
+    AppInfo, Board, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, ModuleInfo,
+    Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -171,6 +171,37 @@ method!(
     /// Imports a sound file: it is converted once to the format sounds are stored in. A long file takes a while.
     SoundsImport, "sounds.import", ImportSound => SoundInfo
 );
+/// A module by its id (`modules.install`, `modules.remove`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleRef {
+    pub id: String,
+}
+
+/// Parameters of `modules.enable`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnableModule {
+    pub id: String,
+    pub enabled: bool,
+}
+
+method!(
+    /// The optional modules (FFmpeg) and how each stands.
+    ModulesList, "modules.list", () => Vec<ModuleInfo>
+);
+method!(
+    /// Switches a module on. When the system has what it needs that is all; otherwise it is downloaded into the
+    /// modules folder in the background (follow it with `modules.list`). This is the only thing that reaches the
+    /// Internet, and only because it was asked for.
+    ModulesInstall, "modules.install", ModuleRef => ()
+);
+method!(
+    /// Switches a module on or off (it must be installed to be switched on).
+    ModulesEnable, "modules.enable", EnableModule => ()
+);
+method!(
+    /// Switches a module off and deletes its copy in the modules folder.
+    ModulesRemove, "modules.remove", ModuleRef => ()
+);
 method!(
     /// Stores an imported sound compressed, without loss (it plays exactly the same and takes less room on the disk). A
     /// long sound takes a while.
@@ -260,6 +291,10 @@ pub const ALL_METHODS: &[&str] = &[
     SoundboardsGet::NAME,
     SoundboardsSet::NAME,
     SoundsImport::NAME,
+    ModulesList::NAME,
+    ModulesInstall::NAME,
+    ModulesEnable::NAME,
+    ModulesRemove::NAME,
     SoundsCompress::NAME,
     SoundsRemove::NAME,
     SoundboardPlay::NAME,

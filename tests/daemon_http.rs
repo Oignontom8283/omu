@@ -352,3 +352,101 @@ fn a_browser_uploads_a_video_and_only_its_sound_is_kept() {
     running.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_file_only_ffmpeg_can_read_asks_for_the_module_and_is_read_once_it_is_on() {
+    let (running, client, dir) = start("ffmpeg");
+    let agent = ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .new_agent();
+    let url = format!("http://{}/sounds?name=Clip.webm", client.address());
+    let auth = format!("Bearer {}", running.info.token);
+    let opus = std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("media")
+            .join("tone-opus.webm"),
+    )
+    .unwrap();
+
+    // the module is off: the answer says which module is needed, so that the panel can offer to install it
+    let mut reply = agent
+        .post(&url)
+        .header("Authorization", auth.as_str())
+        .send(opus.clone())
+        .unwrap();
+    assert_eq!(reply.status().as_u16(), 422);
+    let body: serde_json::Value = reply.body_mut().read_json().unwrap();
+    assert_eq!(body["error"]["code"], RpcError::MODULE_NEEDED, "{body}");
+    assert_eq!(body["error"]["data"], "ffmpeg");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Modules panel"),
+        "{body}"
+    );
+    assert_eq!(client.call::<SoundboardsGet>(&()).unwrap().sounds.len(), 0);
+
+    let modules = client.call::<ModulesList>(&()).unwrap();
+    assert_eq!(modules.len(), 1);
+    assert!(!modules[0].enabled && modules[0].installing.is_none());
+
+    // with an FFmpeg on this computer, switching the module on uses it at once (nothing is downloaded)
+    if !modules[0].available {
+        eprintln!("no FFmpeg on this computer: the rest of this test is skipped");
+        running.stop();
+        let _ = std::fs::remove_dir_all(&dir);
+        return;
+    }
+    assert_eq!(modules[0].source.as_deref(), Some("system"));
+    client
+        .call::<ModulesInstall>(&ModuleRef {
+            id: "ffmpeg".into(),
+        })
+        .unwrap();
+    let modules = client.call::<ModulesList>(&()).unwrap();
+    assert!(
+        modules[0].enabled && modules[0].installing.is_none(),
+        "{modules:?}"
+    );
+
+    let mut reply = agent
+        .post(&url)
+        .header("Authorization", auth.as_str())
+        .send(opus)
+        .unwrap();
+    assert_eq!(reply.status().as_u16(), 200);
+    let info: omu::types::SoundInfo = reply.body_mut().read_json().unwrap();
+    assert_eq!(info.channels, 2);
+    assert!(
+        (info.frames as i64 - 48_000).abs() < 4_000,
+        "{} frames",
+        info.frames
+    );
+
+    // switched off again, the same file is asked for the module once more
+    client
+        .call::<ModulesEnable>(&EnableModule {
+            id: "ffmpeg".into(),
+            enabled: false,
+        })
+        .unwrap();
+    let again = agent
+        .post(&url)
+        .header("Authorization", auth.as_str())
+        .send(
+            std::fs::read(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("tests")
+                    .join("media")
+                    .join("tone-opus.webm"),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    assert_eq!(again.status().as_u16(), 422);
+    running.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
