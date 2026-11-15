@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { IN_DESKTOP_WINDOW, RpcError, uploadSound, type api } from '../api.ts';
+import { MODULE_NEEDED } from '../modules.ts';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import { ShortcutField } from './ShortcutField.tsx';
@@ -37,12 +38,14 @@ type Props = {
   /** Adds a soundboard block for this board to the editor. */
   onAddBlock: (board: string) => void;
   notify: (text: string) => void;
+  /** Opens the panel of the optional modules. */
+  onOpenModules: () => void;
 };
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** The panel of the soundboards: boards, their pads, the sounds, and the memory they may use. */
-export function Soundboards({ daemon, token, library, setLibrary, applied, shown, initialBoard, onClose, onAddBlock, notify }: Props) {
+export function Soundboards({ daemon, token, library, setLibrary, applied, shown, initialBoard, onClose, onAddBlock, notify, onOpenModules }: Props) {
   const t = useT();
   const [boardId, setBoardId] = useState<string | undefined>(initialBoard ?? library.boards[0]?.id);
   const [playing, setPlaying] = useState<string[]>([]);
@@ -55,6 +58,8 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
   const [over, setOver] = useState(false);
   const [path, setPath] = useState('');
   const [confirm, setConfirm] = useState<string | null>(null);
+  // a file that needs an optional module (its id), until the question is answered
+  const [needModule, setNeedModule] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   // the latest values, for the work that outlives a render (an import takes a while)
@@ -178,7 +183,8 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       try {
         done.push(await job.run());
       } catch (e) {
-        notify(`${job.label}: ${e instanceof RpcError || e instanceof Error ? e.message : String(e)}`);
+        if (e instanceof RpcError && e.code === MODULE_NEEDED) setNeedModule(typeof e.data === 'string' ? e.data : 'ffmpeg');
+        else notify(`${job.label}: ${e instanceof RpcError || e instanceof Error ? e.message : String(e)}`);
       } finally {
         setImporting((l) => {
           const i = l.indexOf(job.label);
@@ -401,6 +407,26 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
           </div>
           <p className="muted drop-hint">{IN_DESKTOP_WINDOW ? t('soundboards.dropHintDesktop') : t('soundboards.dropHint')}</p>
         </>
+      )}
+      {needModule && (
+        <div className="banner warn" role="alert">
+          {t('modules.needed', { name: needModule === 'ffmpeg' ? 'FFmpeg' : needModule })}{' '}
+          <button
+            className="inline primary"
+            onClick={() => {
+              const id = needModule;
+              setNeedModule(null);
+              // the question was the consent: the module is installed, and its panel shows the download
+              daemon.installModule(id).catch((e) => notify(message(e)));
+              onOpenModules();
+            }}
+          >
+            {t('modules.neededInstall')}
+          </button>
+          <button className="inline" onClick={() => setNeedModule(null)}>
+            {t('modules.neededLater')}
+          </button>
+        </div>
       )}
       {importing.length > 0 && (
         <div className="banner info" role="status">

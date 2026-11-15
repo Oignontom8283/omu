@@ -66,7 +66,7 @@ fn hal_error(e: HalError) -> RpcError {
     }
 }
 
-fn sound_error(e: crate::soundboard::SoundError) -> RpcError {
+pub(crate) fn sound_error(e: crate::soundboard::SoundError) -> RpcError {
     use crate::soundboard::SoundError as E;
     match &e {
         E::UnknownBoard(_) | E::UnknownPad(_) | E::NoSound | E::UnknownSound(_) => {
@@ -75,6 +75,8 @@ fn sound_error(e: crate::soundboard::SoundError) -> RpcError {
         E::NotInGraph(_) | E::NotActive | E::PoolFull(_) | E::TooManyStreams => {
             RpcError::new(RpcError::UNAVAILABLE, e.to_string())
         }
+        E::ModuleNeeded(_) => RpcError::new(RpcError::MODULE_NEEDED, e.to_string())
+            .with_data(serde_json::json!("ffmpeg")),
         E::Io(_) => RpcError::internal(e.to_string()),
     }
 }
@@ -331,6 +333,32 @@ impl Daemon {
                     .import(std::path::Path::new(&p.path), p.name.as_deref())
                     .map_err(sound_error)?;
                 result(info)
+            }
+            m::ModulesList::NAME => result(self.sounds.modules().list()),
+            m::ModulesInstall::NAME => {
+                let p = params::<m::ModulesInstall>(p)?;
+                tracing::info!(module = %p.id, "installing a module");
+                self.sounds
+                    .modules()
+                    .install(&p.id)
+                    .map_err(RpcError::invalid_params)?;
+                result(())
+            }
+            m::ModulesEnable::NAME => {
+                let p = params::<m::ModulesEnable>(p)?;
+                self.sounds
+                    .modules()
+                    .set_enabled(&p.id, p.enabled)
+                    .map_err(RpcError::invalid_params)?;
+                result(())
+            }
+            m::ModulesRemove::NAME => {
+                let p = params::<m::ModulesRemove>(p)?;
+                self.sounds
+                    .modules()
+                    .remove(&p.id)
+                    .map_err(RpcError::invalid_params)?;
+                result(())
             }
             m::SoundsCompress::NAME => {
                 let p = params::<m::SoundsCompress>(p)?;

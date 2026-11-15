@@ -16,6 +16,7 @@ import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findT
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Palette } from './components/Palette.tsx';
+import { Modules } from './components/Modules.tsx';
 import { Soundboards } from './components/Soundboards.tsx';
 import {
   KINDS_BY_CATEGORY,
@@ -75,6 +76,8 @@ export function App() {
   // the soundboards the daemon keeps, and the panel that edits them (`first`: the board it opens on)
   const [library, setLibrary] = useState<SoundLibrary>({ sounds: [], boards: [] });
   const [boardsPanel, setBoardsPanel] = useState<{ first?: string } | null>(null);
+  // the panel of the optional modules (FFmpeg); it and the soundboards panel share the right side, one at a time
+  const [modulesPanel, setModulesPanel] = useState(false);
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
@@ -289,7 +292,10 @@ export function App() {
       apps,
       devices,
       library,
-      openSoundboards: (first?: string) => setBoardsPanel({ first }),
+      openSoundboards: (first?: string) => {
+        setModulesPanel(false);
+        setBoardsPanel({ first });
+      },
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
       update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...named(n.data.spec), ...kind } } } : n))),
       changeKind: (id: string, type: NodeType) => {
@@ -350,8 +356,23 @@ export function App() {
             <option value="light">{t('app.themeLight')}</option>
             <option value="dark">{t('app.themeDark')}</option>
           </select>
-          <button onClick={() => setBoardsPanel((p) => (p ? null : {}))} className={boardsPanel ? 'on' : ''}>
+          <button
+            onClick={() => {
+              setModulesPanel(false);
+              setBoardsPanel((p) => (p ? null : {}));
+            }}
+            className={boardsPanel ? 'on' : ''}
+          >
             {t('soundboards.title')}
+          </button>
+          <button
+            onClick={() => {
+              setBoardsPanel(null);
+              setModulesPanel((v) => !v);
+            }}
+            className={modulesPanel ? 'on' : ''}
+          >
+            {t('modules.title')}
           </button>
           <button onClick={autoLayout} disabled={nodes.length === 0}>
             {t('app.tidy')}
@@ -453,8 +474,13 @@ export function App() {
               onClose={() => setBoardsPanel(null)}
               onAddBlock={(board) => addNode('input', { type: 'soundboard', board })}
               notify={setNotice}
+              onOpenModules={() => {
+                setBoardsPanel(null);
+                setModulesPanel(true);
+              }}
             />
           )}
+          {modulesPanel && <Modules daemon={daemon} onClose={() => setModulesPanel(false)} notify={setNotice} />}
           {showJson && <textarea className="json" readOnly value={JSON.stringify(graph, null, 2)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">
