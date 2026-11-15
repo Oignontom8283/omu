@@ -449,6 +449,7 @@ impl Inner {
                         Plan::select(*branches, self.cfg.cycle_frames)
                     }
                     (NodeKind::Delay { ms }, _) => Plan::delay(*ms),
+                    (NodeKind::NoiseReduction, _) => Plan::noise_reduction(self.cfg.cycle_frames),
                     (NodeKind::Not, _) => NodeOp::Not,
                     (NodeKind::All, _) => NodeOp::All,
                     (NodeKind::Any, _) => NodeOp::Any,

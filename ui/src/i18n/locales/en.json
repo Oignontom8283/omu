@@ -158,5 +158,7 @@
   "app.cleanDevicesHint": "Windows keeps a record of every old name of a virtual microphone or speaker. No old device to remove.",
   "app.cleanDone": "{count} old device(s) removed from Windows",
   "app.cleanNothing": "Nothing was removed",
-  "app.cleanCancelled": "Cleaning cancelled: administrator rights were refused, nothing was removed"
+  "app.cleanCancelled": "Cleaning cancelled: administrator rights were refused, nothing was removed",
+  "kind.noise_reduction": "Noise reduction",
+  "kind.noise_reduction.hint": "Takes the background noise out of a voice (fan, keyboard, hiss). Adds about 10 ms of delay."
 }

@@ -158,5 +158,7 @@
   "app.cleanDevicesHint": "Windows garde la trace de chaque ancien nom d’un micro ou haut-parleur virtuel. Aucun ancien périphérique à retirer.",
   "app.cleanDone": "{count} ancien(s) périphérique(s) retiré(s) de Windows",
   "app.cleanNothing": "Rien n’a été retiré",
-  "app.cleanCancelled": "Nettoyage annulé : les droits d’administrateur ont été refusés, rien n’a été retiré"
+  "app.cleanCancelled": "Nettoyage annulé : les droits d’administrateur ont été refusés, rien n’a été retiré",
+  "kind.noise_reduction": "Réduction de bruit",
+  "kind.noise_reduction.hint": "Enlève les bruits de fond d’une voix (ventilateur, clavier, souffle). Ajoute environ 10 ms de retard."
 }

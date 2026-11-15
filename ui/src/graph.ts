@@ -55,6 +55,7 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [p('in', 'in', 'audio')];
     case 'gain':
     case 'delay':
+    case 'noise_reduction':
       return [p('in', 'in', 'audio'), p('out', 'out', 'audio')];
     case 'mixer':
       return [p('in', 'in', 'audio', true, { entries: true }), p('out', 'out', 'audio')];
@@ -103,7 +104,7 @@ export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'conditi
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   input: ['app_capture', 'device_capture', 'virtual_speaker'],
   output: ['virtual_mic', 'device_render'],
-  processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay'],
+  processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction'],
   condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after'],
   trigger: ['hotkey', 'timer', 'change'],
 };
@@ -201,6 +202,7 @@ export function defaultKind(type: NodeType): NodeKind {
     case 'all':
     case 'any':
     case 'change':
+    case 'noise_reduction':
       return { type };
     case 'branch':
     case 'select':

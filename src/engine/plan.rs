@@ -9,7 +9,7 @@
 //!   a timer fired. An action is consumed by the nodes it reaches (a variable changes) and then forgotten.
 
 use super::bridge::{SinkProducer, SourceConsumer};
-use crate::dsp::{add_into, db_to_linear, peak, SmoothedGain};
+use crate::dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
 use crate::types::{
     port_number, LogicOp, NodeId, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES, MAX_DELAY_MS,
 };
@@ -152,6 +152,9 @@ pub enum NodeOp {
         gains: Vec<SmoothedGain>,
         scratch: Vec<f32>,
     },
+    /// Noise reduction. Shared with the plan that replaces this one, so that editing the graph does not make the
+    /// network start again (it would let the filter's fade-in through).
+    NoiseReduction(Arc<Mutex<Denoiser>>),
     /// The sound, later: a ring of samples that is read before it is written.
     Delay {
         line: Vec<f32>,
@@ -207,6 +210,7 @@ impl NodeOp {
             | NodeOp::Mixer
             | NodeOp::Gate(_)
             | NodeOp::Select { .. }
+            | NodeOp::NoiseReduction(_)
             | NodeOp::Delay { .. } => 1,
             NodeOp::Branch { gains } => gains.len(),
             #[cfg(test)]
@@ -334,6 +338,11 @@ impl Plan {
         }
     }
 
+    /// A `noise_reduction` block for cycles of `cycle_frames` frames.
+    pub fn noise_reduction(cycle_frames: usize) -> NodeOp {
+        NodeOp::NoiseReduction(Arc::new(Mutex::new(Denoiser::new(CH, cycle_frames))))
+    }
+
     /// A `delay` block of `ms` milliseconds.
     pub fn delay(ms: u32) -> NodeOp {
         let frames = (ms.min(MAX_DELAY_MS) as u64 * ENGINE_SAMPLE_RATE as u64 / 1000) as usize;
@@ -374,6 +383,7 @@ impl Plan {
                         g.start_from(before.current());
                     }
                 }
+                (NodeOp::NoiseReduction(d), NodeOp::NoiseReduction(o)) => *d = o.clone(),
                 (NodeOp::Delay { line, pos }, NodeOp::Delay { line: o, pos: op }) => {
                     if line.len() == o.len() {
                         line.copy_from_slice(o);
@@ -457,6 +467,14 @@ impl Plan {
                         scratch.copy_from_slice(input_audio(port));
                         g.apply(scratch, CH);
                         add_into(&mut audios[0], scratch);
+                    }
+                }
+                NodeOp::NoiseReduction(denoiser) => {
+                    let input = input_audio(Port::In);
+                    match denoiser.try_lock() {
+                        Ok(mut d) => d.process(input, &mut audios[0]),
+                        // nobody else uses it while this plan runs; if it happens, the sound goes through
+                        Err(_) => audios[0].copy_from_slice(input),
                     }
                 }
                 NodeOp::Delay { line, pos } => {
@@ -1267,5 +1285,34 @@ mod tests {
         new.inherit(&old);
         new.process();
         assert!(new.condition(1), "the hold went on across the swap");
+    }
+
+    #[test]
+    fn noise_reduction_runs_in_a_plan_and_keeps_its_state_when_the_plan_is_replaced() {
+        let nr = || {
+            Plan::new(
+                vec![
+                    node("src", NodeOp::Constant(0.2), vec![]),
+                    node("nr", Plan::noise_reduction(480), vec![wire(0)]),
+                ],
+                480,
+            )
+        };
+        let mut old = nr();
+        run(&mut old, 5);
+        assert!(plan_silent(&old, 1, 0) || old.output(1).iter().all(|s| s.is_finite()));
+        // the first cycle is silent (the fade-in of the network is not let through)
+        let mut fresh = nr();
+        fresh.process();
+        assert!(plan_silent(&fresh, 1, 0));
+        // a new plan takes over the same network, so editing the graph does not start it again
+        let mut next = nr();
+        next.inherit(&old);
+        let (NodeOp::NoiseReduction(a), NodeOp::NoiseReduction(b)) =
+            (&next.nodes[1].op, &old.nodes[1].op)
+        else {
+            panic!("not noise reduction blocks");
+        };
+        assert!(Arc::ptr_eq(a, b));
     }
 }

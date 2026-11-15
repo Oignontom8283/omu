@@ -171,6 +171,7 @@ function Params({ spec }: { spec: NodeSpec }) {
       );
     case 'mixer':
     case 'gate':
+    case 'noise_reduction':
     case 'not':
     case 'all':
     case 'any':

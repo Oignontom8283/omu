@@ -179,6 +179,9 @@ pub enum NodeKind {
     },
     /// Processing: the sound, `ms` milliseconds later (to line a sound up with another, e.g. a camera).
     Delay { ms: u32 },
+    /// Processing: takes the background noise out of a voice (a fan, a keyboard, hiss) with RNNoise, a small neural
+    /// network that tells voice from noise. Adds 10 ms of delay.
+    NoiseReduction,
     // ---- conditions
     /// Condition: a remembered yes/no. Actions change it: `set` makes it true, `clear` false, `toggle` flips it.
     Variable { initial: bool },
@@ -253,7 +256,9 @@ impl NodeKind {
             | NodeKind::DeviceCapture { .. }
             | NodeKind::VirtualSpeaker { .. } => vec![out_audio()],
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],
-            NodeKind::Gain { .. } | NodeKind::Delay { .. } => vec![in_audio(), out_audio()],
+            NodeKind::Gain { .. } | NodeKind::Delay { .. } | NodeKind::NoiseReduction => {
+                vec![in_audio(), out_audio()]
+            }
             NodeKind::Mixer => vec![in_audio(), out_audio()],
             NodeKind::Gate => vec![
                 in_audio(),
@@ -321,7 +326,8 @@ impl NodeKind {
             | NodeKind::Gate
             | NodeKind::Branch { .. }
             | NodeKind::Select { .. }
-            | NodeKind::Delay { .. } => Category::Processing,
+            | NodeKind::Delay { .. }
+            | NodeKind::NoiseReduction => Category::Processing,
             NodeKind::Variable { .. }
             | NodeKind::Level { .. }
             | NodeKind::Logic { .. }
@@ -558,6 +564,7 @@ mod tests {
             NodeKind::Branch { branches: 3 },
             NodeKind::Select { branches: 2 },
             NodeKind::Delay { ms: 40 },
+            NodeKind::NoiseReduction,
             NodeKind::Not,
             NodeKind::All,
             NodeKind::Any,
@@ -707,7 +714,7 @@ mod tests {
             needs,
             vec![
                 true, true, true, true, false, false, false, false, false, false, true, false,
-                false, false, false, false, false, false, false, false, false
+                false, false, false, false, false, false, false, false, false, false
             ]
         );
     }
