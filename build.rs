@@ -70,7 +70,9 @@ fn main() {
 
     // The daemon embeds the web panel built into ui/dist: build it (with npm) whenever the daemon is built. The
     // folder must exist for the embedding even when `OMU_SKIP_UI` skips the build.
-    if env::var_os("CARGO_FEATURE_DAEMON").is_some() || env::var_os("CARGO_FEATURE_GUI").is_some() {
+    if env::var_os("CARGO_FEATURE_WEB_PANEL").is_some()
+        || env::var_os("CARGO_FEATURE_GUI").is_some()
+    {
         panel::ensure_panel(&manifest.join("ui"), &path);
     } else {
         let _ = fs::create_dir_all(manifest.join("ui").join("dist"));

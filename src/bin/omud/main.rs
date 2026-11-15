@@ -30,6 +30,12 @@ struct Args {
     /// Do not print the logs on the console (they still go to the log file).
     #[arg(long)]
     quiet: bool,
+    /// Run without a console window: what a start at logon uses (the console is let go and nothing is printed).
+    #[arg(long)]
+    background: bool,
+    /// Do not show the icon in the notification area, whatever the settings say.
+    #[arg(long)]
+    no_tray: bool,
     /// Make the system forget the old virtual devices it still remembers, then stop (the daemon does not start). Asks
     /// for administrator rights only when this program does not have them already.
     #[arg(long)]
@@ -116,7 +122,7 @@ fn main() -> std::process::ExitCode {
         program: omu::branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),
         dialog: true,
-        console_log: !args.quiet,
+        console_log: !(args.quiet || args.background),
     });
     // One daemon at a time: the real audio system is shared by the whole machine, a simulated one by its data folder.
     let scope = if args.demo {
@@ -135,6 +141,13 @@ fn main() -> std::process::ExitCode {
     opts.restore = !args.no_restore;
     opts.demo = args.demo;
     opts.previous_session = previous;
+    opts.tray = !args.no_tray;
+    let background = args.background;
+    #[cfg(windows)]
+    if background {
+        // let go of the console this process was given: a start at logon must not leave a black window
+        let _ = unsafe { windows::Win32::System::Console::FreeConsole() };
+    }
     let loopback = opts.listen.ip().is_loopback();
     let crash_test = args.crash_test;
 
@@ -146,17 +159,19 @@ fn main() -> std::process::ExitCode {
         Err(e) => diagnostics::fail(&format!("cannot start the async runtime: {e}"), 1),
     };
     let ready = move |info: &omu::daemon::launch::Info| {
-        println!(
-            "{} daemon listening on http://{}",
-            omu::branding::DISPLAY_NAME,
-            info.address
-        );
-        println!("audio backend: {}", info.backend);
-        println!("web panel: {}", info.panel_url);
+        if !background {
+            println!(
+                "{} daemon listening on http://{}",
+                omu::branding::DISPLAY_NAME,
+                info.address
+            );
+            println!("audio backend: {}", info.backend);
+            println!("web panel: {}", info.panel_url);
+            println!("press Ctrl-C to stop");
+        }
         if !loopback {
             tracing::warn!("listening on a non-local address; the access token is sent in clear text over the network");
         }
-        println!("press Ctrl-C to stop");
         if let Some(kind) = &crash_test {
             crash_on_purpose(kind);
         }
