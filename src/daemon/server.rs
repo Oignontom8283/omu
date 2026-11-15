@@ -144,6 +144,17 @@ async fn upload(
 ) -> Response {
     use tokio::io::AsyncWriteExt;
     if let Some(r) = refuse(&state, &headers, uri.query()) {
+        // Reading what the sender is still sending (a little of it) before answering: a reply sent while the body is
+        // arriving makes some systems reset the connection, and the sender then sees a broken connection instead of
+        // the reason it was refused.
+        let mut stream = body.into_data_stream();
+        let mut seen = 0usize;
+        while let Some(Ok(chunk)) = stream.next().await {
+            seen += chunk.len();
+            if seen > 1 << 20 {
+                break;
+            }
+        }
         return r;
     }
     let name = query.get("name").cloned().unwrap_or_else(|| "sound".into());

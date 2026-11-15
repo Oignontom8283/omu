@@ -57,6 +57,10 @@ pub enum GraphError {
     DelayTooLong(NodeId, u32),
     #[error("block {0:?} waits {1} ms: the longest is {max} ms", max = MAX_WAIT_MS)]
     WaitTooLong(NodeId, u32),
+    #[error("network block {0:?}: {1}")]
+    BadNetwork(NodeId, String),
+    #[error("network blocks {0:?} and {1:?} both listen on UDP port {2}")]
+    SamePort(NodeId, NodeId, u16),
 }
 
 /// A validated graph: node indices follow `spec.nodes`, `order` is a valid evaluation order.
@@ -197,6 +201,7 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
     let mut virtual_names: HashMap<String, &NodeId> = HashMap::new();
     let mut speaker_names: HashMap<String, &NodeId> = HashMap::new();
     let mut shortcuts: HashMap<String, &NodeId> = HashMap::new();
+    let mut listen_ports: HashMap<u16, &NodeId> = HashMap::new();
     for node in &spec.nodes {
         match &node.kind {
             NodeKind::DeviceRender { device } => {
@@ -239,6 +244,54 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
                     speaker_names.insert(name.trim().to_lowercase(), &node.id)
                 {
                     errors.push(GraphError::SameVirtualName(other.clone(), node.id.clone()));
+                }
+            }
+            NodeKind::NetworkIn { port, stream, from } => {
+                if *port == 0 {
+                    errors.push(GraphError::BadNetwork(
+                        node.id.clone(),
+                        "the port must be between 1 and 65535".into(),
+                    ));
+                } else if let Some(other) = listen_ports.insert(*port, &node.id) {
+                    errors.push(GraphError::SamePort(other.clone(), node.id.clone(), *port));
+                }
+                if stream.chars().count() > crate::types::MAX_STREAM_NAME || !stream.is_ascii() {
+                    errors.push(GraphError::BadNetwork(
+                        node.id.clone(),
+                        format!(
+                            "the stream name is at most {} plain characters",
+                            crate::types::MAX_STREAM_NAME
+                        ),
+                    ));
+                }
+                if !from.trim().is_empty() && from.trim().parse::<std::net::IpAddr>().is_err() {
+                    errors.push(GraphError::BadNetwork(
+                        node.id.clone(),
+                        format!("{from:?} is not an address (like 192.168.1.20)"),
+                    ));
+                }
+            }
+            NodeKind::NetworkOut { host, port, stream } => {
+                if host.trim().is_empty() {
+                    errors.push(GraphError::BadNetwork(
+                        node.id.clone(),
+                        "there is no computer to send the sound to".into(),
+                    ));
+                }
+                if *port == 0 {
+                    errors.push(GraphError::BadNetwork(
+                        node.id.clone(),
+                        "the port must be between 1 and 65535".into(),
+                    ));
+                }
+                if stream.chars().count() > crate::types::MAX_STREAM_NAME || !stream.is_ascii() {
+                    errors.push(GraphError::BadNetwork(
+                        node.id.clone(),
+                        format!(
+                            "the stream name is at most {} plain characters",
+                            crate::types::MAX_STREAM_NAME
+                        ),
+                    ));
                 }
             }
             NodeKind::VirtualMic { name } => {

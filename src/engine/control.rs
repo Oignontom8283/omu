@@ -553,6 +553,16 @@ impl Inner {
                 provider.available().map_err(describe)?;
                 self.start_source(kind, provider.create_speaker(name).map_err(describe)?)
             }
+            NodeKind::NetworkIn { port, stream, from } => {
+                let capture =
+                    crate::net::vban::VbanCapture::open(*port, stream, from).map_err(describe)?;
+                self.start_source(kind, Box::new(capture))
+            }
+            NodeKind::NetworkOut { host, port, stream } => {
+                let render =
+                    crate::net::vban::VbanRender::open(host, *port, stream).map_err(describe)?;
+                self.start_sink(kind, Box::new(render))
+            }
             NodeKind::VirtualMic { name } => {
                 let provider = self.virtual_devices.as_ref().ok_or_else(|| {
                     "no virtual device provider is available on this system".to_string()
