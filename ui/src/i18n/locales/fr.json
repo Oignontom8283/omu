@@ -222,5 +222,12 @@
   "soundboards.colorReset": "Revenir à la couleur habituelle",
   "soundboards.start": "Début (s)",
   "soundboards.end": "Fin (s, 0 = fin)",
-  "soundboards.partHint": "Ne joue qu’une partie du son. Dans un long son lu depuis le disque, un début loin du commencement peut démarrer un peu en retard."
+  "soundboards.partHint": "Ne joue qu’une partie du son. Dans un long son lu depuis le disque, un début loin du commencement peut démarrer un peu en retard.",
+  "soundboards.compressed": "compressé",
+  "soundboards.compress": "Compresser",
+  "soundboards.compressing": "Compression…",
+  "soundboards.compressNow": "Range ce son compressé, sans perte : il joue exactement pareil et prend moins de place sur le disque",
+  "soundboards.compressAbove": "Compresser les sons de plus de (Mo, 0 = jamais)",
+  "soundboards.compressInvalid": "La taille à partir de laquelle on compresse est un nombre entier de mégaoctets, ou 0 pour jamais.",
+  "soundboards.compressHint": "Un son dont les échantillons bruts dépassent cette taille est rangé compressé à l’import (sans perte : il joue exactement pareil)."
 }

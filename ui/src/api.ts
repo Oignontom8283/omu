@@ -194,6 +194,7 @@ export const api = (rpc: Rpc) => ({
   soundboards: () => rpc.request<SoundLibrary>('soundboards.get'),
   setSoundboards: (boards: Board[]) => rpc.request<null>('soundboards.set', boards),
   importSound: (path: string, name?: string) => rpc.request<SoundInfo>('sounds.import', name ? { path, name } : { path }),
+  compressSound: (id: string) => rpc.request<SoundInfo>('sounds.compress', { id }),
   removeSound: (id: string) => rpc.request<boolean>('sounds.remove', { id }),
   playPad: (board: string, pad: string) => rpc.request<null>('soundboard.play', { board, pad }),
   stopPad: (board: string, pad?: string) => rpc.request<null>('soundboard.stop', pad ? { board, pad } : { board }),

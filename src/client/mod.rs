@@ -35,8 +35,12 @@ impl std::error::Error for ClientError {}
 /// for a person (cleaning up old devices asks the user for administrator rights, and the answer takes as long as the
 /// user does).
 pub fn wait_for(method: &str) -> Duration {
-    if method == crate::protocol::methods::DevicesClean::NAME {
+    use crate::protocol::methods::{DevicesClean, SoundsCompress, SoundsImport};
+    if method == DevicesClean::NAME {
         Duration::from_secs(200)
+    } else if method == SoundsImport::NAME || method == SoundsCompress::NAME {
+        // converting or compressing the sound of a whole video takes minutes
+        Duration::from_secs(1800)
     } else {
         Duration::from_secs(30)
     }
