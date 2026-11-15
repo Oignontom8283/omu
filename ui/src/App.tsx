@@ -238,6 +238,14 @@ export function App() {
     }
   };
 
+  const startEngine = async () => {
+    try {
+      await daemon.start();
+    } catch (e) {
+      setNotice(message(e));
+    }
+  };
+
   const stopEngine = async () => {
     try {
       await daemon.stop();
@@ -400,9 +408,15 @@ export function App() {
           <button onClick={() => setShowJson((v) => !v)} className={showJson ? 'on' : ''}>
             {t('app.json')}
           </button>
-          <button onClick={stopEngine} disabled={conn !== 'open' || !status?.running}>
-            {t('app.stopEngine')}
-          </button>
+          {status?.running ? (
+            <button onClick={stopEngine} disabled={conn !== 'open'}>
+              {t('app.stopEngine')}
+            </button>
+          ) : (
+            <button onClick={startEngine} disabled={conn !== 'open' || applied.nodes.length === 0} title={t('app.startEngineHint')}>
+              {t('app.startEngine')}
+            </button>
+          )}
           {stale?.supported && (
             <button onClick={cleanDevices} disabled={conn !== 'open' || cleaning || stale.stale.length === 0} title={stale.stale.map((s) => s.name).join(', ') || t('app.cleanDevicesHint')}>
               {cleaning ? t('app.cleaning') : t('app.cleanDevices', { count: stale.stale.length })}

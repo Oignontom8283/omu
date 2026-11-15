@@ -10,6 +10,8 @@
 pub struct Actions {
     /// A click on the icon, or "Open the interface".
     pub open: Box<dyn Fn() + Send + Sync>,
+    /// "Start the engine": the graph that was last applied runs again.
+    pub start_engine: Box<dyn Fn() + Send + Sync>,
     /// "Stop the engine": the audio stops, the daemon stays.
     pub stop_engine: Box<dyn Fn() + Send + Sync>,
     /// "Quit": the daemon ends.
@@ -20,6 +22,7 @@ pub struct Actions {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Texts {
     pub open: &'static str,
+    pub start_engine: &'static str,
     pub stop_engine: &'static str,
     pub quit: &'static str,
 }
@@ -30,12 +33,14 @@ impl Texts {
         if locale.to_ascii_lowercase().starts_with("fr") {
             Texts {
                 open: "Ouvrir l’interface",
+                start_engine: "Démarrer le moteur",
                 stop_engine: "Arrêter le moteur",
                 quit: "Quitter",
             }
         } else {
             Texts {
                 open: "Open the interface",
+                start_engine: "Start the engine",
                 stop_engine: "Stop the engine",
                 quit: "Quit",
             }

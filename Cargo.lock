@@ -2994,7 +2994,7 @@ dependencies = [
 
 [[package]]
 name = "omu"
-version = "0.22.0"
+version = "0.22.1"
 dependencies = [
  "axum",
  "clap",
