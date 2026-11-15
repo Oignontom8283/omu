@@ -3,6 +3,7 @@
 mod devices;
 mod format;
 mod keys;
+mod modules;
 mod node;
 mod soundboard;
 mod status;
@@ -13,6 +14,7 @@ pub use devices::{
 };
 pub use format::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 pub use keys::{Key, KeyCombo, Modifiers};
+pub use modules::{ModuleInfo, Progress};
 pub use node::{
     port_number, AppTarget, Category, DeviceRef, EdgeSpec, GraphSpec, LogicOp, NodeId, NodeKind,
     NodeSpec, PortDirection, PortRef, PortSpec, PortType, MAX_BRANCHES, MAX_DELAY_MS, MAX_WAIT_MS,
