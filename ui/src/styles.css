@@ -658,3 +658,13 @@ button.inline {
 .modules progress {
   width: 100%;
 }
+
+.trigger-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.trigger-row select {
+  flex: 1;
+  min-width: 0;
+}

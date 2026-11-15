@@ -250,5 +250,12 @@
   "modules.neededLater": "Not now",
   "modules.cancel": "Cancel the download",
   "soundboards.hold": "Only while the key is held",
-  "soundboards.holdHint": "The pad plays while you hold the shortcut and stops when you let go"
+  "soundboards.holdHint": "The pad plays while you hold the shortcut and stops when you let go",
+  "port.play": "play {n}",
+  "soundboards.trigger": "Pad played by action input {n}",
+  "soundboards.addTrigger": "Pad the graph can play",
+  "soundboards.addTriggerHint": "Adds an action input that plays a pad each time an action arrives (a keyboard shortcut, a timer, a condition changing...)",
+  "soundboards.removeTrigger": "Remove the last pad input",
+  "soundboards.playAction": "play",
+  "soundboards.stopAction": "stop everything"
 }

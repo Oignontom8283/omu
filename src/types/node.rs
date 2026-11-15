@@ -153,7 +153,14 @@ pub enum NodeKind {
     VirtualSpeaker { name: String },
     /// Input: a soundboard: the sound of its pads, as many as are playing at once. The soundboards themselves (their
     /// pads and sounds) are saved by the daemon, not in the graph: this block only names one.
-    Soundboard { board: String },
+    ///
+    /// `triggers` are pads the graph can play: each one is an action input (`play1`, `play2`...) that plays that pad
+    /// every time an action arrives, and `stop` stops the whole soundboard.
+    Soundboard {
+        board: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        triggers: Vec<String>,
+    },
     // ---- outputs
     /// Output: a playback device (speakers, headphones, or the input side of a third-party virtual cable).
     DeviceRender { device: DeviceRef },
@@ -233,8 +240,8 @@ fn numbered(
     direction: PortDirection,
     ty: PortType,
 ) -> impl Iterator<Item = PortSpec> + '_ {
-    // a sound input takes any number of links (they are added together)
-    let multi = direction == Input && ty == Audio;
+    // a sound input takes any number of links (they are added together), and so does an input of actions
+    let multi = direction == Input && matches!(ty, Audio | Action);
     (1..=branches.clamp(1, MAX_BRANCHES))
         .map(move |n| port(format!("{base}{n}"), direction, ty, multi))
 }
@@ -257,8 +264,20 @@ impl NodeKind {
         match self {
             NodeKind::AppCapture { .. }
             | NodeKind::DeviceCapture { .. }
-            | NodeKind::VirtualSpeaker { .. }
-            | NodeKind::Soundboard { .. } => vec![out_audio()],
+            | NodeKind::VirtualSpeaker { .. } => vec![out_audio()],
+            NodeKind::Soundboard { triggers, .. } => {
+                let count = (triggers.len() as u32).min(MAX_BRANCHES);
+                let plays = numbered("play", count, Input, Action);
+                if triggers.is_empty() {
+                    vec![out_audio()]
+                } else {
+                    [out_audio()]
+                        .into_iter()
+                        .chain(plays)
+                        .chain([port("stop", Input, Action, true)])
+                        .collect()
+                }
+            }
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],
             NodeKind::Gain { .. } | NodeKind::Delay { .. } | NodeKind::NoiseReduction => {
                 vec![in_audio(), out_audio()]
@@ -577,7 +596,10 @@ mod tests {
             NodeKind::Hold { ms: 500 },
             NodeKind::After { ms: 200 },
             NodeKind::Change,
-            NodeKind::Soundboard { board: "b".into() },
+            NodeKind::Soundboard {
+                board: "b".into(),
+                triggers: vec!["p".into()],
+            },
         ]
     }
 
@@ -609,7 +631,11 @@ mod tests {
             match k.category() {
                 Category::Input => {
                     assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Audio));
-                    assert!(inputs.is_empty(), "a source receives nothing");
+                    // a source receives no sound; the soundboard alone takes actions (to play and stop its pads)
+                    assert!(
+                        inputs.iter().all(|t| *t == PortType::Action),
+                        "a source receives no sound or condition"
+                    );
                 }
                 Category::Output => assert!(outputs.is_empty()),
                 Category::Trigger => {

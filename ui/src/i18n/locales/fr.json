@@ -250,5 +250,12 @@
   "modules.neededLater": "Pas maintenant",
   "modules.cancel": "Annuler le téléchargement",
   "soundboards.hold": "Seulement tant que la touche est tenue",
-  "soundboards.holdHint": "Le pad joue tant que vous tenez le raccourci et s’arrête quand vous le relâchez"
+  "soundboards.holdHint": "Le pad joue tant que vous tenez le raccourci et s’arrête quand vous le relâchez",
+  "port.play": "jouer {n}",
+  "soundboards.trigger": "Pad joué par l’entrée d’action {n}",
+  "soundboards.addTrigger": "Pad que le graphe peut jouer",
+  "soundboards.addTriggerHint": "Ajoute une entrée d’action qui joue un pad à chaque action reçue (raccourci clavier, minuteur, changement d’une condition…)",
+  "soundboards.removeTrigger": "Retirer la dernière entrée de pad",
+  "soundboards.playAction": "jouer",
+  "soundboards.stopAction": "tout arrêter"
 }
