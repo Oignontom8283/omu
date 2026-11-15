@@ -1,6 +1,7 @@
 //! Audio building blocks. Everything operates on interleaved `f32` slices, allocates nothing once built, and has
 //! no OS dependency: it can run in a real-time callback.
 
+pub mod deepfilter;
 pub mod denoise;
 pub mod gain;
 pub mod mix;
