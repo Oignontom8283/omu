@@ -40,7 +40,7 @@ required-features = ["gui"]
 [features]
 default = ["daemon", "cli"]
 # the audio engine and the platform backends (heavy: real-time code, Windows API bindings)
-engine = ["dep:rtrb", "dep:windows", "dep:windows-core", "dep:nnnoiseless", "dep:symphonia", "dep:flacenc", "dep:claxon"]
+engine = ["dep:rtrb", "dep:windows", "dep:windows-core", "dep:nnnoiseless", "dep:symphonia", "dep:flacenc", "dep:claxon", "dep:ureq", "dep:sha2", "dep:zip", "dep:flate2"]
 # the daemon: control server (HTTP + WebSocket) and the embedded web panel
 daemon = ["engine", "logging", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed", "dep:getrandom", "dep:clap"]
 # logs (file, console, in-memory ring) and the Windows crash handlers; without it only the panic hook and the macros exist
@@ -75,7 +75,10 @@ futures-util = { version = "0.3", optional = true }
 rust-embed = { version = "8.14", optional = true, features = ["mime-guess"] }
 getrandom = { version = "0.4", optional = true }
 clap = { version = "4.6", optional = true, features = ["derive", "env"] }
-ureq = { version = "3.5", optional = true, default-features = false, features = ["json"] }
+ureq = { version = "3.5", optional = true, default-features = false, features = ["json", "native-tls-no-default"] }
+sha2 = { version = "0.10", optional = true }
+flate2 = { version = "1", optional = true, default-features = false, features = ["rust_backend"] }
+zip = { version = "9", optional = true, default-features = false, features = ["deflate-flate2"] }
 tauri = { version = "2", optional = true }
 
 [target.'cfg(windows)'.dependencies]
