@@ -110,6 +110,9 @@ struct Worker {
 pub struct SoundEngine {
     shared: Arc<Shared>,
     worker: Mutex<Option<Worker>>,
+    /// A second handle on the same state, used by the reading thread to play the pads the graph asks for. Dropping it
+    /// leaves everything running.
+    view: bool,
 }
 
 impl std::fmt::Debug for SoundEngine {
@@ -187,6 +190,16 @@ impl SoundEngine {
                 streams: AtomicUsize::new(0),
             }),
             worker: Mutex::new(None),
+            view: false,
+        }
+    }
+
+    /// A handle that shares this engine's state without owning it.
+    fn view(shared: Arc<Shared>) -> SoundEngine {
+        SoundEngine {
+            shared,
+            worker: Mutex::new(None),
+            view: true,
         }
     }
 
@@ -654,7 +667,9 @@ impl SoundEngine {
 
 impl Drop for SoundEngine {
     fn drop(&mut self) {
-        self.deactivate();
+        if !self.view {
+            self.deactivate();
+        }
     }
 }
 
@@ -662,6 +677,7 @@ impl Drop for SoundEngine {
 /// sounds that were stopped or whose voice is gone.
 fn worker_main(shared: Arc<Shared>, stop: Arc<AtomicBool>) {
     let mut jobs: Vec<StreamJob> = vec![];
+    let me = SoundEngine::view(shared.clone());
     while !stop.load(Ordering::Relaxed) {
         {
             // taking the new jobs and counting them are one step for anyone checking the limit under the same lock
@@ -670,10 +686,30 @@ fn worker_main(shared: Arc<Shared>, stop: Arc<AtomicBool>) {
             shared.streams.store(jobs.len(), Ordering::Relaxed);
         }
         let mut worked = false;
+        play_what_the_graph_asked(&shared, &me, &mut worked);
         jobs.retain_mut(|job| service(&shared, job, &mut worked));
         shared.streams.store(jobs.len(), Ordering::Relaxed);
         if !worked {
             std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+/// Plays (and stops) the pads the graph's actions asked for since the last pass: the graph thread only counts them,
+/// because loading a sound is not something it may do.
+fn play_what_the_graph_asked(shared: &Shared, me: &SoundEngine, worked: &mut bool) {
+    let runtimes: Vec<Arc<BoardRuntime>> = lock(&shared.runtimes).values().cloned().collect();
+    for runtime in runtimes {
+        let (pads, stop) = runtime.take_requests();
+        if stop {
+            let _ = me.stop(&runtime.id, None);
+            *worked = true;
+        }
+        for pad in pads {
+            if let Err(e) = me.play(&runtime.id, &pad) {
+                tracing::debug!("a pad the graph asked for: {e}");
+            }
+            *worked = true;
         }
     }
 }

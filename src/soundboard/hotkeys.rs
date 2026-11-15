@@ -23,7 +23,7 @@ pub fn wanted(boards: &[Board], graph: &GraphSpec) -> Vec<PadKey> {
         graph
             .nodes
             .iter()
-            .any(|n| matches!(&n.kind, NodeKind::Soundboard { board } if board == id))
+            .any(|n| matches!(&n.kind, NodeKind::Soundboard { board, .. } if board == id))
     };
     boards
         .iter()
@@ -173,7 +173,10 @@ mod tests {
                 .map(|(i, b)| {
                     NodeSpec::new(
                         &format!("sb{i}"),
-                        NodeKind::Soundboard { board: (*b).into() },
+                        NodeKind::Soundboard {
+                            board: (*b).into(),
+                            triggers: vec![],
+                        },
                     )
                 })
                 .collect(),

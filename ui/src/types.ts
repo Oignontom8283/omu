@@ -15,7 +15,7 @@ export type NodeKind =
   | { type: 'device_capture'; device: DeviceRef }
   | { type: 'device_render'; device: DeviceRef }
   | { type: 'virtual_speaker'; name: string }
-  | { type: 'soundboard'; board: string }
+  | { type: 'soundboard'; board: string; triggers?: string[] }
   | { type: 'virtual_mic'; name: string }
   | { type: 'gain'; db: number }
   | { type: 'mixer' }

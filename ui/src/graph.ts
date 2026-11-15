@@ -11,7 +11,7 @@ import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKi
 export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean; label: string; n?: number; gapBefore?: boolean; entries?: boolean };
 
 /** What decides a block's ports: its kind, and for the blocks that branch, how many conditions they have. */
-export type KindLike = { type: NodeType; branches?: number };
+export type KindLike = { type: NodeType; branches?: number; triggers?: string[] };
 
 /** The most conditions a branching block can have (same as the daemon's). */
 export const MAX_BRANCHES = 16;
@@ -49,8 +49,13 @@ export function portsOf(kind: KindLike): PortMeta[] {
     case 'app_capture':
     case 'device_capture':
     case 'virtual_speaker':
-    case 'soundboard':
       return [p('out', 'out', 'audio')];
+    case 'soundboard': {
+      // the sound, then an action input for each pad the graph can play, and one that stops the whole soundboard
+      const n = Math.min(kind.triggers?.length ?? 0, MAX_BRANCHES);
+      if (n === 0) return [p('out', 'out', 'audio')];
+      return [...range(n).map((k) => p(`play${k}`, 'in', 'action', true, { label: 'port.play', n: k })), p('stop', 'in', 'action', true), p('out', 'out', 'audio')];
+    }
     case 'device_render':
     case 'virtual_mic':
       return [p('in', 'in', 'audio')];

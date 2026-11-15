@@ -379,7 +379,7 @@ impl Inner {
                 .nodes
                 .iter()
                 .filter_map(|n| match &n.kind {
-                    NodeKind::Soundboard { board } => Some(board.clone()),
+                    NodeKind::Soundboard { board, .. } => Some(board.clone()),
                     _ => None,
                 })
                 .collect();
@@ -445,9 +445,12 @@ impl Inner {
                     (_, Some(Io::Sink(p))) => NodeOp::Sink(p.clone()),
                     (_, Some(Io::Trigger(t))) => NodeOp::Trigger(t.clone()),
                     // a soundboard needs nothing from the system: it plays what its pads are told to play
-                    (NodeKind::Soundboard { board }, _) => {
+                    (NodeKind::Soundboard { board, triggers }, _) => {
                         match self.cfg.sounds.as_ref().and_then(|s| s.runtime(board)) {
-                            Some(runtime) => NodeOp::Soundboard(runtime),
+                            Some(runtime) => {
+                                runtime.set_triggers(triggers.clone());
+                                NodeOp::Soundboard(runtime)
+                            }
                             None => NodeOp::SilentSource,
                         }
                     }

@@ -91,6 +91,10 @@ pub enum Port {
     Pick(u8),
     /// The sound of a `select` when no condition is true.
     Else,
+    /// The action that plays a trigger pad of a soundboard (`play1`, `play2`...), counted from 0.
+    Play(u8),
+    /// The action that stops a whole soundboard.
+    StopAll,
 }
 
 impl Port {
@@ -109,10 +113,12 @@ impl Port {
             "a" => Port::A,
             "b" => Port::B,
             "else" => Port::Else,
+            "stop" => Port::StopAll,
             _ => {
                 return numbered("when")
                     .map(Port::When)
                     .or_else(|| numbered("in").map(Port::Pick))
+                    .or_else(|| numbered("play").map(Port::Play))
             }
         })
     }
@@ -474,7 +480,18 @@ impl Plan {
                         add_into(&mut audios[0], scratch);
                     }
                 }
-                NodeOp::Soundboard(board) => board.mix(&mut audios[0]),
+                NodeOp::Soundboard(board) => {
+                    board.mix(&mut audios[0]);
+                    // actions from the graph: the control side plays the pads (loading a sound is not for this thread)
+                    for w in node.inputs.iter() {
+                        let fired = outs[w.from].actions[w.out.min(ACTION_OUTPUTS - 1)] > 0;
+                        match w.port {
+                            Port::Play(k) if fired => board.request_play(k as usize),
+                            Port::StopAll if fired => board.request_stop(),
+                            _ => {}
+                        }
+                    }
+                }
                 NodeOp::NoiseReduction(denoiser) => {
                     let input = input_audio(Port::In);
                     match denoiser.try_lock() {
