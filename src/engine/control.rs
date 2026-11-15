@@ -155,6 +155,8 @@ impl Engine {
     }
 
     /// Stops everything and forgets the graph.
+    /// Stops the audio. The virtual devices stay (and send silence): other programs keep their microphone or speaker
+    /// while the graph is stopped, and the next graph that still has the block reuses the device.
     pub fn stop(&self) {
         let mut st = self.inner.lock();
         if st.desired.is_some() || !st.resources.is_empty() {
@@ -162,9 +164,20 @@ impl Engine {
         }
         st.desired = None;
         st.graph_thread = None;
-        st.resources.clear();
+        st.resources.retain(|_, r| {
+            matches!(
+                r.kind,
+                NodeKind::VirtualMic { .. } | NodeKind::VirtualSpeaker { .. }
+            )
+        });
         st.failures.clear();
         st.meters.clear();
+    }
+
+    /// Stops everything, virtual devices included (the program is ending).
+    fn shutdown(&self) {
+        self.stop();
+        self.inner.lock().resources.clear();
     }
 
     pub fn status(&self) -> EngineStatus {
@@ -243,7 +256,7 @@ impl Drop for Engine {
         if let Some(t) = self.supervisor.take() {
             let _ = t.join();
         }
-        self.stop();
+        self.shutdown();
     }
 }
 
@@ -388,6 +401,10 @@ impl Inner {
                     backoff: Duration::from_secs(1),
                 },
             );
+        }
+        // the virtual devices that exist now are the ones the system should bring back by itself at the next start
+        if let Some(provider) = &self.virtual_devices {
+            provider.persist();
         }
     }
 

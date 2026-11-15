@@ -14,7 +14,11 @@ const STRINGS: &[&str] = &[
     "single_instance_name",
     "virtual_manufacturer",
 ];
-const INTEGERS: &[&str] = &["virtual_vendor_id", "virtual_product_id"];
+const INTEGERS: &[&str] = &[
+    "virtual_vendor_id",
+    "virtual_product_id",
+    "virtual_server_port",
+];
 
 fn main() {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());

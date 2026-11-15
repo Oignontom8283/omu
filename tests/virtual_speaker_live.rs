@@ -12,7 +12,7 @@ use omu::hal::sim::SimBackend;
 use omu::hal::wasapi::WasapiBackend;
 use omu::hal::{Backend, Direction};
 use omu::types::{AudioFormat, DeviceRef, EdgeSpec, GraphSpec, NodeKind, NodeSpec, PortRef};
-use omu::virtual_devices::{platform_provider, UsbipExe, UsbipTool};
+use omu::virtual_devices::{UsbMicProvider, UsbipExe, UsbipTool};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -54,7 +54,10 @@ fn what_a_program_plays_into_a_virtual_speaker_comes_out_of_the_graph() {
     let recording = sim.add_render_device("Sink", AudioFormat::ENGINE, 0.0);
     let engine = Engine::new(
         Arc::new(sim) as Arc<dyn Backend>,
-        Some(platform_provider()),
+        // not on the product's fixed port and not permanent: a test must leave nothing behind for the next boot
+        Some(Arc::new(
+            UsbMicProvider::new(Arc::new(UsbipExe)).with_server_port(0),
+        )),
         EngineConfig::default(),
     );
     let spec = GraphSpec {

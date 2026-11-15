@@ -347,16 +347,20 @@ fn stopping_silences_everything_and_the_engine_can_restart() {
     std::thread::sleep(Duration::from_millis(800));
     e.stop();
     assert!(!e.status().running);
+    // the virtual microphone stays (other programs keep it) but sends silence while the engine is stopped
     let frozen = sim_recording(&sim, "virtual:S").len();
     std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(sim_recording(&sim, "virtual:S").len(), frozen);
+    let after = left(&sim_recording(&sim, "virtual:S"));
+    assert!(after.len() > frozen / 2, "the microphone keeps running");
+    assert!(
+        rms(&after[after.len() - 4_800..]) < 1e-4,
+        "silence once what was buffered is played, not the tone"
+    );
     e.apply(validate(&spec).unwrap());
-    assert!(wait_for(Duration::from_secs(3), || sim_recording(
-        &sim,
-        "virtual:S"
-    )
-    .len()
-        > frozen + 24_000));
+    assert!(wait_for(Duration::from_secs(3), || {
+        let r = left(&sim_recording(&sim, "virtual:S"));
+        r.len() > frozen / 2 + 24_000 && rms(&r[r.len() - 9_600..]) > 0.2
+    }));
 }
 
 /// The example of the design: a key press (a trigger's action) toggles a variable (a condition) that opens or closes

@@ -11,7 +11,7 @@ use omu::hal::sim::{SimBackend, SimSource};
 use omu::hal::wasapi::WasapiBackend;
 use omu::hal::{Backend, Direction};
 use omu::types::{AppTarget, DeviceRef, EdgeSpec, GraphSpec, NodeKind, NodeSpec, PortRef};
-use omu::virtual_devices::{platform_provider, UsbipExe, UsbipTool};
+use omu::virtual_devices::{UsbMicProvider, UsbipExe, UsbipTool};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -55,7 +55,10 @@ fn the_engines_audio_comes_out_of_a_virtual_microphone() {
     sim.add_app(1, "tone.exe", SimSource::tone(1000.0));
     let engine = Engine::new(
         Arc::new(sim) as Arc<dyn Backend>,
-        Some(platform_provider()),
+        // not on the product's fixed port and not permanent: a test must leave nothing behind for the next boot
+        Some(Arc::new(
+            UsbMicProvider::new(Arc::new(UsbipExe)).with_server_port(0),
+        )),
         EngineConfig::default(),
     );
     let spec = GraphSpec {

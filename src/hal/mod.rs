@@ -157,4 +157,8 @@ pub trait VirtualDeviceProvider: Send + Sync {
     fn microphone_names(&self) -> Vec<String> {
         vec![]
     }
+    /// Makes the devices that exist now permanent, when the system can bring them back by itself (at every boot):
+    /// asked after every change of the graph, it does something only when the set of devices changed. It is not asked
+    /// when the program stops, so that the devices of the last graph stay permanent.
+    fn persist(&self) {}
 }
