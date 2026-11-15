@@ -1,6 +1,6 @@
 [package]
 name = "omu"
-version = "0.19.0"
+version = "0.20.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Audio routing daemon with a node-graph: capture an application's sound, process it, send it to a virtual microphone"
@@ -38,13 +38,18 @@ path = "src/bin/omu-gui/main.rs"
 required-features = ["gui"]
 
 [features]
-default = ["daemon", "cli"]
+default = ["daemon", "cli", "tray", "web-panel"]
 # the audio engine and the platform backends (heavy: real-time code, Windows API bindings)
 engine = ["dep:rtrb", "dep:windows", "dep:windows-core", "dep:nnnoiseless", "dep:symphonia", "dep:flacenc", "dep:claxon", "dep:ureq", "dep:sha2", "dep:zip", "dep:flate2"]
 # the daemon: control server (HTTP + WebSocket) and the embedded web panel
-daemon = ["engine", "logging", "dep:tokio", "dep:axum", "dep:futures-util", "dep:rust-embed", "dep:getrandom", "dep:clap"]
+daemon = ["engine", "logging", "dep:tokio", "dep:axum", "dep:futures-util", "dep:getrandom", "dep:clap"]
 # logs (file, console, in-memory ring) and the Windows crash handlers; without it only the panic hook and the macros exist
 logging = ["dep:tracing-subscriber", "dep:tracing-appender", "dep:windows"]
+# the web panel inside the daemon's executable (a distribution that does not want it, or has no Node.js, leaves it out:
+# the daemon then serves a page that says so)
+web-panel = ["dep:rust-embed"]
+# the icon in the notification area, carried by the daemon (it can be left out of a distribution)
+tray = ["engine"]
 # the command-line client
 cli = ["client", "dep:clap"]
 # what any client needs to talk to a daemon (the CLI, a Tauri window): protocol + HTTP client
@@ -52,7 +57,7 @@ client = ["dep:ureq"]
 # the desktop window: the panel embedded in a Tauri window that talks to the daemon through the client. `custom-protocol`
 # is Tauri's own switch for "serve the panel from inside the executable" (without it the window would load a
 # development server's address and stay blank).
-gui = ["client", "logging", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol"]
+gui = ["client", "logging", "dep:tauri", "dep:tauri-build", "tauri/custom-protocol", "dep:rfd"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -80,10 +85,15 @@ sha2 = { version = "0.10", optional = true }
 flate2 = { version = "1", optional = true, default-features = false, features = ["rust_backend"] }
 zip = { version = "9", optional = true, default-features = false, features = ["deflate-flate2"] }
 tauri = { version = "2", optional = true }
+# the system's own file dialog (the window's "add sounds" button)
+rfd = { version = "0.18", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", optional = true, features = [
     "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
     "Win32_Devices_DeviceAndDriverInstallation",
     "Win32_Devices_FunctionDiscovery",
     "Win32_Devices_Properties",

@@ -38,6 +38,8 @@ pub mod modules;
 pub mod protocol;
 pub mod types;
 
+#[cfg(feature = "engine")]
+pub mod autostart;
 #[cfg(feature = "daemon")]
 pub mod daemon;
 #[cfg(feature = "engine")]
@@ -46,5 +48,7 @@ pub mod elevation;
 pub mod engine;
 #[cfg(feature = "engine")]
 pub mod soundboard;
+#[cfg(feature = "tray")]
+pub mod tray;
 #[cfg(feature = "engine")]
 pub mod virtual_devices;
