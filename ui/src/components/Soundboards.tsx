@@ -385,7 +385,7 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                   type="file"
                   hidden
                   multiple
-                  accept=".wav,.mp3,.flac,.ogg,.oga,audio/*"
+                  accept=".wav,.mp3,.flac,.ogg,.oga,.aac,.m4a,.mp4,.m4v,.mov,.mkv,.webm,audio/*,video/*"
                   onChange={(e) => {
                     addFiles(Array.from(e.target.files ?? []));
                     e.target.value = '';
