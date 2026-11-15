@@ -31,6 +31,8 @@ pub struct EngineConfig {
     /// First delay before reopening a failed device; doubles up to `retry_max`.
     pub retry_initial: Duration,
     pub retry_max: Duration,
+    /// The soundboards' memory and sounds; without it a soundboard block is silent.
+    pub sounds: Option<Arc<crate::soundboard::SoundEngine>>,
 }
 
 impl Default for EngineConfig {
@@ -41,6 +43,7 @@ impl Default for EngineConfig {
             thread_init: None,
             retry_initial: Duration::from_secs(1),
             retry_max: Duration::from_secs(10),
+            sounds: None,
         }
     }
 }
@@ -172,6 +175,10 @@ impl Engine {
         });
         st.failures.clear();
         st.meters.clear();
+        // no graph runs: the soundboards' memory goes back to the system
+        if let Some(sounds) = &self.inner.cfg.sounds {
+            sounds.sync(&[]);
+        }
     }
 
     /// Stops everything, virtual devices included (the program is ending).
@@ -365,7 +372,19 @@ impl Inner {
             }
         }
 
-        // 3. Build the plan and hand it to the graph thread.
+        // 3. Build the plan and hand it to the graph thread. The soundboards of the graph get their memory first.
+        if let Some(sounds) = &self.cfg.sounds {
+            let boards: Vec<String> = desired
+                .spec
+                .nodes
+                .iter()
+                .filter_map(|n| match &n.kind {
+                    NodeKind::Soundboard { board } => Some(board.clone()),
+                    _ => None,
+                })
+                .collect();
+            sounds.sync(&boards);
+        }
         let (plan, meters) = self.build_plan(&desired, &st.resources);
         st.meters = meters;
         if st.graph_thread.as_ref().is_some_and(|t| t.is_finished()) {
@@ -425,6 +444,13 @@ impl Inner {
                     (_, Some(Io::Source(c))) => NodeOp::Source(c.clone()),
                     (_, Some(Io::Sink(p))) => NodeOp::Sink(p.clone()),
                     (_, Some(Io::Trigger(t))) => NodeOp::Trigger(t.clone()),
+                    // a soundboard needs nothing from the system: it plays what its pads are told to play
+                    (NodeKind::Soundboard { board }, _) => {
+                        match self.cfg.sounds.as_ref().and_then(|s| s.runtime(board)) {
+                            Some(runtime) => NodeOp::Soundboard(runtime),
+                            None => NodeOp::SilentSource,
+                        }
+                    }
                     (k, None) if k.is_source() => NodeOp::SilentSource,
                     (k, None) if k.is_sink() => NodeOp::DiscardSink,
                     // a shortcut that could not be registered never fires

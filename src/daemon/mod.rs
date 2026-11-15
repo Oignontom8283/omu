@@ -49,6 +49,8 @@ pub struct Daemon {
     stop: Arc<tokio::sync::Notify>,
     /// Administrator rights, for cleaning up old devices.
     elevator: Arc<dyn crate::elevation::Elevator>,
+    /// The soundboards: their memory, their sounds and what they play.
+    sounds: Arc<crate::soundboard::SoundEngine>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -59,6 +61,19 @@ fn hal_error(e: HalError) -> RpcError {
     match e {
         HalError::Unsupported(_) => RpcError::new(RpcError::UNAVAILABLE, e.to_string()),
         _ => RpcError::internal(e.to_string()),
+    }
+}
+
+fn sound_error(e: crate::soundboard::SoundError) -> RpcError {
+    use crate::soundboard::SoundError as E;
+    match &e {
+        E::UnknownBoard(_) | E::UnknownPad(_) | E::NoSound => {
+            RpcError::invalid_params(e.to_string())
+        }
+        E::NotInGraph(_) | E::NotActive | E::PoolFull(_) | E::TooManyStreams => {
+            RpcError::new(RpcError::UNAVAILABLE, e.to_string())
+        }
+        E::Io(_) => RpcError::internal(e.to_string()),
     }
 }
 
@@ -80,6 +95,9 @@ impl Daemon {
     ) -> Daemon {
         let saved = store.load_state();
         let layout = store.load_layout();
+        let sounds = Arc::new(crate::soundboard::SoundEngine::new(store.dir()));
+        let mut engine_config = engine_config;
+        engine_config.sounds = Some(sounds.clone());
         let engine = Engine::new(backend.clone(), virtual_devices.clone(), engine_config);
         Daemon {
             engine,
@@ -95,7 +113,13 @@ impl Daemon {
             previous: Mutex::default(),
             stop: Arc::default(),
             elevator: Arc::new(crate::elevation::SystemElevator),
+            sounds,
         }
+    }
+
+    /// The soundboards' engine (the panel's upload route imports through it).
+    pub fn sounds(&self) -> &Arc<crate::soundboard::SoundEngine> {
+        &self.sounds
     }
 
     /// The same daemon asking for administrator rights another way (tests).
@@ -267,6 +291,53 @@ impl Daemon {
                 );
                 result(outcome)
             }
+            m::SoundboardsGet::NAME => result(self.sounds.library().get()),
+            m::SoundboardsSet::NAME => {
+                let boards = params::<m::SoundboardsSet>(p)?;
+                self.sounds
+                    .library()
+                    .set_boards(boards)
+                    .map_err(RpcError::invalid_params)?;
+                result(())
+            }
+            m::SoundsImport::NAME => {
+                let p = params::<m::SoundsImport>(p)?;
+                tracing::info!(file = %p.path, "importing a sound");
+                let info = self
+                    .sounds
+                    .import(std::path::Path::new(&p.path), p.name.as_deref())
+                    .map_err(sound_error)?;
+                result(info)
+            }
+            m::SoundsRemove::NAME => {
+                let p = params::<m::SoundsRemove>(p)?;
+                result(self.sounds.remove_sound(&p.id).map_err(sound_error)?)
+            }
+            m::SoundboardPlay::NAME => {
+                let p = params::<m::SoundboardPlay>(p)?;
+                self.sounds.play(&p.board, &p.pad).map_err(sound_error)?;
+                result(())
+            }
+            m::SoundboardStop::NAME => {
+                let p = params::<m::SoundboardStop>(p)?;
+                self.sounds
+                    .stop(&p.board, p.pad.as_deref())
+                    .map_err(sound_error)?;
+                result(())
+            }
+            m::SoundboardPlaying::NAME => {
+                let p = params::<m::SoundboardPlaying>(p)?;
+                result(self.sounds.playing(&p.board))
+            }
+            m::SoundboardsStatus::NAME => result(self.sounds.status()),
+            m::SettingsGet::NAME => result(self.sounds.settings()),
+            m::SettingsSet::NAME => {
+                let settings = params::<m::SettingsSet>(p)?;
+                self.sounds
+                    .set_settings(settings)
+                    .map_err(RpcError::internal)?;
+                result(())
+            }
             m::AppsList::NAME => result(self.backend.list_apps().map_err(hal_error)?),
             m::GraphGet::NAME => result(lock(&self.state).saved.graph.clone()),
             m::GraphValidate::NAME => {
@@ -358,6 +429,17 @@ impl Daemon {
             Err(errors) => errors.iter().map(|e| e.to_string()).collect(),
         };
         out.extend(self.feedback_problems(graph));
+        // a soundboard block must name a soundboard that exists
+        for n in &graph.nodes {
+            if let NodeKind::Soundboard { board } = &n.kind {
+                if self.sounds.library().board(board).is_none() {
+                    out.push(format!(
+                        "block {:?} plays the soundboard {board:?}, which does not exist",
+                        n.id.0
+                    ));
+                }
+            }
+        }
         out
     }
 
@@ -1104,6 +1186,181 @@ mod tests {
         let r: StaleDevices =
             serde_json::from_value(call(&d, "devices.stale", Value::Null).result.unwrap()).unwrap();
         assert_eq!(r.stale, vec![StaleDevice { name: "Old".into() }]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ---- soundboards, through the protocol, the graph and the engine
+
+    /// A 16-bit mono WAV of one second of a 1000 Hz tone at 44.1 kHz (what a person might import).
+    fn write_tone_wav(path: &std::path::Path) {
+        let samples: Vec<i16> = (0..44_100)
+            .map(|i| {
+                ((i as f32 * 1000.0 * std::f32::consts::TAU / 44_100.0).sin() * 12_000.0) as i16
+            })
+            .collect();
+        let data = (samples.len() * 2) as u32;
+        let mut b = Vec::new();
+        b.extend_from_slice(b"RIFF");
+        b.extend_from_slice(&(36 + data).to_le_bytes());
+        b.extend_from_slice(b"WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&44_100u32.to_le_bytes());
+        b.extend_from_slice(&88_200u32.to_le_bytes());
+        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&16u16.to_le_bytes());
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&data.to_le_bytes());
+        for x in samples {
+            b.extend_from_slice(&x.to_le_bytes());
+        }
+        std::fs::write(path, b).unwrap();
+    }
+
+    fn rms(x: &[f32]) -> f32 {
+        (x.iter().map(|s| s * s).sum::<f32>() / x.len().max(1) as f32).sqrt()
+    }
+
+    #[test]
+    fn a_soundboard_is_made_played_through_the_graph_and_its_memory_goes_when_it_leaves_the_graph()
+    {
+        let dir = temp_dir("soundboard");
+        let sim = SimBackend::new();
+        let d = daemon_in(&dir, &sim);
+        let ok = |r: Response| -> Value {
+            assert!(r.error.is_none(), "{:?}", r.error);
+            r.result.unwrap_or(Value::Null)
+        };
+
+        // import a file that is not in the stored format (44.1 kHz): it is converted once
+        std::fs::create_dir_all(&dir).unwrap();
+        write_tone_wav(&dir.join("tone.wav"));
+        let info: crate::types::SoundInfo = serde_json::from_value(ok(call(
+            &d,
+            "sounds.import",
+            json!({"path": dir.join("tone.wav").display().to_string(), "name": "A tone"}),
+        )))
+        .unwrap();
+        assert_eq!((info.channels, info.name.as_str()), (1, "A tone"));
+        assert!(
+            (info.frames as i64 - 48_000).abs() <= 8,
+            "{} frames",
+            info.frames
+        );
+
+        // a soundboard with a pad that plays it
+        let boards = json!([{ "id": "b1", "name": "Memes", "pads": [{"id": "p1", "name": "Tone", "sound": info.id}] }]);
+        ok(call(&d, "soundboards.set", boards));
+        let library: crate::types::SoundLibrary =
+            serde_json::from_value(ok(call(&d, "soundboards.get", Value::Null))).unwrap();
+        assert_eq!((library.sounds.len(), library.boards.len()), (1, 1));
+        // a pad cannot play a sound that does not exist
+        let bad = call(
+            &d,
+            "soundboards.set",
+            json!([{"id": "b", "name": "x", "pads": [{"id": "p", "name": "p", "sound": "nope"}]}]),
+        );
+        assert_eq!(bad.error.unwrap().code, RpcError::INVALID_PARAMS);
+
+        // nothing is reserved yet, and a pad cannot play: its soundboard is not in a running graph
+        let status = |d: &Daemon| -> crate::types::SoundStatus {
+            serde_json::from_value(ok(call(d, "soundboards.status", Value::Null))).unwrap()
+        };
+        assert!(!status(&d).active && status(&d).cache_allocated_bytes == 0);
+        let early = call(&d, "soundboard.play", json!({"board": "b1", "pad": "p1"}));
+        assert_eq!(early.error.unwrap().code, RpcError::UNAVAILABLE);
+
+        // a block for a soundboard that does not exist is refused with a clear message
+        let unknown = GraphSpec {
+            nodes: vec![NodeSpec::new(
+                "sb",
+                NodeKind::Soundboard {
+                    board: "ghost".into(),
+                },
+            )],
+            edges: vec![],
+        };
+        let refused = call(&d, "graph.set", serde_json::to_value(&unknown).unwrap());
+        let refusal = refused.error.expect("refused");
+        assert_eq!(refusal.code, RpcError::VALIDATION);
+        assert!(
+            refusal
+                .data
+                .expect("problems")
+                .to_string()
+                .contains("does not exist"),
+            "the reason is stated"
+        );
+
+        // the real graph: soundboard -> virtual microphone
+        let graph = GraphSpec {
+            nodes: vec![
+                NodeSpec::new("sb", NodeKind::Soundboard { board: "b1".into() }),
+                NodeSpec::new("mic", NodeKind::VirtualMic { name: "SB".into() }),
+            ],
+            edges: vec![EdgeSpec {
+                from: PortRef::new("sb", "out"),
+                to: PortRef::new("mic", "in"),
+            }],
+        };
+        ok(call(&d, "graph.set", serde_json::to_value(&graph).unwrap()));
+        std::thread::sleep(Duration::from_millis(600));
+        let s = status(&d);
+        assert!(
+            s.active && s.active_boards == vec!["b1".to_string()],
+            "{s:?}"
+        );
+        ok(call(
+            &d,
+            "soundboard.play",
+            json!({"board": "b1", "pad": "p1"}),
+        ));
+        std::thread::sleep(Duration::from_millis(300));
+        let playing: Vec<String> =
+            serde_json::from_value(ok(call(&d, "soundboard.playing", json!({"board": "b1"}))))
+                .unwrap();
+        assert_eq!(playing, vec!["p1".to_string()]);
+        std::thread::sleep(Duration::from_millis(1700));
+        let recorded = sim
+            .recording_of("virtual:SB")
+            .expect("the virtual microphone")
+            .lock()
+            .unwrap()
+            .clone();
+        let left: Vec<f32> = recorded.chunks(2).map(|f| f[0]).collect();
+        let loud = left.chunks(4_800).filter(|c| rms(c) > 0.15).count();
+        let quiet = left.chunks(4_800).filter(|c| rms(c) < 0.001).count();
+        assert!(
+            loud >= 6,
+            "the tone was heard for about a second: {loud} loud tenths of a second"
+        );
+        assert!(
+            quiet >= 6,
+            "and before and after it there is silence: {quiet}"
+        );
+        let s = status(&d);
+        assert!(s.sounds_loaded == 1 && s.cache_used_bytes > 0, "{s:?}");
+
+        // the soundboard leaves the graph: the memory is given back
+        ok(call(
+            &d,
+            "graph.set",
+            serde_json::to_value(GraphSpec::default()).unwrap(),
+        ));
+        std::thread::sleep(Duration::from_millis(400));
+        let s = status(&d);
+        assert!(
+            !s.active && s.cache_allocated_bytes == 0 && s.sounds_loaded == 0,
+            "{s:?}"
+        );
+        // the settings can be read and changed
+        let settings: crate::types::Settings =
+            serde_json::from_value(ok(call(&d, "settings.get", Value::Null))).unwrap();
+        assert_eq!(settings.sound_cache_mb, 256);
+        ok(call(&d, "settings.set", json!({"sound_cache_mb": 64})));
+        assert_eq!(status(&d).cache_limit_bytes, 64 * 1024 * 1024);
+        drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

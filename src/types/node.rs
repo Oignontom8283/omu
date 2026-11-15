@@ -151,6 +151,9 @@ pub enum NodeKind {
     /// they play into it is the sound of this block (useful for programs that cannot be captured one by one, or to
     /// gather several of them on one device).
     VirtualSpeaker { name: String },
+    /// Input: a soundboard: the sound of its pads, as many as are playing at once. The soundboards themselves (their
+    /// pads and sounds) are saved by the daemon, not in the graph: this block only names one.
+    Soundboard { board: String },
     // ---- outputs
     /// Output: a playback device (speakers, headphones, or the input side of a third-party virtual cable).
     DeviceRender { device: DeviceRef },
@@ -254,7 +257,8 @@ impl NodeKind {
         match self {
             NodeKind::AppCapture { .. }
             | NodeKind::DeviceCapture { .. }
-            | NodeKind::VirtualSpeaker { .. } => vec![out_audio()],
+            | NodeKind::VirtualSpeaker { .. }
+            | NodeKind::Soundboard { .. } => vec![out_audio()],
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],
             NodeKind::Gain { .. } | NodeKind::Delay { .. } | NodeKind::NoiseReduction => {
                 vec![in_audio(), out_audio()]
@@ -319,7 +323,8 @@ impl NodeKind {
         match self {
             NodeKind::AppCapture { .. }
             | NodeKind::DeviceCapture { .. }
-            | NodeKind::VirtualSpeaker { .. } => Category::Input,
+            | NodeKind::VirtualSpeaker { .. }
+            | NodeKind::Soundboard { .. } => Category::Input,
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => Category::Output,
             NodeKind::Gain { .. }
             | NodeKind::Mixer
@@ -355,7 +360,8 @@ impl NodeKind {
     /// True for nodes that need something from the system when the graph runs: a device, an application, a keyboard
     /// shortcut. The engine opens it, and the node reports an error (and stays silent) if that fails.
     pub fn needs_stream(&self) -> bool {
-        matches!(self.category(), Category::Input | Category::Output)
+        (matches!(self.category(), Category::Input | Category::Output)
+            && !matches!(self, NodeKind::Soundboard { .. }))
             || matches!(self, NodeKind::Hotkey { .. })
     }
 
@@ -571,6 +577,7 @@ mod tests {
             NodeKind::Hold { ms: 500 },
             NodeKind::After { ms: 200 },
             NodeKind::Change,
+            NodeKind::Soundboard { board: "b".into() },
         ]
     }
 
@@ -714,7 +721,7 @@ mod tests {
             needs,
             vec![
                 true, true, true, true, false, false, false, false, false, false, true, false,
-                false, false, false, false, false, false, false, false, false, false
+                false, false, false, false, false, false, false, false, false, false, false
             ]
         );
     }

@@ -10,6 +10,7 @@
 
 use super::bridge::{SinkProducer, SourceConsumer};
 use crate::dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
+use crate::soundboard::voices::BoardRuntime;
 use crate::types::{
     port_number, LogicOp, NodeId, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES, MAX_DELAY_MS,
 };
@@ -152,6 +153,9 @@ pub enum NodeOp {
         gains: Vec<SmoothedGain>,
         scratch: Vec<f32>,
     },
+    /// A soundboard: what its pads play. Shared with the plan that replaces this one, so that sounds go on playing
+    /// when the graph is edited.
+    Soundboard(Arc<BoardRuntime>),
     /// Noise reduction. Shared with the plan that replaces this one, so that editing the graph does not make the
     /// network start again (it would let the filter's fade-in through).
     NoiseReduction(Arc<Mutex<Denoiser>>),
@@ -211,6 +215,7 @@ impl NodeOp {
             | NodeOp::Gate(_)
             | NodeOp::Select { .. }
             | NodeOp::NoiseReduction(_)
+            | NodeOp::Soundboard(_)
             | NodeOp::Delay { .. } => 1,
             NodeOp::Branch { gains } => gains.len(),
             #[cfg(test)]
@@ -469,6 +474,7 @@ impl Plan {
                         add_into(&mut audios[0], scratch);
                     }
                 }
+                NodeOp::Soundboard(board) => board.mix(&mut audios[0]),
                 NodeOp::NoiseReduction(denoiser) => {
                     let input = input_audio(Port::In);
                     match denoiser.try_lock() {
