@@ -37,4 +37,11 @@ pub struct ModuleInfo {
     /// About how much a download is, in megabytes.
     #[serde(default)]
     pub download_mb: u32,
+    /// This build of the program has what is needed to use the module (a build can leave a module's code out).
+    #[serde(default = "yes")]
+    pub supported: bool,
+}
+
+fn yes() -> bool {
+    true
 }

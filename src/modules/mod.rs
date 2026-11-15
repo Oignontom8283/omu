@@ -1,13 +1,17 @@
 //! Optional modules: components that are not part of the program and that people switch on when they want them.
-//! The first one is FFmpeg (see [`ffmpeg`]); large models are meant to follow.
+//! FFmpeg (see [`ffmpeg`]) reads the files the program cannot; DeepFilterNet (see [`deepfilter`]) is a larger noise
+//! reduction model.
 //!
 //! Nothing here reaches the Internet by itself: a download starts only when a person asks for the module, and nothing
 //! but the request for the files is sent.
 
+pub mod deepfilter;
+pub mod download;
 pub mod ffmpeg;
 
 use crate::types::{ModuleInfo, Progress};
-use ffmpeg::{Counters, Found, Urls};
+use download::Counters;
+use ffmpeg::{Found, Urls};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -16,21 +20,47 @@ use std::time::{Duration, Instant};
 
 /// The id of the FFmpeg module.
 pub const FFMPEG: &str = "ffmpeg";
+/// The id of the DeepFilterNet module.
+pub const DEEPFILTER: &str = "deepfilter";
 
 /// What is kept between runs (`modules.json` in the data folder).
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 struct Saved {
     #[serde(default)]
     ffmpeg_enabled: bool,
+    #[serde(default)]
+    deepfilter_enabled: bool,
+}
+
+impl Saved {
+    fn enabled_mut(&mut self, id: &str) -> &mut bool {
+        if id == DEEPFILTER {
+            &mut self.deepfilter_enabled
+        } else {
+            &mut self.ffmpeg_enabled
+        }
+    }
 }
 
 #[derive(Default)]
 struct State {
     saved: Saved,
-    installing: bool,
-    error: Option<String>,
+    /// The module being downloaded (one at a time: they share the progress counters).
+    installing: Option<&'static str>,
+    ffmpeg_error: Option<String>,
+    deepfilter_error: Option<String>,
     /// What was found last, and when (looking runs FFmpeg, so it is not done on every question).
     located: Option<(Instant, Option<Found>)>,
+}
+
+impl State {
+    fn error_mut(&mut self, id: &str) -> &mut Option<String> {
+        if id == DEEPFILTER {
+            &mut self.deepfilter_error
+        } else {
+            &mut self.ffmpeg_error
+        }
+    }
 }
 
 /// How long what was found is believed.
@@ -43,12 +73,23 @@ pub struct Modules {
     counters: Counters,
     /// Where FFmpeg is downloaded from (the official source; tests point it at a local server).
     urls: Mutex<Option<Urls>>,
+    /// Where the DeepFilterNet model is downloaded from, and the SHA-256 it must have.
+    model_source: Mutex<(String, String)>,
     /// Whether an FFmpeg the system already has may be used (tests turn it off).
     use_system: bool,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The id as the `'static` name the state keeps.
+fn known(id: &str) -> Result<&'static str, String> {
+    match id {
+        FFMPEG => Ok(FFMPEG),
+        DEEPFILTER => Ok(DEEPFILTER),
+        _ => Err(format!("there is no module {id:?}")),
+    }
 }
 
 impl Modules {
@@ -66,6 +107,10 @@ impl Modules {
             }),
             counters: Counters::default(),
             urls: Mutex::new(ffmpeg::default_urls()),
+            model_source: Mutex::new((
+                deepfilter::MODEL_URL.into(),
+                deepfilter::MODEL_SHA256.into(),
+            )),
             use_system: true,
         }
     }
@@ -81,9 +126,15 @@ impl Modules {
         self
     }
 
-    /// Downloads from other addresses (tests).
+    /// Downloads FFmpeg from other addresses (tests).
     pub fn with_urls(self, urls: Option<Urls>) -> Modules {
         *lock(&self.urls) = urls;
+        self
+    }
+
+    /// Downloads the DeepFilterNet model from another address, with the SHA-256 it must have (tests).
+    pub fn with_model_source(self, url: &str, sha256: &str) -> Modules {
+        *lock(&self.model_source) = (url.to_owned(), sha256.to_owned());
         self
     }
 
@@ -127,102 +178,146 @@ impl Modules {
         self.found().map(|f| f.path)
     }
 
+    /// The DeepFilterNet model to use: only when the module is switched on and the model was downloaded.
+    pub fn deepfilter_model(&self) -> Option<PathBuf> {
+        if !lock(&self.state).saved.deepfilter_enabled {
+            return None;
+        }
+        let path = deepfilter::model_path(&self.dir);
+        path.is_file().then_some(path)
+    }
+
     /// The modules and how each stands.
     pub fn list(&self) -> Vec<ModuleInfo> {
         let found = self.found();
+        let model = deepfilter::model_path(&self.dir).is_file();
         let st = lock(&self.state);
-        vec![ModuleInfo {
-            id: FFMPEG.into(),
-            name: "FFmpeg".into(),
-            description: "Reads the sound of many more files and videos (for example Opus sound in WebM videos). \
-                          Used only when a file cannot be read without it."
-                .into(),
-            enabled: st.saved.ffmpeg_enabled,
-            available: found.is_some(),
-            source: found.as_ref().map(|f| f.source.to_owned()),
-            version: found.as_ref().map(|f| f.version.clone()),
-            installing: st.installing.then(|| Progress {
+        let progress = |id: &str| {
+            (st.installing == Some(id)).then(|| Progress {
                 done: self.counters.done.load(Ordering::Relaxed),
                 total: self.counters.total.load(Ordering::Relaxed),
-            }),
-            error: st.error.clone(),
-            downloadable: lock(&self.urls).is_some(),
-            download_mb: ffmpeg::DOWNLOAD_MB,
-        }]
-    }
-
-    fn check_id(id: &str) -> Result<(), String> {
-        if id == FFMPEG {
-            Ok(())
-        } else {
-            Err(format!("there is no module {id:?}"))
-        }
+            })
+        };
+        vec![
+            ModuleInfo {
+                id: FFMPEG.into(),
+                name: "FFmpeg".into(),
+                description: "Reads the sound of many more files and videos (for example Opus sound in WebM videos). \
+                              Used only when a file cannot be read without it."
+                    .into(),
+                enabled: st.saved.ffmpeg_enabled,
+                available: found.is_some(),
+                source: found.as_ref().map(|f| f.source.to_owned()),
+                version: found.as_ref().map(|f| f.version.clone()),
+                installing: progress(FFMPEG),
+                error: st.ffmpeg_error.clone(),
+                downloadable: lock(&self.urls).is_some(),
+                download_mb: ffmpeg::DOWNLOAD_MB,
+                supported: true,
+            },
+            ModuleInfo {
+                id: DEEPFILTER.into(),
+                name: "DeepFilterNet".into(),
+                description: "A larger noise reduction than the built-in one: a neural network that keeps the voice and \
+                              takes out most other sounds. Used by the \"Deep noise reduction\" block; it needs a \
+                              little processor time."
+                    .into(),
+                enabled: st.saved.deepfilter_enabled,
+                available: model,
+                source: model.then(|| "local".to_owned()),
+                version: model.then(|| "DeepFilterNet 3".to_owned()),
+                installing: progress(DEEPFILTER),
+                error: st.deepfilter_error.clone(),
+                downloadable: true,
+                download_mb: deepfilter::DOWNLOAD_MB,
+                supported: cfg!(feature = "deepfilter"),
+            },
+        ]
     }
 
     /// Switches a module on or off. It cannot be switched on while nothing usable is there (install it instead).
     pub fn set_enabled(&self, id: &str, enabled: bool) -> Result<(), String> {
-        Self::check_id(id)?;
-        if enabled && self.found().is_none() {
-            return Err("FFmpeg is not installed: install the module first".into());
+        let id = known(id)?;
+        let available = if id == DEEPFILTER {
+            deepfilter::model_path(&self.dir).is_file()
+        } else {
+            self.found().is_some()
+        };
+        if enabled && !available {
+            return Err(format!("{id} is not installed: install the module first"));
         }
         let saved = {
             let mut st = lock(&self.state);
-            st.saved.ffmpeg_enabled = enabled;
+            *st.saved.enabled_mut(id) = enabled;
             st.saved.clone()
         };
         self.save(&saved);
         Ok(())
     }
 
-    /// Switches the module on. When the system already has a compatible FFmpeg that is all; otherwise FFmpeg is
-    /// downloaded into the modules folder in the background (follow it with [`Modules::list`]).
+    /// Switches the module on. When what it needs is already there (a compatible FFmpeg on the system, the model on
+    /// the disk) that is all; otherwise it is downloaded into the modules folder in the background (follow it with
+    /// [`Modules::list`]).
     pub fn install(self: &Arc<Self>, id: &str) -> Result<(), String> {
-        Self::check_id(id)?;
+        let id = known(id)?;
         self.forget_location();
-        if self.found().is_some() {
+        let there = if id == DEEPFILTER {
+            deepfilter::model_path(&self.dir).is_file()
+        } else {
+            self.found().is_some()
+        };
+        if there {
             return self.set_enabled(id, true);
         }
-        let Some(urls) = lock(&self.urls).clone() else {
+        if id == FFMPEG && lock(&self.urls).is_none() {
             return Err(
                 "FFmpeg is not installed, and it cannot be downloaded on this system: install it with the system's \
                  package manager (for example `apt install ffmpeg` or `brew install ffmpeg`)"
                     .into(),
             );
-        };
+        }
         {
             let mut st = lock(&self.state);
-            if st.installing {
-                return Ok(());
+            match st.installing {
+                Some(running) if running == id => return Ok(()),
+                Some(other) => {
+                    return Err(format!(
+                        "{other} is being downloaded: wait for it to finish"
+                    ))
+                }
+                None => {}
             }
-            st.installing = true;
-            st.error = None;
+            st.installing = Some(id);
+            *st.error_mut(id) = None;
+            // a stop asked for before the thread has started must not be forgotten: reset it here, not there
+            self.counters.cancel.store(false, Ordering::Relaxed);
         }
         let me = self.clone();
         let spawned = std::thread::Builder::new()
             .name("module-download".into())
             .spawn(move || {
-                tracing::info!("downloading the FFmpeg module");
+                tracing::info!(module = id, "downloading a module");
                 // a failure of the download must never take the daemon down with it
-                let result = crate::diagnostics::crash::contained(|| {
-                    ffmpeg::download(&me.dir, &urls, &me.counters)
-                })
-                .unwrap_or_else(|_| Err("the download failed unexpectedly (see the logs)".into()));
+                let result = crate::diagnostics::crash::contained(|| me.download(id))
+                    .unwrap_or_else(|_| {
+                        Err("the download failed unexpectedly (see the logs)".into())
+                    });
                 me.forget_location();
                 let saved = {
                     let mut st = lock(&me.state);
-                    st.installing = false;
+                    st.installing = None;
                     match &result {
                         Ok(()) => {
-                            st.error = None;
-                            st.saved.ffmpeg_enabled = true;
+                            *st.error_mut(id) = None;
+                            *st.saved.enabled_mut(id) = true;
                         }
-                        Err(e) if e == ffmpeg::CANCELLED => {
-                            tracing::info!("the FFmpeg download was cancelled");
-                            st.error = None;
+                        Err(e) if e == download::CANCELLED => {
+                            tracing::info!(module = id, "the download was cancelled");
+                            *st.error_mut(id) = None;
                         }
                         Err(e) => {
-                            tracing::warn!("the FFmpeg module could not be installed: {e}");
-                            st.error = Some(e.clone());
+                            tracing::warn!(module = id, "the module could not be installed: {e}");
+                            *st.error_mut(id) = Some(e.clone());
                         }
                     }
                     st.saved.clone()
@@ -230,34 +325,48 @@ impl Modules {
                 me.save(&saved);
             });
         if let Err(e) = spawned {
-            let mut st = lock(&self.state);
-            st.installing = false;
+            lock(&self.state).installing = None;
             return Err(format!("cannot start the download: {e}"));
         }
         Ok(())
     }
 
+    /// The download of one module (on the download thread).
+    fn download(&self, id: &str) -> Result<(), String> {
+        if id == DEEPFILTER {
+            let (url, sha256) = lock(&self.model_source).clone();
+            deepfilter::download(&self.dir, &url, &sha256, &self.counters)
+        } else {
+            let urls = lock(&self.urls)
+                .clone()
+                .ok_or("FFmpeg cannot be downloaded on this system")?;
+            ffmpeg::download(&self.dir, &urls, &self.counters)
+        }
+    }
+
     /// Stops a download that is running (what was downloaded so far is thrown away).
     pub fn cancel(&self, id: &str) -> Result<(), String> {
-        Self::check_id(id)?;
+        known(id)?;
         self.counters.cancel.store(true, Ordering::Relaxed);
         Ok(())
     }
 
     /// Switches the module off and deletes its copy in the modules folder (a copy the system has is not touched).
     pub fn remove(&self, id: &str) -> Result<(), String> {
-        Self::check_id(id)?;
-        if lock(&self.state).installing {
-            return Err("FFmpeg is being downloaded: wait for it to finish".into());
+        let id = known(id)?;
+        if let Some(running) = lock(&self.state).installing {
+            return Err(format!(
+                "{running} is being downloaded: wait for it to finish"
+            ));
         }
         let saved = {
             let mut st = lock(&self.state);
-            st.saved.ffmpeg_enabled = false;
-            st.error = None;
+            *st.saved.enabled_mut(id) = false;
+            *st.error_mut(id) = None;
             st.saved.clone()
         };
         self.save(&saved);
-        let folder = self.dir.join("ffmpeg");
+        let folder = self.dir.join(id);
         if folder.exists() {
             std::fs::remove_dir_all(&folder)
                 .map_err(|e| format!("cannot delete {}: {e}", folder.display()))?;
@@ -408,6 +517,7 @@ mod tests {
             // pretend a copy exists: a program that answers `-version` like FFmpeg is not needed to test the saving
             m.save(&Saved {
                 ffmpeg_enabled: true,
+                ..Default::default()
             });
         }
         let m = Modules::new(&dir);
@@ -484,6 +594,104 @@ mod tests {
         );
         assert!(!info.enabled && !info.available);
         assert!(!ffmpeg::local_exe(m.dir()).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn wait_for(m: &Arc<Modules>, id: &str) -> ModuleInfo {
+        for _ in 0..600 {
+            let info = m.list().into_iter().find(|i| i.id == id).unwrap();
+            if info.installing.is_none() {
+                return info;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        panic!("the download never ended");
+    }
+
+    #[test]
+    fn the_model_is_installed_only_when_its_checksum_is_the_expected_one_and_can_be_removed() {
+        use sha2::{Digest, Sha256};
+        let dir = temp("model");
+        let model: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        let sum = format!("{:x}", Sha256::digest(&model));
+        let address = serve(vec![("/model.tar.gz", model.clone())]);
+        let url = format!("http://{address}/model.tar.gz");
+
+        // a model that is not the one that was checked is refused and leaves nothing
+        let wrong = Arc::new(
+            Modules::new(&dir)
+                .without_system()
+                .with_model_source(&url, &"0".repeat(64)),
+        );
+        wrong.install(DEEPFILTER).unwrap();
+        let info = wait_for(&wrong, DEEPFILTER);
+        assert!(
+            info.error
+                .as_deref()
+                .is_some_and(|e| e.contains("checksum")),
+            "{:?}",
+            info.error
+        );
+        assert!(!info.available && !info.enabled);
+        assert_eq!(wrong.deepfilter_model(), None);
+        assert!(!deepfilter::model_path(wrong.dir()).exists());
+
+        // the right one is installed, switched on, and found
+        let m = Arc::new(
+            Modules::new(&dir)
+                .without_system()
+                .with_model_source(&url, &sum),
+        );
+        m.install(DEEPFILTER).unwrap();
+        let info = wait_for(&m, DEEPFILTER);
+        assert!(info.error.is_none(), "{:?}", info.error);
+        assert!(info.available && info.enabled && info.source.as_deref() == Some("local"));
+        let path = m.deepfilter_model().expect("the model");
+        assert_eq!(std::fs::read(&path).unwrap(), model);
+        // FFmpeg is a separate module: nothing of it changed
+        let ffmpeg = m.list().into_iter().find(|i| i.id == FFMPEG).unwrap();
+        assert!(!ffmpeg.enabled);
+        // after a restart it is still switched on
+        assert!(Modules::new(&dir)
+            .without_system()
+            .deepfilter_model()
+            .is_some());
+        // switched off it is not used; removed it is gone
+        m.set_enabled(DEEPFILTER, false).unwrap();
+        assert_eq!(m.deepfilter_model(), None);
+        m.set_enabled(DEEPFILTER, true).unwrap();
+        m.remove(DEEPFILTER).unwrap();
+        assert_eq!(m.deepfilter_model(), None);
+        assert!(!path.exists());
+        assert!(
+            m.set_enabled(DEEPFILTER, true).is_err(),
+            "nothing to switch on"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn only_one_module_downloads_at_a_time() {
+        let dir = temp("one-at-a-time");
+        let address = serve_forever();
+        let m = Arc::new(
+            Modules::new(&dir)
+                .without_system()
+                .with_urls(Some(Urls {
+                    archive: format!("http://{address}/big.zip"),
+                    sha256: format!("http://{address}/big.zip.sha256"),
+                }))
+                .with_model_source(&format!("http://{address}/model"), &"0".repeat(64)),
+        );
+        m.install(FFMPEG).unwrap();
+        let e = m.install(DEEPFILTER).unwrap_err();
+        assert!(e.contains("being downloaded"), "{e}");
+        assert!(
+            m.install(FFMPEG).is_ok(),
+            "asking again for the same one is harmless"
+        );
+        m.cancel(FFMPEG).unwrap();
+        wait_installed(&m);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
