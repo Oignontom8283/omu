@@ -479,6 +479,12 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                       {h.message}
                     </small>
                   ))}
+                {pad.key && (
+                  <label className="check" title={t('soundboards.holdHint')}>
+                    <input type="checkbox" checked={pad.hold ?? false} onChange={(e) => change(pad, { hold: e.target.checked })} />
+                    {t('soundboards.hold')}
+                  </label>
+                )}
                 {pad.key && !active && <small className="muted">{t('soundboards.keyIdle')}</small>}
               </div>
               <div className="checks">

@@ -56,6 +56,8 @@ struct Shared {
     discard: bool,
     /// Registered keyboard shortcuts, by normalised text ("Ctrl+F8").
     hotkeys: HashMap<String, Arc<HotkeyCallback>>,
+    /// What is called when the key of a shortcut registered with a release is let go.
+    releases: HashMap<String, Arc<HotkeyCallback>>,
 }
 
 /// The simulated backend. Cloning shares the same world.
@@ -125,6 +127,21 @@ impl SimBackend {
             .lock()
             .unwrap()
             .hotkeys
+            .get(&combo.to_string())
+            .cloned();
+        callback.map(|cb| cb()).is_some()
+    }
+
+    /// Lets go of a keyboard shortcut that was registered with a release: calls it, if any. Returns whether one was.
+    pub fn release(&self, keys: &str) -> bool {
+        let Ok(combo) = KeyCombo::parse(keys) else {
+            return false;
+        };
+        let callback = self
+            .shared
+            .lock()
+            .unwrap()
+            .releases
             .get(&combo.to_string())
             .cloned();
         callback.map(|cb| cb()).is_some()
@@ -306,7 +323,9 @@ impl Running for HotkeyGuard {}
 
 impl Drop for HotkeyGuard {
     fn drop(&mut self) {
-        self.shared.lock().unwrap().hotkeys.remove(&self.key);
+        let mut shared = self.shared.lock().unwrap();
+        shared.hotkeys.remove(&self.key);
+        shared.releases.remove(&self.key);
     }
 }
 
@@ -388,6 +407,22 @@ impl Backend for SimBackend {
             shared: self.shared.clone(),
             key,
         }))
+    }
+
+    fn open_hotkey_hold(
+        &self,
+        combo: &KeyCombo,
+        on_press: HotkeyCallback,
+        on_release: HotkeyCallback,
+    ) -> Result<Box<dyn Running>, HalError> {
+        let guard = self.open_hotkey(combo, on_press)?;
+        // the guard of the press removes both when dropped
+        self.shared
+            .lock()
+            .unwrap()
+            .releases
+            .insert(combo.to_string(), Arc::new(on_release));
+        Ok(guard)
     }
 
     fn list_apps(&self) -> Result<Vec<AppInfo>, HalError> {

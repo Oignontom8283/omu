@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { KINDS_BY_CATEGORY, PORTS, canConnect, categoryOf, defaultKind } from './graph.ts';
+import { KINDS_BY_CATEGORY, PORTS, canConnect, categoryOf, defaultKind, portsOf } from './graph.ts';
 import {
   boardInGraph,
   cleanCacheMb,
@@ -17,7 +17,7 @@ import {
   withPadRemoved,
   withPadsAdded,
 } from './soundboard.ts';
-import type { Board, GraphSpec, SoundInfo } from './types.ts';
+import type { Board, GraphSpec, NodeSpec, SoundInfo } from './types.ts';
 
 const sound = (id: string, name: string): SoundInfo => ({ id, name, channels: 2, frames: 96_000, bytes: 384_000 });
 const board = (id: string, pads: string[]): Board => ({ id, name: id, pads: pads.map((p) => ({ id: p, name: p, sound: null })) });
@@ -112,4 +112,21 @@ test('the memory limit is a whole number of megabytes, 16 at least', () => {
   assert.equal(cleanCacheMb('15'), null);
   assert.equal(cleanCacheMb(''), null);
   assert.equal(cleanCacheMb('abc'), null);
+});
+
+test('a soundboard block gets an action input for each pad the graph can play, and one that stops everything', () => {
+  const names = (triggers: string[]) => portsOf({ type: 'soundboard', triggers }).map((q) => `${q.dir}:${q.name}:${q.flow}`);
+  assert.deepEqual(names([]), ['out:out:audio']);
+  assert.deepEqual(names(['a', 'b']), ['in:play1:action', 'in:play2:action', 'in:stop:action', 'out:out:audio']);
+  // an action input takes several links
+  assert.ok(portsOf({ type: 'soundboard', triggers: ['a'] }).filter((q) => q.dir === 'in').every((q) => q.multi));
+  // an action can be linked to them, a sound cannot
+  const node = (spec: NodeSpec) => ({ id: spec.id, spec });
+  const nodes = [
+    node({ id: 'sb', type: 'soundboard', board: 'b', triggers: ['a'] }),
+    node({ id: 'k', type: 'hotkey', keys: 'F5' }),
+    node({ id: 'g', type: 'gain', db: 0 }),
+  ];
+  assert.equal(canConnect(nodes, [], { source: 'k', target: 'sb', sourceHandle: 'pressed', targetHandle: 'play1' }), true);
+  assert.equal(canConnect(nodes, [], { source: 'g', target: 'sb', sourceHandle: 'out', targetHandle: 'play1' }), false);
 });
