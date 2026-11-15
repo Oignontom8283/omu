@@ -2,6 +2,7 @@
 //!
 //! * [`wav`]: the format sounds are stored in (a plain PCM WAV, the simplest thing to read back);
 //! * [`pool`]: memory for sounds, as blocks of one size so that nothing ever fragments;
+//! * [`stored`]: reads a stored sound in either shape (plain WAV, or the same samples compressed without loss);
 //! * [`voices`]: the real-time side, what plays and the mixer the graph thread runs;
 //! * [`library`]: the soundboards people made and the sounds in them, saved in the data folder;
 //! * [`hotkeys`]: the keyboard shortcuts that play pads;
@@ -13,6 +14,7 @@ pub mod hotkeys;
 pub mod import;
 pub mod library;
 pub mod pool;
+pub mod stored;
 pub mod voices;
 pub mod wav;
 

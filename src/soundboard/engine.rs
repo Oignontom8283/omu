@@ -10,8 +10,8 @@
 
 use super::library::{new_id, Library};
 use super::pool::{BlockPool, BlockRef};
+use super::stored::Stored;
 use super::voices::{BoardRuntime, Command, LoadedSound, PlayCommand, StreamShared, FADE_FRAMES};
-use super::wav::{self, WavInfo};
 use super::{
     AHEAD_SEGMENTS, BLOCK_SAMPLES, DEFAULT_CACHE_MB, ENGINE_RATE, MAX_STREAMS, SEGMENT_SECONDS,
     WHOLE_SOUND_MAX_BYTES,
@@ -19,7 +19,6 @@ use super::{
 use crate::dsp::db_to_linear;
 use crate::types::{Board, Pad, Settings, SoundInfo, SoundStatus};
 use std::collections::HashMap;
-use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -37,6 +36,8 @@ pub enum SoundError {
     UnknownPad(String),
     #[error("this pad has no sound")]
     NoSound,
+    #[error("there is no sound {0:?}")]
+    UnknownSound(String),
     #[error("the soundboard {0:?} is not in the running graph: add its block and apply the graph")]
     NotInGraph(String),
     #[error("the sounds that are playing use all the memory soundboards may use ({0} MB): raise the limit in the settings")]
@@ -51,12 +52,12 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// A key for a pad that the graph thread can compare without text.
 /// Frames a pad fades out over when stopped: its `fade_ms`, never shorter than the fade that keeps a stop from clicking.
 fn fade_frames(fade_ms: u32) -> u32 {
     (fade_ms.min(super::library::MAX_FADE_MS) * ENGINE_RATE / 1000).max(FADE_FRAMES)
 }
 
+/// A key for a pad that the graph thread can compare without text.
 pub fn pad_key(pad: &str) -> u32 {
     pad.bytes().fold(0x811c_9dc5u32, |h, b| {
         (h ^ b as u32).wrapping_mul(0x0100_0193)
@@ -78,8 +79,7 @@ struct Inner {
 /// A long sound being read ahead of its voice.
 struct StreamJob {
     shared: Arc<StreamShared>,
-    file: File,
-    info: WavInfo,
+    stored: Stored,
     next_frame: u64,
     /// Blocks to keep queued ahead of the voice.
     ahead: usize,
@@ -296,7 +296,46 @@ impl SoundEngine {
             .library
             .add_sound(info.clone())
             .map_err(|e| SoundError::Io(e.to_string()))?;
+        // a long sound is stored compressed when the settings say so; if that fails the sound stays as it is
+        let above = self.shared.library.settings().compress_above_mb as u64 * 1024 * 1024;
+        let raw = info.frames * info.channels as u64 * 2;
+        if above > 0 && raw > above {
+            match self.compress(&id) {
+                Ok(packed) => return Ok(packed),
+                Err(e) => tracing::warn!("cannot compress the sound {id}: {e}"),
+            }
+        }
         Ok(info)
+    }
+
+    /// Stores a sound compressed, without loss: it takes less room on the disk and plays exactly the same. A long sound
+    /// takes a while.
+    pub fn compress(&self, id: &str) -> Result<SoundInfo, SoundError> {
+        let lib = &self.shared.library;
+        let info = lib
+            .sound(id)
+            .ok_or_else(|| SoundError::UnknownSound(id.to_owned()))?;
+        if info.compressed {
+            return Ok(info);
+        }
+        let (plain, packed) = (lib.path_of(id), lib.packed_path_of(id));
+        let partial = packed.with_extension("omuf.part");
+        super::stored::compress(&plain, &partial).map_err(SoundError::Io)?;
+        std::fs::rename(&partial, &packed).map_err(|e| SoundError::Io(e.to_string()))?;
+        let bytes = std::fs::metadata(&packed).map_or(info.bytes, |m| m.len());
+        let packed_info = SoundInfo {
+            bytes,
+            compressed: true,
+            ..info
+        };
+        lib.update_sound(packed_info.clone())
+            .map_err(|e| SoundError::Io(e.to_string()))?;
+        // a sound that is playing may still hold the plain file open (Windows then refuses to delete it): the
+        // compressed one is what is read from now on, and the plain one goes when the sound is removed
+        if let Err(e) = std::fs::remove_file(&plain) {
+            tracing::debug!("the plain file of {id} stays for now: {e}");
+        }
+        Ok(packed_info)
     }
 
     /// Where an uploaded file is to be written (a browser sends the bytes of a file, not its path): next to the sounds,
@@ -375,18 +414,20 @@ impl SoundEngine {
         if let Some(e) = lock(&self.shared.inner).cache.get(id) {
             return Ok(e.sound.clone());
         }
-        let path = self.shared.library.path_of(id);
-        let mut file =
-            File::open(&path).map_err(|e| SoundError::Io(format!("cannot open the sound: {e}")))?;
-        let info = wav::read_info(&mut file).map_err(|e| SoundError::Io(e.to_string()))?;
+        let path = self.shared.library.stored_path(id);
+        let mut stored = Stored::open(&path)
+            .map_err(|e| SoundError::Io(format!("cannot open the sound: {e}")))?;
+        let (channels, total_frames) = (stored.channels(), stored.frames());
         let limit = self.cache_limit_bytes();
-        let whole = info.bytes() <= WHOLE_SOUND_MAX_BYTES.min(limit / 4);
+        // the size that matters here is the plain samples, however the sound is stored
+        let raw_bytes = total_frames * channels as u64 * 2;
+        let whole = raw_bytes <= WHOLE_SOUND_MAX_BYTES.min(limit / 4);
         let frames = if whole {
-            info.frames
+            total_frames
         } else {
-            info.frames.min(SEGMENT_SECONDS * ENGINE_RATE as u64)
+            total_frames.min(SEGMENT_SECONDS * ENGINE_RATE as u64)
         };
-        let samples = frames * info.channels as u64;
+        let samples = frames * channels as u64;
         let needed = blocks_for(samples);
 
         // take the blocks (making room if need be), then fill them without holding the lock
@@ -407,8 +448,8 @@ impl SoundEngine {
         for (i, block) in blocks.iter_mut().enumerate() {
             let inner_block = Arc::get_mut(block).expect("a block just taken is held by nobody");
             let want = (samples - (i * BLOCK_SAMPLES) as u64).min(BLOCK_SAMPLES as u64) as usize;
-            let start_frame = (i * BLOCK_SAMPLES / info.channels) as u64;
-            match wav::read_samples(&mut file, &info, start_frame, &mut inner_block.data[..want]) {
+            let start_frame = (i * BLOCK_SAMPLES / channels) as u64;
+            match stored.read_samples(start_frame, &mut inner_block.data[..want]) {
                 Ok(n) if n == want => inner_block.len = want,
                 Ok(_) => {
                     failure = Some("the stored sound is shorter than its header says".to_string());
@@ -426,8 +467,8 @@ impl SoundEngine {
         }
         let sound = Arc::new(LoadedSound {
             id: id.to_owned(),
-            channels: info.channels,
-            frames: info.frames,
+            channels,
+            frames: total_frames,
             loaded_frames: frames,
             blocks,
             path,
@@ -445,23 +486,28 @@ impl SoundEngine {
         Ok(sound)
     }
 
-    /// Starts the reading of the rest of a long sound ahead of its voice.
-    fn start_stream(&self, sound: &LoadedSound) -> Result<Arc<StreamShared>, SoundError> {
+    /// Starts reading the rest of a long sound; `from` is the first frame the reader must bring (never before the
+    /// end of what is in memory).
+    fn start_stream(
+        &self,
+        sound: &LoadedSound,
+        from: u64,
+    ) -> Result<Arc<StreamShared>, SoundError> {
         if self.shared.streams.load(Ordering::Relaxed) + lock(&self.shared.new_jobs).len()
             >= MAX_STREAMS
         {
             return Err(SoundError::TooManyStreams);
         }
-        let mut file = File::open(&sound.path).map_err(|e| SoundError::Io(e.to_string()))?;
-        let info = wav::read_info(&mut file).map_err(|e| SoundError::Io(e.to_string()))?;
+        // the file may have been compressed since the sound was loaded: ask where it is now
+        let stored = Stored::open(&self.shared.library.stored_path(&sound.id))
+            .map_err(|e| SoundError::Io(e.to_string()))?;
         let segment_blocks =
-            blocks_for(SEGMENT_SECONDS * ENGINE_RATE as u64 * info.channels as u64);
+            blocks_for(SEGMENT_SECONDS * ENGINE_RATE as u64 * stored.channels() as u64);
         let shared = Arc::new(StreamShared::default());
         lock(&self.shared.new_jobs).push(StreamJob {
             shared: shared.clone(),
-            file,
-            info,
-            next_frame: sound.loaded_frames,
+            stored,
+            next_frame: from.max(sound.loaded_frames),
             ahead: AHEAD_SEGMENTS as usize * segment_blocks,
         });
         Ok(shared)
@@ -490,8 +536,15 @@ impl SoundEngine {
             .runtime(board)
             .ok_or_else(|| SoundError::NotInGraph(board.to_owned()))?;
         let sound = self.load(&sound_id)?;
+        let ms_to_frames = |ms: u32| ms as u64 * ENGINE_RATE as u64 / 1000;
+        let start = ms_to_frames(p.start_ms);
+        let end = if p.end_ms == 0 {
+            u64::MAX
+        } else {
+            ms_to_frames(p.end_ms)
+        };
         let stream = if sound.streamed() {
-            Some(self.start_stream(&sound)?)
+            Some(self.start_stream(&sound, start)?)
         } else {
             None
         };
@@ -501,6 +554,8 @@ impl SoundEngine {
         runtime.send(Command::Play(PlayCommand {
             pad: pad_key(pad),
             looped: p.looped && stream.is_none(),
+            start,
+            end,
             gain: db_to_linear(p.gain_db),
             sound,
             stream,
@@ -610,7 +665,7 @@ fn service(shared: &Shared, job: &mut StreamJob, worked: &mut bool) -> bool {
         give_all(shared, queue.into_iter().chain(done));
         return false;
     }
-    let channels = job.info.channels;
+    let channels = job.stored.channels();
     for _ in 0..4 {
         let (queued, eof) = {
             let st = lock(&job.shared.state);
@@ -630,12 +685,10 @@ fn service(shared: &Shared, job: &mut StreamJob, worked: &mut bool) -> bool {
         };
         let Some(mut block) = block else { break };
         let inner_block = Arc::get_mut(&mut block).expect("a block just taken is held by nobody");
-        let n = match wav::read_samples(
-            &mut job.file,
-            &job.info,
-            job.next_frame,
-            &mut inner_block.data[..],
-        ) {
+        let n = match job
+            .stored
+            .read_samples(job.next_frame, &mut inner_block.data[..])
+        {
             Ok(n) => n,
             Err(e) => {
                 tracing::warn!("cannot read a sound from the disk: {e}");
@@ -649,7 +702,7 @@ fn service(shared: &Shared, job: &mut StreamJob, worked: &mut bool) -> bool {
         }
         inner_block.len = n;
         job.next_frame += (n / channels) as u64;
-        let at_end = job.next_frame >= job.info.frames;
+        let at_end = job.next_frame >= job.stored.frames();
         inner_block.last = at_end;
         let mut st = lock(&job.shared.state);
         st.queue.push_back(block);
@@ -695,6 +748,7 @@ mod tests {
                 channels: 1,
                 frames,
                 bytes: 44 + frames * 2,
+                compressed: false,
             })
             .unwrap();
     }
@@ -718,6 +772,8 @@ mod tests {
                     looped: false,
                     exclusive: false,
                     fade_ms: 0,
+                    start_ms: 0,
+                    end_ms: 0,
                     color: None,
                     key: None,
                 })
@@ -976,6 +1032,146 @@ mod tests {
     }
 
     #[test]
+    fn a_long_sound_can_start_beyond_its_first_segment_and_stop_early() {
+        let dir = temp("trim");
+        let e = SoundEngine::with_cache_bytes(&dir, 4 * 1024 * 1024);
+        add_sound(&e, "long", 30 * 48_000);
+        board(&e, "b", &[("p", "long")]);
+        let mut boards = e.library().get().boards;
+        boards[0].pads[0].start_ms = 12_000;
+        boards[0].pads[0].end_ms = 14_000;
+        e.library().set_boards(boards).unwrap();
+        e.sync(&["b".into()]);
+        e.play("b", "p").unwrap();
+        let rt = e.runtime("b").unwrap();
+        let mut heard = Vec::new();
+        for cycle in 0..600 {
+            let mut out = vec![0.0f32; 960];
+            rt.mix(&mut out);
+            heard.extend(out.iter().step_by(2).copied());
+            if cycle % 50 == 49 {
+                std::thread::sleep(Duration::from_millis(8));
+            }
+        }
+        // the first frames the disk was late for are silence: look at what was heard
+        let first = heard.iter().position(|s| *s != 0.0).expect("sound");
+        let last = heard.iter().rposition(|s| *s != 0.0).unwrap();
+        let begin = 12_000 * 48;
+        // every audible frame is the ramp from the chosen start, in order
+        let n = last + 1 - first;
+        assert!(n >= 90_000, "most of the two seconds was heard: {n} frames");
+        let wrong = (first..=last)
+            .filter(|&f| {
+                (heard[f] - ramp((begin + (f - first)) as u64) as f32 / 32768.0).abs() > 1e-6
+            })
+            .count();
+        assert_eq!(wrong, 0);
+        assert!(n <= 96_001, "and it stopped at 14 s: {n} frames");
+        // stopping early gives every block back to the pool
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(e.status().streams, 0);
+        assert_eq!(
+            e.status().cache_used_bytes,
+            blocks_of(5 * 48_000) * 32 * 1024,
+            "only the first segment is kept"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_compressed_long_sound_plays_exactly_like_a_plain_one_and_the_plain_file_goes() {
+        let dir = temp("packed-play");
+        let e = SoundEngine::with_cache_bytes(&dir, 4 * 1024 * 1024);
+        let frames = 30 * 48_000u64;
+        add_sound(&e, "long", frames);
+        board(&e, "b", &[("p", "long")]);
+        let plain_bytes = std::fs::metadata(e.library().path_of("long"))
+            .unwrap()
+            .len();
+        let info = e.compress("long").unwrap();
+        assert!(info.compressed && info.bytes < plain_bytes, "{info:?}");
+        assert_eq!(e.library().sound("long").unwrap(), info);
+        assert!(e.library().packed_path_of("long").exists());
+        assert!(
+            !e.library().path_of("long").exists(),
+            "the plain file is gone"
+        );
+        assert!(e.compress("long").unwrap().compressed, "again is harmless");
+        assert!(matches!(
+            e.compress("nope").unwrap_err(),
+            SoundError::UnknownSound(_)
+        ));
+
+        e.sync(&["b".into()]);
+        e.play("b", "p").unwrap();
+        let rt = e.runtime("b").unwrap();
+        let mut heard = Vec::new();
+        let mut silent_run = 0;
+        for cycle in 0..3200 {
+            let mut out = vec![0.0f32; 960];
+            rt.mix(&mut out);
+            heard.extend(out.iter().step_by(2).copied());
+            silent_run = if out[0] == 0.0 && out[958] == 0.0 {
+                silent_run + 1
+            } else {
+                0
+            };
+            if cycle % 100 == 99 {
+                std::thread::sleep(Duration::from_millis(8));
+            }
+            if silent_run > 20 {
+                break;
+            }
+        }
+        let sound_frames = heard.iter().rposition(|s| *s != 0.0).unwrap() + 1;
+        assert!(
+            (sound_frames as i64 - frames as i64).abs() <= 2,
+            "{sound_frames}"
+        );
+        let wrong = (0..sound_frames)
+            .filter(|&f| (heard[f] - ramp(f as u64) as f32 / 32768.0).abs() > 1e-6)
+            .count();
+        assert_eq!(wrong, 0, "frames that are not what was stored");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_long_import_is_compressed_when_the_settings_say_so_and_a_short_one_is_left_alone() {
+        let dir = temp("auto-pack");
+        let e = SoundEngine::with_cache_bytes(&dir, 64 * 1024 * 1024);
+        let make = |name: &str, frames: u64| {
+            let path = dir.join(name);
+            let mut w = WavWriter::create(&path, 1).unwrap();
+            let samples: Vec<i16> = (0..frames).map(ramp).collect();
+            w.write(&samples).unwrap();
+            w.finish().unwrap();
+            path
+        };
+        e.set_settings(Settings {
+            compress_above_mb: 1,
+            ..Default::default()
+        })
+        .unwrap();
+        let long = e.import(&make("long.wav", 700_000), None).unwrap();
+        assert!(long.compressed, "1.4 MB of samples is above 1 MB");
+        assert!(e.library().packed_path_of(&long.id).exists());
+        let short = e.import(&make("short.wav", 100_000), None).unwrap();
+        assert!(!short.compressed && e.library().path_of(&short.id).exists());
+        // 0 never compresses
+        e.set_settings(Settings {
+            compress_above_mb: 0,
+            ..Default::default()
+        })
+        .unwrap();
+        let again = e.import(&make("again.wav", 700_000), None).unwrap();
+        assert!(!again.compressed);
+        // removing a sound removes whichever file it has
+        assert!(e.remove_sound(&long.id).unwrap());
+        assert!(!e.library().packed_path_of(&long.id).exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_stopped_long_sound_gives_its_blocks_back_at_once_and_too_many_long_sounds_are_refused() {
         let dir = temp("stop");
         let e = SoundEngine::with_cache_bytes(&dir, 4 * 1024 * 1024);
@@ -1034,9 +1230,17 @@ mod tests {
         let dir = temp("limit");
         let e = SoundEngine::new(&dir);
         assert_eq!(e.cache_limit_bytes(), DEFAULT_CACHE_MB as u64 * 1024 * 1024);
-        e.set_settings(Settings { sound_cache_mb: 64 }).unwrap();
+        e.set_settings(Settings {
+            sound_cache_mb: 64,
+            ..Default::default()
+        })
+        .unwrap();
         assert_eq!(e.cache_limit_bytes(), 64 * 1024 * 1024);
-        e.set_settings(Settings { sound_cache_mb: 1 }).unwrap();
+        e.set_settings(Settings {
+            sound_cache_mb: 1,
+            ..Default::default()
+        })
+        .unwrap();
         assert_eq!(e.cache_limit_bytes(), 16 * 1024 * 1024, "never below 16 MB");
         let _ = std::fs::remove_dir_all(&dir);
     }
