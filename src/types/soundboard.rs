@@ -13,8 +13,11 @@ pub struct SoundInfo {
     pub channels: u8,
     /// Frames at 48 kHz.
     pub frames: u64,
-    /// Size of the stored sound.
+    /// Size of the stored sound on the disk.
     pub bytes: u64,
+    /// Stored compressed (without loss), which takes less room on the disk; it is read back exactly as it was.
+    #[serde(default)]
+    pub compressed: bool,
 }
 
 impl SoundInfo {
@@ -111,6 +114,14 @@ pub struct Settings {
     /// enters the running graph and none was there). The environment variable replaces it.
     #[serde(default = "default_cache_mb")]
     pub sound_cache_mb: u32,
+    /// A sound that would take more than this many megabytes of plain samples is stored compressed (without loss) when
+    /// imported; 0 never compresses. A sound can also be compressed by hand.
+    #[serde(default = "default_compress_mb")]
+    pub compress_above_mb: u32,
+}
+
+fn default_compress_mb() -> u32 {
+    20
 }
 
 fn default_cache_mb() -> u32 {
@@ -121,6 +132,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             sound_cache_mb: default_cache_mb(),
+            compress_above_mb: default_compress_mb(),
         }
     }
 }
