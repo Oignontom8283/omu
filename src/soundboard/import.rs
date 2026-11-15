@@ -82,6 +82,7 @@ pub fn import_file(
                 channels: channels as u8,
                 frames,
                 bytes,
+                compressed: false,
             })
         }
         Err(e) => {

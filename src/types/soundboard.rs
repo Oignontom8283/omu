@@ -13,8 +13,11 @@ pub struct SoundInfo {
     pub channels: u8,
     /// Frames at 48 kHz.
     pub frames: u64,
-    /// Size of the stored sound.
+    /// Size of the stored sound on the disk.
     pub bytes: u64,
+    /// Stored compressed (without loss), which takes less room on the disk; it is read back exactly as it was.
+    #[serde(default)]
+    pub compressed: bool,
 }
 
 impl SoundInfo {
@@ -42,6 +45,11 @@ pub struct Pad {
     /// How long it takes to fade out when stopped, in milliseconds; 0 is the shortest fade that does not click.
     #[serde(default)]
     pub fade_ms: u32,
+    /// Only a part of the sound plays: from `start_ms` to `end_ms` (0 = to the end of the sound).
+    #[serde(default)]
+    pub start_ms: u32,
+    #[serde(default)]
+    pub end_ms: u32,
     /// The colour of its button in the panel, `#rrggbb`; the panel's own colour when missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
@@ -106,6 +114,14 @@ pub struct Settings {
     /// enters the running graph and none was there). The environment variable replaces it.
     #[serde(default = "default_cache_mb")]
     pub sound_cache_mb: u32,
+    /// A sound that would take more than this many megabytes of plain samples is stored compressed (without loss) when
+    /// imported; 0 never compresses. A sound can also be compressed by hand.
+    #[serde(default = "default_compress_mb")]
+    pub compress_above_mb: u32,
+}
+
+fn default_compress_mb() -> u32 {
+    20
 }
 
 fn default_cache_mb() -> u32 {
@@ -116,6 +132,7 @@ impl Default for Settings {
     fn default() -> Self {
         Settings {
             sound_cache_mb: default_cache_mb(),
+            compress_above_mb: default_compress_mb(),
         }
     }
 }

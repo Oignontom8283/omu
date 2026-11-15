@@ -3,9 +3,11 @@ import { IN_DESKTOP_WINDOW, RpcError, uploadSound, type api } from '../api.ts';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import { ShortcutField } from './ShortcutField.tsx';
+import { partChange } from '../soundboard.ts';
 import {
   boardInGraph,
   cleanCacheMb,
+  cleanCompressMb,
   emptyPad,
   formatBytes,
   formatDuration,
@@ -47,6 +49,8 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
   const [status, setStatus] = useState<SoundStatus | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [cacheText, setCacheText] = useState('');
+  const [compressText, setCompressText] = useState('');
+  const [compressing, setCompressing] = useState<string | null>(null);
   const [importing, setImporting] = useState<string[]>([]);
   const [over, setOver] = useState(false);
   const [path, setPath] = useState('');
@@ -91,6 +95,7 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       .then((s) => {
         setSettings(s);
         setCacheText(String(s.sound_cache_mb));
+        setCompressText(String(s.compress_above_mb));
       })
       .catch(() => undefined);
   }, [daemon]);
@@ -249,17 +254,35 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
     await reload();
   };
 
+  const compressSound = async (s: SoundInfo) => {
+    setCompressing(s.id);
+    try {
+      await daemon.compressSound(s.id);
+    } catch (e) {
+      notify(`${s.name}: ${message(e)}`);
+    } finally {
+      setCompressing(null);
+    }
+    await reload();
+  };
+
   const saveCache = async () => {
     const mb = cleanCacheMb(cacheText);
     if (mb === null) {
       notify(t('soundboards.cacheInvalid', { min: MIN_CACHE_MB }));
       return;
     }
-    const next = { ...(settings ?? {}), sound_cache_mb: mb };
+    const packMb = cleanCompressMb(compressText);
+    if (packMb === null) {
+      notify(t('soundboards.compressInvalid'));
+      return;
+    }
+    const next = { sound_cache_mb: mb, compress_above_mb: packMb };
     try {
       await daemon.setSettings(next);
       setSettings(next);
       setCacheText(String(mb));
+      setCompressText(String(packMb));
     } catch (e) {
       notify(message(e));
     }
@@ -448,6 +471,16 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                 </span>
                 <input type="range" min={0} max={5000} step={50} value={pad.fade_ms ?? 0} onChange={(e) => change(pad, { fade_ms: Number(e.target.value) })} />
               </label>
+              <div className="range-row" title={t('soundboards.partHint')}>
+                <label>
+                  <span>{t('soundboards.start')}</span>
+                  <input type="number" min={0} step={0.1} value={(pad.start_ms ?? 0) / 1000} onChange={(e) => change(pad, partChange(pad, 'start_ms', e.target.value))} />
+                </label>
+                <label>
+                  <span>{t('soundboards.end')}</span>
+                  <input type="number" min={0} step={0.1} value={(pad.end_ms ?? 0) / 1000} onChange={(e) => change(pad, partChange(pad, 'end_ms', e.target.value))} />
+                </label>
+              </div>
               <div className="color-row">
                 <span>{t('soundboards.color')}</span>
                 <input type="color" aria-label={t('soundboards.color')} value={pad.color ?? '#0f9d8a'} onChange={(e) => change(pad, { color: e.target.value })} />
@@ -474,8 +507,14 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                   {s.name}
                 </span>
                 <small className="muted">
-                  {formatDuration(s.frames)} · {formatBytes(s.bytes)} · {t('soundboards.usedBy', { count: uses })}
+                  {formatDuration(s.frames)} · {formatBytes(s.bytes)}
+                  {s.compressed ? ` · ${t('soundboards.compressed')}` : ''} · {t('soundboards.usedBy', { count: uses })}
                 </small>
+                {!s.compressed && (
+                  <button className="mini" disabled={compressing !== null} title={t('soundboards.compressNow')} onClick={() => void compressSound(s)}>
+                    {compressing === s.id ? t('soundboards.compressing') : t('soundboards.compress')}
+                  </button>
+                )}
                 <button className={`mini${confirm === `sound:${s.id}` ? ' danger' : ''}`} title={t('soundboards.removeSound')} aria-label={t('soundboards.removeSound')} onClick={() => void removeSound(s)}>
                   {confirm === `sound:${s.id}` ? t('soundboards.deleteConfirm') : '×'}
                 </button>
@@ -499,10 +538,17 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
             <span>{t('soundboards.cacheLimit')}</span>
             <input type="number" min={MIN_CACHE_MB} step={16} value={cacheText} onChange={(e) => setCacheText(e.target.value)} />
           </label>
-          <button onClick={() => void saveCache()} disabled={settings !== null && String(settings.sound_cache_mb) === cacheText}>
+        </div>
+        <div className="row">
+          <label className="field grow">
+            <span>{t('soundboards.compressAbove')}</span>
+            <input type="number" min={0} step={1} value={compressText} onChange={(e) => setCompressText(e.target.value)} />
+          </label>
+          <button onClick={() => void saveCache()} disabled={settings !== null && String(settings.sound_cache_mb) === cacheText && String(settings.compress_above_mb) === compressText}>
             {t('soundboards.cacheSave')}
           </button>
         </div>
+        <small className="muted">{t('soundboards.compressHint')}</small>
         <small className="muted">{t('soundboards.cacheHint')}</small>
       </section>
     </aside>

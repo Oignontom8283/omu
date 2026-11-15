@@ -72,9 +72,24 @@ impl Library {
         self.dir.join("sounds")
     }
 
-    /// The stored file of a sound.
+    /// Where a sound is first stored: a plain WAV (the importer's output).
     pub fn path_of(&self, sound: &str) -> PathBuf {
         self.sounds_dir().join(format!("{sound}.wav"))
+    }
+
+    /// Where a compressed sound is stored.
+    pub fn packed_path_of(&self, sound: &str) -> PathBuf {
+        self.sounds_dir().join(format!("{sound}.omuf"))
+    }
+
+    /// The file a sound is read from: the compressed one when there is one, else the plain one.
+    pub fn stored_path(&self, sound: &str) -> PathBuf {
+        let packed = self.packed_path_of(sound);
+        if packed.exists() {
+            packed
+        } else {
+            self.path_of(sound)
+        }
     }
 
     pub fn get(&self) -> SoundLibrary {
@@ -103,6 +118,12 @@ impl Library {
             }
             let mut pads = HashSet::new();
             for p in &mut b.pads {
+                if p.end_ms != 0 && p.end_ms <= p.start_ms {
+                    return Err(format!(
+                        "pad {:?}: the part that plays must end after it starts",
+                        p.name
+                    ));
+                }
                 if p.fade_ms > MAX_FADE_MS {
                     return Err(format!(
                         "pad {:?}: the fade is at most {MAX_FADE_MS} ms",
@@ -162,6 +183,19 @@ impl Library {
         Ok(())
     }
 
+    /// Replaces what is known of a sound (its size, once compressed).
+    pub fn update_sound(&self, info: SoundInfo) -> io::Result<()> {
+        let mut data = lock(&self.data);
+        let mut next = data.clone();
+        match next.sounds.iter_mut().find(|s| s.id == info.id) {
+            Some(s) => *s = info,
+            None => return Ok(()),
+        }
+        self.save(&next)?;
+        *data = next;
+        Ok(())
+    }
+
     /// Forgets a sound: pads that played it have none, and its stored file is deleted. Returns whether it existed.
     pub fn remove_sound(&self, id: &str) -> io::Result<bool> {
         let mut data = lock(&self.data);
@@ -178,6 +212,7 @@ impl Library {
         self.save(&next)?;
         *data = next;
         let _ = std::fs::remove_file(self.path_of(id));
+        let _ = std::fs::remove_file(self.packed_path_of(id));
         Ok(true)
     }
 
@@ -218,6 +253,7 @@ mod tests {
             channels: 2,
             frames: 48_000,
             bytes: 192_000,
+            compressed: false,
         }
     }
 
@@ -235,6 +271,8 @@ mod tests {
                     looped: false,
                     exclusive: false,
                     fade_ms: 0,
+                    start_ms: 0,
+                    end_ms: 0,
                     color: None,
                     key: None,
                 })
@@ -258,7 +296,11 @@ mod tests {
         lib.add_sound(sound("s1")).unwrap();
         lib.set_boards(vec![board("b1", &[("p1", Some("s1")), ("p2", None)])])
             .unwrap();
-        lib.set_settings(Settings { sound_cache_mb: 64 }).unwrap();
+        lib.set_settings(Settings {
+            sound_cache_mb: 64,
+            ..Default::default()
+        })
+        .unwrap();
         let again = Library::load(&dir);
         assert_eq!(again.get(), lib.get());
         assert_eq!(again.settings().sound_cache_mb, 64);
@@ -333,6 +375,18 @@ mod tests {
                 "{bad}"
             );
         }
+        assert!(lib
+            .set_boards(with(&|p| {
+                p.start_ms = 1000;
+                p.end_ms = 2000
+            }))
+            .is_ok());
+        assert!(lib
+            .set_boards(with(&|p| {
+                p.start_ms = 2000;
+                p.end_ms = 2000
+            }))
+            .is_err());
         assert!(lib.set_boards(with(&|p| p.fade_ms = MAX_FADE_MS)).is_ok());
         assert!(lib
             .set_boards(with(&|p| p.fade_ms = MAX_FADE_MS + 1))

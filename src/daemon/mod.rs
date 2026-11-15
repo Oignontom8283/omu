@@ -69,7 +69,7 @@ fn hal_error(e: HalError) -> RpcError {
 fn sound_error(e: crate::soundboard::SoundError) -> RpcError {
     use crate::soundboard::SoundError as E;
     match &e {
-        E::UnknownBoard(_) | E::UnknownPad(_) | E::NoSound => {
+        E::UnknownBoard(_) | E::UnknownPad(_) | E::NoSound | E::UnknownSound(_) => {
             RpcError::invalid_params(e.to_string())
         }
         E::NotInGraph(_) | E::NotActive | E::PoolFull(_) | E::TooManyStreams => {
@@ -331,6 +331,10 @@ impl Daemon {
                     .import(std::path::Path::new(&p.path), p.name.as_deref())
                     .map_err(sound_error)?;
                 result(info)
+            }
+            m::SoundsCompress::NAME => {
+                let p = params::<m::SoundsCompress>(p)?;
+                result(self.sounds.compress(&p.id).map_err(sound_error)?)
             }
             m::SoundsRemove::NAME => {
                 let p = params::<m::SoundsRemove>(p)?;

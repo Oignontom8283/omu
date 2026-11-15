@@ -172,6 +172,11 @@ method!(
     SoundsImport, "sounds.import", ImportSound => SoundInfo
 );
 method!(
+    /// Stores an imported sound compressed, without loss (it plays exactly the same and takes less room on the disk). A
+    /// long sound takes a while.
+    SoundsCompress, "sounds.compress", SoundRef => SoundInfo
+);
+method!(
     /// Removes an imported sound for good (pads that played it have none).
     SoundsRemove, "sounds.remove", SoundRef => bool
 );
@@ -255,6 +260,7 @@ pub const ALL_METHODS: &[&str] = &[
     SoundboardsGet::NAME,
     SoundboardsSet::NAME,
     SoundsImport::NAME,
+    SoundsCompress::NAME,
     SoundsRemove::NAME,
     SoundboardPlay::NAME,
     SoundboardStop::NAME,
