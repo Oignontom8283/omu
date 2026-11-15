@@ -248,5 +248,7 @@
   "modules.needed": "{name} is needed to read this file. Install the module?",
   "modules.neededInstall": "Install the module",
   "modules.neededLater": "Not now",
-  "modules.cancel": "Cancel the download"
+  "modules.cancel": "Cancel the download",
+  "soundboards.hold": "Only while the key is held",
+  "soundboards.holdHint": "The pad plays while you hold the shortcut and stops when you let go"
 }

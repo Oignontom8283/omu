@@ -14,11 +14,11 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
-    MOD_SHIFT, MOD_WIN,
+    GetAsyncKeyState, RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL,
+    MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, WM_HOTKEY, WM_QUIT,
+    GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, PM_REMOVE, WM_HOTKEY, WM_QUIT,
 };
 
 /// The virtual-key code of a key.
@@ -90,6 +90,27 @@ impl Drop for Guard {
 
 /// Registers `combo` and calls `on_press` each time it is pressed. Returns once the registration is known.
 pub fn register(combo: &KeyCombo, on_press: HotkeyCallback) -> Result<Box<dyn Running>, HalError> {
+    register_inner(combo, on_press, None)
+}
+
+/// The same, and `on_release` is called when the key is let go: the thread watches the key's state until then (the
+/// system tells a registered shortcut's press, not its release).
+pub fn register_hold(
+    combo: &KeyCombo,
+    on_press: HotkeyCallback,
+    on_release: HotkeyCallback,
+) -> Result<Box<dyn Running>, HalError> {
+    register_inner(combo, on_press, Some(on_release))
+}
+
+/// How often the state of a held key is looked at.
+const HOLD_POLL: Duration = Duration::from_millis(10);
+
+fn register_inner(
+    combo: &KeyCombo,
+    on_press: HotkeyCallback,
+    on_release: Option<HotkeyCallback>,
+) -> Result<Box<dyn Running>, HalError> {
     let (combo, label) = (*combo, combo.to_string());
     let (tx, rx) = mpsc::channel::<Result<u32, String>>();
     let thread = std::thread::Builder::new()
@@ -110,9 +131,28 @@ pub fn register(combo: &KeyCombo, on_press: HotkeyCallback) -> Result<Box<dyn Ru
                 }
             }
             // GetMessageW returns 0 on WM_QUIT (and -1 on error)
-            while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
-                if msg.message == WM_HOTKEY {
-                    on_press();
+            'messages: while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
+                if msg.message != WM_HOTKEY {
+                    continue;
+                }
+                on_press();
+                let Some(release) = &on_release else { continue };
+                // wait for the key to be let go (the shortcut ending while it is held lets go too)
+                let key = virtual_key(combo.key) as i32;
+                loop {
+                    std::thread::sleep(HOLD_POLL);
+                    let mut quit = MSG::default();
+                    if unsafe { PeekMessageW(&mut quit, None, WM_QUIT, WM_QUIT, PM_REMOVE) }
+                        .as_bool()
+                    {
+                        release();
+                        break 'messages;
+                    }
+                    // the high bit says the key is down now
+                    if unsafe { GetAsyncKeyState(key) } as u16 & 0x8000 == 0 {
+                        release();
+                        break;
+                    }
                 }
             }
             let _ = unsafe { UnregisterHotKey(None, 1) };
@@ -224,6 +264,70 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         assert_eq!(hits.load(Ordering::SeqCst), 1, "the shortcut fired once");
+        drop(guard);
+    }
+
+    /// The same with a release: holding Ctrl+Alt+Shift+F24 down fires the press, letting go fires the release.
+    #[test]
+    #[ignore = "injects keyboard input for a moment"]
+    fn letting_go_of_the_keys_fires_the_release() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYBD_EVENT_FLAGS,
+            KEYEVENTF_KEYUP, VIRTUAL_KEY,
+        };
+        let (presses, releases) = (Arc::new(AtomicU32::new(0)), Arc::new(AtomicU32::new(0)));
+        let (p2, r2) = (presses.clone(), releases.clone());
+        let combo = KeyCombo::parse("Ctrl+Alt+Shift+F24").unwrap();
+        let guard = register_hold(
+            &combo,
+            Box::new(move || {
+                p2.fetch_add(1, Ordering::SeqCst);
+            }),
+            Box::new(move || {
+                r2.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
+        .unwrap();
+        let key = |vk: u16, up: bool| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VIRTUAL_KEY(vk),
+                    wScan: 0,
+                    dwFlags: if up {
+                        KEYEVENTF_KEYUP
+                    } else {
+                        KEYBD_EVENT_FLAGS(0)
+                    },
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        let send = |inputs: &[INPUT]| unsafe {
+            SendInput(inputs, std::mem::size_of::<INPUT>() as i32);
+        };
+        // down: Ctrl, Alt, Shift, F24
+        send(&[
+            key(0x11, false),
+            key(0x12, false),
+            key(0x10, false),
+            key(0x87, false),
+        ]);
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(presses.load(Ordering::SeqCst), 1, "pressed");
+        assert_eq!(releases.load(Ordering::SeqCst), 0, "still held");
+        // up
+        send(&[
+            key(0x87, true),
+            key(0x10, true),
+            key(0x12, true),
+            key(0x11, true),
+        ]);
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(releases.load(Ordering::SeqCst), 1, "let go");
         drop(guard);
     }
 }

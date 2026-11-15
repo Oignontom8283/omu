@@ -274,6 +274,7 @@ mod tests {
                     start_ms: 0,
                     end_ms: 0,
                     color: None,
+                    hold: false,
                     key: None,
                 })
                 .collect(),

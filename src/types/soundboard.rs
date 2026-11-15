@@ -50,6 +50,9 @@ pub struct Pad {
     pub start_ms: u32,
     #[serde(default)]
     pub end_ms: u32,
+    /// With a shortcut: the pad plays while the key is held and stops when it is let go.
+    #[serde(default)]
+    pub hold: bool,
     /// The colour of its button in the panel, `#rrggbb`; the panel's own colour when missing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
