@@ -1,10 +1,14 @@
 import { createContext, useContext } from 'react';
-import type { AppInfo, DeviceInfo, NodeKind, NodeStatus, NodeType } from './types.ts';
+import type { AppInfo, DeviceInfo, NodeKind, NodeStatus, NodeType, SoundLibrary } from './types.ts';
 
 /** What every block card needs from the editor. */
 export type EditorContext = {
   apps: AppInfo[];
   devices: DeviceInfo[];
+  /** The soundboards and sounds the daemon keeps (a soundboard block picks one of the boards). */
+  library: SoundLibrary;
+  /** Opens the soundboards panel, on this board when one is given. */
+  openSoundboards: (board?: string) => void;
   statusOf: (id: string) => NodeStatus | undefined;
   /** Changes the settings of a block (its kind stays). */
   update: (id: string, kind: NodeKind) => void;

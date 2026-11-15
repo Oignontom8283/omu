@@ -5,7 +5,8 @@
 
 use crate::diagnostics::Line;
 use crate::types::{
-    AppInfo, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, StaleDevices,
+    AppInfo, Board, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Settings,
+    SoundInfo, SoundLibrary, SoundStatus, StaleDevices,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -121,6 +122,83 @@ method!(
     /// confirmation window, unless the daemon already has them. Fails with `CANCELLED` when the user refuses.
     DevicesClean, "devices.clean", () => CleanOutcome
 );
+/// Parameters of `sounds.import`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportSound {
+    /// A file on the daemon's computer (MP3, FLAC, OGG or WAV).
+    pub path: String,
+    /// What to call the sound; the file name when missing.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// A pad of a soundboard (`soundboard.play`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PadRef {
+    pub board: String,
+    pub pad: String,
+}
+
+/// What to stop (`soundboard.stop`): one pad, or the whole soundboard when `pad` is missing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StopSound {
+    pub board: String,
+    #[serde(default)]
+    pub pad: Option<String>,
+}
+
+/// A soundboard by its id (`soundboard.playing`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardRef {
+    pub board: String,
+}
+
+/// A sound by its id (`sounds.remove`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SoundRef {
+    pub id: String,
+}
+
+method!(
+    /// The soundboards and the sounds that were imported.
+    SoundboardsGet, "soundboards.get", () => SoundLibrary
+);
+method!(
+    /// Replaces the soundboards (their pads); the imported sounds are left as they are.
+    SoundboardsSet, "soundboards.set", Vec<Board> => ()
+);
+method!(
+    /// Imports a sound file: it is converted once to the format sounds are stored in. A long file takes a while.
+    SoundsImport, "sounds.import", ImportSound => SoundInfo
+);
+method!(
+    /// Removes an imported sound for good (pads that played it have none).
+    SoundsRemove, "sounds.remove", SoundRef => bool
+);
+method!(
+    /// Plays a pad of a soundboard that is in the running graph.
+    SoundboardPlay, "soundboard.play", PadRef => ()
+);
+method!(
+    /// Stops a pad, or a whole soundboard.
+    SoundboardStop, "soundboard.stop", StopSound => ()
+);
+method!(
+    /// The ids of the pads of a soundboard that are playing now.
+    SoundboardPlaying, "soundboard.playing", BoardRef => Vec<String>
+);
+method!(
+    /// How the soundboards' memory is used.
+    SoundboardsStatus, "soundboards.status", () => SoundStatus
+);
+method!(
+    /// The settings people change in the panel.
+    SettingsGet, "settings.get", () => Settings
+);
+method!(
+    /// Saves the settings.
+    SettingsSet, "settings.set", Settings => ()
+);
 method!(
     /// The applications known to the audio system, active ones first.
     AppsList, "apps.list", () => Vec<AppInfo>
@@ -174,6 +252,16 @@ pub const ALL_METHODS: &[&str] = &[
     DevicesList::NAME,
     DevicesStale::NAME,
     DevicesClean::NAME,
+    SoundboardsGet::NAME,
+    SoundboardsSet::NAME,
+    SoundsImport::NAME,
+    SoundsRemove::NAME,
+    SoundboardPlay::NAME,
+    SoundboardStop::NAME,
+    SoundboardPlaying::NAME,
+    SoundboardsStatus::NAME,
+    SettingsGet::NAME,
+    SettingsSet::NAME,
     AppsList::NAME,
     GraphGet::NAME,
     GraphValidate::NAME,

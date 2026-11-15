@@ -16,6 +16,7 @@ import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findT
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Palette } from './components/Palette.tsx';
+import { Soundboards } from './components/Soundboards.tsx';
 import {
   KINDS_BY_CATEGORY,
   canConnect,
@@ -35,7 +36,7 @@ import {
 } from './graph.ts';
 import { LANGUAGES, languageName, useI18n } from './i18n/index.tsx';
 import { useTheme, type ThemeChoice } from './theme.tsx';
-import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeSpec, NodeType, StaleDevices, SystemInfo } from './types.ts';
+import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
@@ -71,6 +72,9 @@ export function App() {
   const [cleaning, setCleaning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showJson, setShowJson] = useState(false);
+  // the soundboards the daemon keeps, and the panel that edits them (`first`: the board it opens on)
+  const [library, setLibrary] = useState<SoundLibrary>({ sounds: [], boards: [] });
+  const [boardsPanel, setBoardsPanel] = useState<{ first?: string } | null>(null);
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
@@ -127,8 +131,9 @@ export function App() {
 
   const load = useCallback(async () => {
     try {
-      const [i, g, layout, a, d] = await Promise.all([daemon.systemInfo(), daemon.graphGet(), daemon.layoutGet(), daemon.apps(), daemon.devices()]);
+      const [i, g, layout, a, d, lib] = await Promise.all([daemon.systemInfo(), daemon.graphGet(), daemon.layoutGet(), daemon.apps(), daemon.devices(), daemon.soundboards()]);
       setInfo(i);
+      setLibrary(lib);
       setApps(a);
       setDevices(d);
       show(g, layout);
@@ -236,7 +241,7 @@ export function App() {
     }
   };
 
-  const addNode = (category: Category) => {
+  const addNode = (category: Category, kind?: NodeKind) => {
     const type = KINDS_BY_CATEGORY[category][0];
     // a random identifier: the name people give a block is a separate thing (its display name)
     const id = newId();
@@ -247,7 +252,7 @@ export function App() {
       position.x += 40;
       position.y += 40;
     }
-    const node: OmuNode = { id, type: 'omu', position, data: { spec: { id, ...defaultKind(type) } } };
+    const node: OmuNode = { id, type: 'omu', position, data: { spec: { id, ...(kind ?? defaultKind(type)) } } };
     setNodes((list) => [...list, node]);
     saveLayout([...nodesRef.current, node]);
   };
@@ -283,12 +288,16 @@ export function App() {
     () => ({
       apps,
       devices,
+      library,
+      openSoundboards: (first?: string) => setBoardsPanel({ first }),
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
       update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...named(n.data.spec), ...kind } } } : n))),
       changeKind: (id: string, type: NodeType) => {
         const plain = nodesRef.current.map((n) => ({ id: n.id, spec: n.data.spec }));
         setEdges(edgesAfterKindChange(plain, edgesRef.current.map(asEdge), id, type));
-        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...named(n.data.spec), ...defaultKind(type) } } } : n)));
+        // a soundboard block starts on the first soundboard there is
+        const fresh = type === 'soundboard' ? { type, board: library.boards[0]?.id ?? '' } : defaultKind(type);
+        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...named(n.data.spec), ...fresh } } } : n)));
       },
       setInputs: (id: string, count: number) => {
         setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, inputs: Math.max(1, Math.min(MAX_ENTRIES, count)) } } : n)));
@@ -303,7 +312,7 @@ export function App() {
           }),
         ),
     }),
-    [apps, devices, status, setNodes, setEdges],
+    [apps, devices, library, status, setNodes, setEdges],
   );
 
   // each edge is drawn in the colour of the flow it carries
@@ -341,6 +350,9 @@ export function App() {
             <option value="light">{t('app.themeLight')}</option>
             <option value="dark">{t('app.themeDark')}</option>
           </select>
+          <button onClick={() => setBoardsPanel((p) => (p ? null : {}))} className={boardsPanel ? 'on' : ''}>
+            {t('soundboards.title')}
+          </button>
           <button onClick={autoLayout} disabled={nodes.length === 0}>
             {t('app.tidy')}
           </button>
@@ -428,6 +440,21 @@ export function App() {
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable nodeColor={(n) => `var(--cat-${categoryOf((n.data as { spec: { type: NodeType } }).spec.type)})`} />
           </ReactFlow>
+          {boardsPanel && (
+            <Soundboards
+              key={boardsPanel.first ?? ''}
+              daemon={daemon}
+              token={rpc.token}
+              library={library}
+              setLibrary={setLibrary}
+              applied={applied}
+              shown={graph}
+              initialBoard={boardsPanel.first}
+              onClose={() => setBoardsPanel(null)}
+              onAddBlock={(board) => addNode('input', { type: 'soundboard', board })}
+              notify={setNotice}
+            />
+          )}
           {showJson && <textarea className="json" readOnly value={JSON.stringify(graph, null, 2)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">

@@ -2,7 +2,7 @@
 // The same endpoint serves a daemon on this machine or on another one: the page talks to whoever served it.
 
 import { DEV_TOKEN } from './types.ts';
-import type { AppInfo, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Layout, StaleDevices, SystemInfo, ValidateResult } from './types.ts';
+import type { AppInfo, Board, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Layout, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices, SystemInfo, ValidateResult } from './types.ts';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -58,7 +58,7 @@ export class Rpc {
   private stopped = false;
   state: Connection = 'connecting';
 
-  constructor(private token: string) {}
+  constructor(readonly token: string) {}
 
   // Desktop window: the app's own commands carry the requests (see src/gui); nothing is pushed to the page, so
   // the status and graph events are made by polling.
@@ -191,6 +191,16 @@ export const api = (rpc: Rpc) => ({
   shutdown: () => rpc.request<null>('system.shutdown'),
   layoutGet: () => rpc.request<Layout>('layout.get'),
   layoutSet: (l: Layout) => rpc.request<null>('layout.set', l),
+  soundboards: () => rpc.request<SoundLibrary>('soundboards.get'),
+  setSoundboards: (boards: Board[]) => rpc.request<null>('soundboards.set', boards),
+  importSound: (path: string, name?: string) => rpc.request<SoundInfo>('sounds.import', name ? { path, name } : { path }),
+  removeSound: (id: string) => rpc.request<boolean>('sounds.remove', { id }),
+  playPad: (board: string, pad: string) => rpc.request<null>('soundboard.play', { board, pad }),
+  stopPad: (board: string, pad?: string) => rpc.request<null>('soundboard.stop', pad ? { board, pad } : { board }),
+  playing: (board: string) => rpc.request<string[]>('soundboard.playing', { board }),
+  soundStatus: () => rpc.request<SoundStatus>('soundboards.status'),
+  settings: () => rpc.request<Settings>('settings.get'),
+  setSettings: (s: Settings) => rpc.request<null>('settings.set', s),
 });
 
 export const EVENT_STATUS = 'engine.status';
@@ -200,4 +210,29 @@ export const EVENT_GRAPH = 'graph.changed';
 export async function startDaemon(): Promise<void> {
   const { invoke } = await import('@tauri-apps/api/core');
   await invoke('launch_daemon');
+}
+
+/**
+ * Browser only: sends the bytes of a sound file to the daemon, which converts and keeps it (the file is written to
+ * disk as it arrives, so a very long one never sits in memory). The desktop window has no address to send to: it
+ * hands the daemon the path of the file instead (`sounds.import`).
+ */
+export async function uploadSound(token: string, file: File): Promise<SoundInfo> {
+  const reply = await fetch(`/sounds?name=${encodeURIComponent(file.name)}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: file,
+  });
+  const text = await reply.text();
+  let body: unknown = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    /* not JSON: reported below */
+  }
+  if (!reply.ok) {
+    const e = (body as { error?: { code?: number; message?: string } } | null)?.error;
+    throw new RpcError(e?.code ?? -1, e?.message ?? (text || `HTTP ${reply.status}`));
+  }
+  return body as SoundInfo;
 }

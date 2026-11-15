@@ -18,6 +18,7 @@ const INTEGERS: &[&str] = &[
     "virtual_vendor_id",
     "virtual_product_id",
     "virtual_server_port",
+    "sound_cache_mb",
 ];
 
 fn main() {
