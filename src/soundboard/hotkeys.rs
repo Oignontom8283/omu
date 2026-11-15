@@ -141,6 +141,8 @@ mod tests {
                     looped: false,
                     exclusive: false,
                     fade_ms: 0,
+                    start_ms: 0,
+                    end_ms: 0,
                     color: None,
                     key: k.map(str::to_owned),
                 })

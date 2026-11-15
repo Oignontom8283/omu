@@ -3,6 +3,7 @@ import { IN_DESKTOP_WINDOW, RpcError, uploadSound, type api } from '../api.ts';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import { ShortcutField } from './ShortcutField.tsx';
+import { partChange } from '../soundboard.ts';
 import {
   boardInGraph,
   cleanCacheMb,
@@ -448,6 +449,16 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                 </span>
                 <input type="range" min={0} max={5000} step={50} value={pad.fade_ms ?? 0} onChange={(e) => change(pad, { fade_ms: Number(e.target.value) })} />
               </label>
+              <div className="range-row" title={t('soundboards.partHint')}>
+                <label>
+                  <span>{t('soundboards.start')}</span>
+                  <input type="number" min={0} step={0.1} value={(pad.start_ms ?? 0) / 1000} onChange={(e) => change(pad, partChange(pad, 'start_ms', e.target.value))} />
+                </label>
+                <label>
+                  <span>{t('soundboards.end')}</span>
+                  <input type="number" min={0} step={0.1} value={(pad.end_ms ?? 0) / 1000} onChange={(e) => change(pad, partChange(pad, 'end_ms', e.target.value))} />
+                </label>
+              </div>
               <div className="color-row">
                 <span>{t('soundboards.color')}</span>
                 <input type="color" aria-label={t('soundboards.color')} value={pad.color ?? '#0f9d8a'} onChange={(e) => change(pad, { color: e.target.value })} />

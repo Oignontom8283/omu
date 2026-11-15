@@ -107,7 +107,7 @@ export type CleanOutcome = { removed: number; remaining: number; asked_for_right
 /** A sound that was imported (converted once to the format sounds are stored in). */
 export type SoundInfo = { id: string; name: string; channels: number; frames: number; bytes: number };
 /** One button of a soundboard. */
-export type Pad = { id: string; name: string; sound?: string | null; gain_db?: number; looped?: boolean; exclusive?: boolean; fade_ms?: number; color?: string | null; key?: string | null };
+export type Pad = { id: string; name: string; sound?: string | null; gain_db?: number; looped?: boolean; exclusive?: boolean; fade_ms?: number; start_ms?: number; end_ms?: number; color?: string | null; key?: string | null };
 /** A pad whose keyboard shortcut is not working (another program has the keys, or the system has no shortcuts). */
 export type HotkeyProblem = { board: string; pad: string; message: string };
 export type Board = { id: string; name: string; pads: Pad[] };

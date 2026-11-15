@@ -99,3 +99,14 @@ export function cleanCacheMb(text: string): number | null {
   const n = Math.round(Number(text));
   return Number.isFinite(n) && n >= MIN_CACHE_MB ? Math.min(n, 1_000_000) : null;
 }
+
+/**
+ * What typing a start or an end (seconds) changes in a pad: the start never goes past the end (when there is one), and
+ * an end that is not after the start means "to the end of the sound" (0).
+ */
+export function partChange(pad: { start_ms?: number; end_ms?: number }, which: 'start_ms' | 'end_ms', seconds: string): { start_ms?: number; end_ms?: number } {
+  const ms = Math.max(0, Math.round((Number(seconds) || 0) * 1000));
+  const start = which === 'start_ms' ? ms : (pad.start_ms ?? 0);
+  const end = which === 'end_ms' ? ms : (pad.end_ms ?? 0);
+  return { start_ms: start, end_ms: end !== 0 && end <= start ? 0 : end };
+}
