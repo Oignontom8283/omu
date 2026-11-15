@@ -148,14 +148,17 @@ async fn upload(
     }
     let name = query.get("name").cloned().unwrap_or_else(|| "sound".into());
     let sounds = state.daemon.sounds().clone();
-    let failure = |status: StatusCode, message: String| {
-        let reply = RpcResponse::err(None, RpcError::invalid_params(message));
+    let failure_with = |status: StatusCode, error: RpcError| {
+        let reply = RpcResponse::err(None, error);
         (
             status,
             [(header::CONTENT_TYPE, "application/json")],
             serde_json::to_string(&reply).unwrap_or_default(),
         )
             .into_response()
+    };
+    let failure = |status: StatusCode, message: String| {
+        failure_with(status, RpcError::invalid_params(message))
     };
     let path = match sounds.upload_slot(&name) {
         Ok(p) => p,
@@ -191,7 +194,10 @@ async fn upload(
             serde_json::to_string(&info).unwrap_or_default(),
         )
             .into_response(),
-        Ok(Err(e)) => failure(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()),
+        Ok(Err(e)) => failure_with(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            crate::daemon::sound_error(e),
+        ),
         Err(_) => failure(
             StatusCode::INTERNAL_SERVER_ERROR,
             "the import was interrupted".into(),
