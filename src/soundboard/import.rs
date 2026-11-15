@@ -1,4 +1,5 @@
-//! Importing a sound: a file in any format that is read (MP3, FLAC, OGG Vorbis, WAV) becomes a stored sound.
+//! Importing a sound: a file in any format that is read (MP3, FLAC, OGG Vorbis, WAV, AAC) becomes a stored sound. A video
+//! file (MP4, MOV, MKV, WebM) gives its sound: the first audio track is kept and the picture is never read.
 //!
 //! The file is decoded a packet at a time and written to the stored format as it comes, so that a very long sound (a
 //! whole video's audio) never has to fit in memory. Sounds that are not at 48 kHz are converted once, here; a sound with
@@ -49,7 +50,7 @@ pub fn import_file(
             MetadataOptions::default(),
         )
         .map_err(|_| {
-            "this file is not a sound that can be read (MP3, FLAC, OGG and WAV are)".to_string()
+            "this file is not a sound or a video that can be read (WAV, MP3, FLAC, OGG, AAC, and the sound of MP4, MOV, MKV and WebM videos are)".to_string()
         })?;
     let track = format
         .default_track(TrackType::Audio)
@@ -62,7 +63,7 @@ pub fn import_file(
         .ok_or("there is no sound in this file")?;
     let mut decoder = symphonia::default::get_codecs()
         .make_audio_decoder(params, &AudioDecoderOptions::default())
-        .map_err(|_| "the sound in this file is not in a format that can be read".to_string())?;
+        .map_err(|_| "the sound in this file is not in a format that can be read (a video's sound in Opus, for example, cannot yet)".to_string())?;
 
     if let Some(dir) = destination.parent() {
         std::fs::create_dir_all(dir)
@@ -326,5 +327,72 @@ mod tests {
         assert!(!dir.join("t.wav").exists(), "no half-written file");
         assert!(import_file(&dir.join("absent.wav"), &dir.join("a.wav"), "a", "a").is_err());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn media(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("media")
+            .join(name)
+    }
+
+    /// Imports a file of tests/media and returns the stored samples (left channel) and the info.
+    fn import_media(name: &str) -> Result<(SoundInfo, Vec<i16>), String> {
+        let dir = temp(&format!("media-{name}"));
+        let out = dir.join("out.wav");
+        let info = import_file(&media(name), &out, "m", name)?;
+        let mut f = File::open(&out).unwrap();
+        let stored = read_info(&mut f).unwrap();
+        let mut back = vec![0i16; (info.frames * info.channels as u64) as usize];
+        read_samples(&mut f, &stored, 0, &mut back).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok((info, back))
+    }
+
+    fn loud_and_one_second(name: &str) {
+        let (info, samples) = import_media(name).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(
+            (info.frames as i64 - 48_000).abs() < 4_000,
+            "{name}: about one second at 48 kHz: {} frames",
+            info.frames
+        );
+        let ch = info.channels as usize;
+        let middle: Vec<f32> = samples
+            .iter()
+            .step_by(ch)
+            .skip(10_000)
+            .take(20_000)
+            .map(|s| *s as f32 / 32768.0)
+            .collect();
+        let rms = (middle.iter().map(|x| x * x).sum::<f32>() / middle.len() as f32).sqrt();
+        assert!(rms > 0.05, "{name}: the tone is there (rms {rms})");
+        // the pitch is kept: about 440 zero crossings upward per second
+        let rising = middle
+            .windows(2)
+            .filter(|w| w[0] < 0.0 && w[1] >= 0.0)
+            .count();
+        let hz = rising as f32 / (20_000.0 / 48_000.0);
+        assert!((hz - 440.0).abs() < 25.0, "{name}: {hz} Hz");
+    }
+
+    #[test]
+    fn the_sound_of_a_video_is_kept_and_the_picture_is_ignored() {
+        // MP4 with AAC (the common case: phones, screen recorders), MKV with Vorbis
+        loud_and_one_second("tone-aac.mp4");
+        loud_and_one_second("tone-vorbis.mkv");
+    }
+
+    #[test]
+    fn an_aac_sound_file_is_read_too() {
+        loud_and_one_second("tone.m4a");
+    }
+
+    #[test]
+    fn a_video_whose_sound_is_in_a_format_that_cannot_be_read_says_so() {
+        let e = import_media("tone-opus.webm").unwrap_err();
+        assert!(
+            e.contains("format that can be read") || e.contains("no sound"),
+            "{e}"
+        );
     }
 }
