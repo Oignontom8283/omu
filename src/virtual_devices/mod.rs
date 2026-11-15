@@ -8,8 +8,10 @@
 //!
 //! No driver of ours is involved: Windows binds its in-box USB audio driver to the emulated device.
 
+pub mod clean;
 pub mod mic;
 pub mod speaker;
+pub mod stale;
 pub mod tool;
 pub mod usb;
 
