@@ -18,6 +18,28 @@ use symphonia::core::formats::{FormatOptions, TrackType};
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 
+/// Why a file was not imported. `Unsupported` is a file this program cannot read by itself (the FFmpeg module may be
+/// able to); `Failed` is anything else (a damaged file, a full disk).
+#[derive(Debug)]
+pub enum ImportError {
+    Unsupported(String),
+    Failed(String),
+}
+
+impl std::fmt::Display for ImportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImportError::Unsupported(s) | ImportError::Failed(s) => f.write_str(s),
+        }
+    }
+}
+
+impl From<String> for ImportError {
+    fn from(s: String) -> ImportError {
+        ImportError::Failed(s)
+    }
+}
+
 fn describe(e: Error) -> String {
     format!("{e}")
 }
@@ -35,7 +57,7 @@ pub fn import_file(
     destination: &Path,
     id: &str,
     name: &str,
-) -> Result<SoundInfo, String> {
+) -> Result<SoundInfo, ImportError> {
     let file = File::open(source).map_err(|e| format!("cannot open {}: {e}", source.display()))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -50,20 +72,28 @@ pub fn import_file(
             MetadataOptions::default(),
         )
         .map_err(|_| {
-            "this file is not a sound or a video that can be read (WAV, MP3, FLAC, OGG, AAC, and the sound of MP4, MOV, MKV and WebM videos are)".to_string()
+            ImportError::Unsupported(
+                "this file is not a sound or a video that can be read (WAV, MP3, FLAC, OGG, AAC, and the sound of MP4, MOV, MKV and WebM videos are)".into(),
+            )
         })?;
-    let track = format
-        .default_track(TrackType::Audio)
-        .ok_or("there is no sound in this file")?;
+    let track = format.default_track(TrackType::Audio).ok_or_else(|| {
+        ImportError::Unsupported("there is no sound in this file that can be read".into())
+    })?;
     let track_id = track.id;
     let params = track
         .codec_params
         .as_ref()
         .and_then(|p| p.audio())
-        .ok_or("there is no sound in this file")?;
+        .ok_or_else(|| {
+            ImportError::Unsupported("there is no sound in this file that can be read".into())
+        })?;
     let mut decoder = symphonia::default::get_codecs()
         .make_audio_decoder(params, &AudioDecoderOptions::default())
-        .map_err(|_| "the sound in this file is not in a format that can be read (a video's sound in Opus, for example, cannot yet)".to_string())?;
+        .map_err(|_| {
+            ImportError::Unsupported(
+                "the sound in this file is not in a format that can be read (a video's sound in Opus, for example)".into(),
+            )
+        })?;
 
     if let Some(dir) = destination.parent() {
         std::fs::create_dir_all(dir)
@@ -75,7 +105,7 @@ pub fn import_file(
             let bytes = std::fs::metadata(destination).map(|m| m.len()).unwrap_or(0);
             if frames == 0 {
                 let _ = std::fs::remove_file(destination);
-                return Err("this file has no sound in it".into());
+                return Err(ImportError::Failed("this file has no sound in it".into()));
             }
             Ok(SoundInfo {
                 id: id.to_owned(),
@@ -88,7 +118,7 @@ pub fn import_file(
         }
         Err(e) => {
             let _ = std::fs::remove_file(destination);
-            Err(e)
+            Err(ImportError::Failed(e))
         }
     }
 }
@@ -323,7 +353,7 @@ mod tests {
 
         std::fs::write(dir.join("text.mp3"), b"this is only text, not a sound").unwrap();
         let err = import_file(&dir.join("text.mp3"), &dir.join("t.wav"), "t", "text").unwrap_err();
-        assert!(err.contains("not a sound"), "{err}");
+        assert!(err.to_string().contains("not a sound"), "{err}");
         assert!(!dir.join("t.wav").exists(), "no half-written file");
         assert!(import_file(&dir.join("absent.wav"), &dir.join("a.wav"), "a", "a").is_err());
         let _ = std::fs::remove_dir_all(&dir);
@@ -340,7 +370,7 @@ mod tests {
     fn import_media(name: &str) -> Result<(SoundInfo, Vec<i16>), String> {
         let dir = temp(&format!("media-{name}"));
         let out = dir.join("out.wav");
-        let info = import_file(&media(name), &out, "m", name)?;
+        let info = import_file(&media(name), &out, "m", name).map_err(|e| e.to_string())?;
         let mut f = File::open(&out).unwrap();
         let stored = read_info(&mut f).unwrap();
         let mut back = vec![0i16; (info.frames * info.channels as u64) as usize];
