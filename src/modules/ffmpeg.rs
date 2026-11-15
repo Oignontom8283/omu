@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 /// The first major version that is used (the options the program passes have not changed since).
 pub const MIN_MAJOR: u32 = 4;
@@ -248,7 +248,12 @@ pub const DOWNLOAD_MB: u32 = 115;
 pub struct Counters {
     pub done: AtomicU64,
     pub total: AtomicU64,
+    /// Set to stop the download (it is checked between reads).
+    pub cancel: AtomicBool,
 }
+
+/// What a download that was stopped by the user returns as its error (it is not a failure to report).
+pub const CANCELLED: &str = "cancelled";
 
 fn agent() -> ureq::Agent {
     // rustls: the same pure-Rust TLS on every system (nothing to install on Linux), trusting the certificates the
@@ -276,6 +281,7 @@ pub fn download(modules_dir: &Path, urls: &Urls, counters: &Counters) -> Result<
     let agent = agent();
     counters.done.store(0, Ordering::Relaxed);
     counters.total.store(0, Ordering::Relaxed);
+    counters.cancel.store(false, Ordering::Relaxed);
 
     let wanted = agent
         .get(&urls.sha256)
@@ -334,6 +340,9 @@ fn fetch(
     let mut failures = 0u32;
     let mut buffer = vec![0u8; 1 << 16];
     loop {
+        if counters.cancel.load(Ordering::Relaxed) {
+            return Err(CANCELLED.into());
+        }
         let mut response = match agent
             .get(url)
             .header("Range", format!("bytes={done}-{}", done + PIECE - 1))
@@ -385,6 +394,9 @@ fn fetch(
         let before = done;
         let mut body = response.body_mut().as_reader();
         let broke = loop {
+            if counters.cancel.load(Ordering::Relaxed) {
+                return Err(CANCELLED.into());
+            }
             match body.read(&mut buffer) {
                 Ok(0) => break false,
                 Ok(n) => {
