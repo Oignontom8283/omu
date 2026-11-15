@@ -87,3 +87,11 @@ Sounds a soundboard stores compressed use the lossless FLAC format, written with
 contributors (https://github.com/yotarok/flacenc-rs) and read back with `claxon` by Ruud van Asseldonk
 (https://github.com/ruuda/claxon). Both are used unmodified. Licence: Apache-2.0, whose full text is at
 https://www.apache.org/licenses/LICENSE-2.0 and in each of those crates.
+
+## DeepFilterNet and tract (deep noise reduction)
+
+The "Deep noise reduction" block runs the DeepFilterNet model with the library `deep_filter` by Hendrik Schröter
+(https://github.com/Rikorose/DeepFilterNet) on top of `tract` by Sonos (https://github.com/sonos/tract). Licence of both:
+MIT or Apache-2.0, whose texts are at https://opensource.org/license/mit and https://www.apache.org/licenses/LICENSE-2.0
+and in each project. The trained model is not part of this program: it is downloaded once, when the user switches the
+DeepFilterNet module on, from the project's repository, and checked against a SHA-256 written in the program.
