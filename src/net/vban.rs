@@ -195,7 +195,14 @@ impl VbanCapture {
                 HalError::Backend(format!("{from:?} is not an address (like 192.168.1.20)"))
             })?)
         };
-        let socket = UdpSocket::bind(("0.0.0.0", port))
+        // Listening on every address of the computer is what lets other computers reach it, and it is what makes the
+        // firewall ask the user. When the one computer accepted is this one (a loopback address) there is no need for
+        // it: listen on the loopback only, and nothing outside can reach the port nor trigger a question.
+        let bind = match from {
+            Some(a) if a.is_loopback() => "127.0.0.1",
+            _ => "0.0.0.0",
+        };
+        let socket = UdpSocket::bind((bind, port))
             .map_err(|e| HalError::Busy(format!("cannot listen on UDP port {port}: {e}")))?;
         socket
             .set_read_timeout(Some(Duration::from_millis(100)))
@@ -353,10 +360,12 @@ impl VbanRender {
             .map_err(|e| HalError::NotFound(format!("cannot find {host}: {e}")))?
             .next()
             .ok_or_else(|| HalError::NotFound(format!("cannot find {host}")))?;
-        let socket = UdpSocket::bind(if target.is_ipv4() {
-            "0.0.0.0:0"
-        } else {
-            "[::]:0"
+        // sound for this very computer is sent from the loopback, which never leaves it (no firewall question either)
+        let socket = UdpSocket::bind(match (target.ip().is_loopback(), target.is_ipv4()) {
+            (true, true) => "127.0.0.1:0",
+            (true, false) => "[::1]:0",
+            (false, true) => "0.0.0.0:0",
+            (false, false) => "[::]:0",
         })
         .map_err(|e| HalError::Backend(format!("cannot open a network socket: {e}")))?;
         Ok(VbanRender {
@@ -531,7 +540,7 @@ mod tests {
 
     #[test]
     fn what_the_sender_sends_the_receiver_hears_at_the_same_pitch_and_level() {
-        let capture = VbanCapture::open(0, "Voice", "").unwrap();
+        let capture = VbanCapture::open(0, "Voice", "127.0.0.1").unwrap();
         let (running, heard, port) = collect(capture);
         // a stereo tone of 1000 Hz on the left and 500 Hz on the right, played for a while
         let mut phase = 0u64;
@@ -615,23 +624,35 @@ mod tests {
 
     #[test]
     fn a_sender_that_is_not_the_wanted_one_is_not_heard() {
-        // accepts only 10.99.99.99: nothing from this computer gets in
-        let capture = VbanCapture::open(0, "", "10.99.99.99").unwrap();
+        // listens on the loopback only, and accepts only ::1 (a sender this computer does not use): nothing gets in
+        let capture = VbanCapture::open(0, "", "127.0.0.1").unwrap();
         let (running, heard, port) = collect(capture);
         let data = vec![0u8; 400];
         for n in 0..20 {
             send(port, &packet("x", n, 3, 2, 1, &data));
         }
         std::thread::sleep(Duration::from_millis(250));
+        let from_here = heard.lock().unwrap().len();
         drop(running);
-        assert!(heard.lock().unwrap().is_empty());
+        assert!(from_here > 0, "the accepted sender is heard");
+        // another sender than the accepted one: the filter drops it (the accepted address is not this computer's)
+        let (other, heard2, port2) = collect(VbanCapture::open(0, "", "127.0.0.2").unwrap());
+        for n in 0..20 {
+            send(port2, &packet("x", n, 3, 2, 1, &data));
+        }
+        std::thread::sleep(Duration::from_millis(250));
+        drop(other);
+        assert!(
+            heard2.lock().unwrap().is_empty(),
+            "127.0.0.1 is not the accepted 127.0.0.2"
+        );
         assert!(VbanCapture::open(0, "", "not an address").is_err());
     }
 
     #[test]
     fn a_port_that_is_taken_and_a_host_that_is_not_found_are_said_in_words() {
-        let first = VbanCapture::open(0, "", "").unwrap();
-        let taken = VbanCapture::open(first.port(), "", "");
+        let first = VbanCapture::open(0, "", "127.0.0.1").unwrap();
+        let taken = VbanCapture::open(first.port(), "", "127.0.0.1");
         let e = taken.err().expect("the port is in use").to_string();
         assert!(e.contains("cannot listen on UDP port"), "{e}");
         assert!(VbanRender::open("", 6980, "x").is_err());
