@@ -279,5 +279,7 @@
   "field.maxReduction": "Most it reduces the noise by",
   "field.noLimit": "no limit",
   "modules.open": "Open the modules",
-  "modules.notSupported": "This build of the program does not include the code that runs this module."
+  "modules.notSupported": "This build of the program does not include the code that runs this module.",
+  "app.startEngine": "Start engine",
+  "app.startEngineHint": "Starts again the graph that was last applied"
 }

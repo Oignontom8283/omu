@@ -279,5 +279,7 @@
   "field.maxReduction": "Réduction du bruit au plus de",
   "field.noLimit": "sans limite",
   "modules.open": "Ouvrir les modules",
-  "modules.notSupported": "Cette version du programme ne contient pas le code qui fait fonctionner ce module."
+  "modules.notSupported": "Cette version du programme ne contient pas le code qui fait fonctionner ce module.",
+  "app.startEngine": "Démarrer le moteur",
+  "app.startEngineHint": "Relance le dernier graphe appliqué"
 }

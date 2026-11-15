@@ -188,6 +188,7 @@ export const api = (rpc: Rpc) => ({
   graphSet: (g: GraphSpec) => rpc.request<null>('graph.set', g),
   status: () => rpc.request<EngineStatus>('engine.status'),
   stop: () => rpc.request<null>('engine.stop'),
+  start: () => rpc.request<null>('engine.start'),
   shutdown: () => rpc.request<null>('system.shutdown'),
   layoutGet: () => rpc.request<Layout>('layout.get'),
   layoutSet: (l: Layout) => rpc.request<null>('layout.set', l),

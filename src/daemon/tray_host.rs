@@ -32,8 +32,9 @@ impl TrayHost {
         if tray.is_some() {
             return;
         }
-        let (open_url, stop_daemon, quit_daemon) = (
+        let (open_url, stop_daemon, start_daemon, quit_daemon) = (
             self.panel_url.clone(),
+            self.daemon.clone(),
             self.daemon.clone(),
             self.daemon.clone(),
         );
@@ -45,6 +46,14 @@ impl TrayHost {
                         tracing::warn!("cannot open the interface: {e}");
                     }
                 });
+            }),
+            start_engine: Box::new(move || {
+                if let Some(d) = start_daemon.upgrade() {
+                    std::thread::spawn(move || {
+                        let _ =
+                            d.handle_text(r#"{"jsonrpc":"2.0","id":1,"method":"engine.start"}"#);
+                    });
+                }
             }),
             stop_engine: Box::new(move || {
                 if let Some(d) = stop_daemon.upgrade() {
