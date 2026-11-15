@@ -126,3 +126,21 @@ export type SoundStatus = {
   hotkey_problems?: HotkeyProblem[];
 };
 export type Settings = { sound_cache_mb: number; compress_above_mb: number };
+
+/** How far a download is (`total` is 0 when the size is not known). */
+export type DownloadProgress = { done: number; total: number };
+/** An optional module (FFmpeg): a component that is not part of the program and that people switch on. */
+export type ModuleInfo = {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  available: boolean;
+  /** Where the usable copy is: the modules folder, or the system. */
+  source?: 'local' | 'system';
+  version?: string;
+  installing?: DownloadProgress;
+  error?: string;
+  downloadable: boolean;
+  download_mb: number;
+};

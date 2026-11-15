@@ -635,3 +635,26 @@ button.inline {
 .memory p {
   margin: 0;
 }
+
+/* the modules panel shares the soundboards panel's drawer */
+.modules .module {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--field);
+}
+.modules .module h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.modules .module p {
+  margin: 0;
+}
+.modules progress {
+  width: 100%;
+}
