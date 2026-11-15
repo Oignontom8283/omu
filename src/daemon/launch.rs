@@ -29,6 +29,8 @@ pub struct Options {
     pub demo: bool,
     /// Show the notification-area icon (when the settings allow it and the program has one).
     pub tray: bool,
+    /// Keep the user's startup list in step with the "start at logon" setting.
+    pub autostart: bool,
     /// What the previous run left behind (reported by `system.info`).
     pub previous_session: crate::diagnostics::PreviousSession,
 }
@@ -44,6 +46,7 @@ impl Options {
             restore: true,
             demo: false,
             tray: false,
+            autostart: false,
             previous_session: Default::default(),
         }
     }
@@ -190,6 +193,10 @@ pub async fn serve(
         backend: backend_name,
         panel_url: discovery.panel_url(),
     });
+
+    if opts.autostart {
+        daemon.manage_autostart();
+    }
 
     // the icon in the notification area: it follows the setting for as long as the daemon runs
     #[cfg(feature = "tray")]

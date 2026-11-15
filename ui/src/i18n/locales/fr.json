@@ -260,5 +260,7 @@
   "soundboards.stopAction": "tout arrêter",
   "settings.title": "Réglages",
   "settings.tray": "Afficher l’icône dans la zone de notification",
-  "settings.trayHint": "Un clic sur l’icône ouvre l’interface ; son menu permet aussi d’arrêter le moteur ou de quitter."
+  "settings.trayHint": "Un clic sur l’icône ouvre l’interface ; son menu permet aussi d’arrêter le moteur ou de quitter.",
+  "settings.logon": "Démarrer à l’ouverture de ma session",
+  "settings.logonHint": "Se lance automatiquement à l’ouverture de votre session."
 }

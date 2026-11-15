@@ -283,7 +283,7 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       notify(t('soundboards.compressInvalid'));
       return;
     }
-    const next: Settings = { show_tray_icon: true, ...settings, sound_cache_mb: mb, compress_above_mb: packMb };
+    const next: Settings = { show_tray_icon: true, start_at_logon: false, ...settings, sound_cache_mb: mb, compress_above_mb: packMb };
     try {
       await daemon.setSettings(next);
       setSettings(next);

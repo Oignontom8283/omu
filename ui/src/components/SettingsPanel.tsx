@@ -46,6 +46,13 @@ export function SettingsPanel({ daemon, onClose, notify }: Props) {
         </label>
       )}
       <small className="muted">{t('settings.trayHint')}</small>
+      {settings && (
+        <label className="check" title={t('settings.logonHint')}>
+          <input type="checkbox" checked={settings.start_at_logon} onChange={(e) => void change({ start_at_logon: e.target.checked })} />
+          {t('settings.logon')}
+        </label>
+      )}
+      <small className="muted">{t('settings.logonHint')}</small>
     </aside>
   );
 }
