@@ -80,3 +80,10 @@ Sound files imported into a soundboard (MP3, FLAC, OGG, WAV) are read with `symp
 source is available at that address. Licence: MPL-2.0 (Mozilla Public License 2.0), whose full text is at
 https://www.mozilla.org/MPL/2.0/ and in each of those crates.
 
+
+## flacenc and claxon (compressed sounds)
+
+Sounds a soundboard stores compressed use the lossless FLAC format, written with `flacenc` by Yotaro Kubo and
+contributors (https://github.com/yotarok/flacenc-rs) and read back with `claxon` by Ruud van Asseldonk
+(https://github.com/ruuda/claxon). Both are used unmodified. Licence: Apache-2.0, whose full text is at
+https://www.apache.org/licenses/LICENSE-2.0 and in each of those crates.
