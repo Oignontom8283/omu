@@ -15,6 +15,7 @@ export type NodeKind =
   | { type: 'device_capture'; device: DeviceRef }
   | { type: 'device_render'; device: DeviceRef }
   | { type: 'virtual_speaker'; name: string }
+  | { type: 'soundboard'; board: string }
   | { type: 'virtual_mic'; name: string }
   | { type: 'gain'; db: number }
   | { type: 'mixer' }
@@ -102,3 +103,26 @@ export type StaleDevice = { name: string };
 /** What could be cleaned up, and whether doing it would ask for administrator rights. */
 export type StaleDevices = { supported: boolean; elevated: boolean; stale: StaleDevice[] };
 export type CleanOutcome = { removed: number; remaining: number; asked_for_rights: boolean };
+
+/** A sound that was imported (converted once to the format sounds are stored in). */
+export type SoundInfo = { id: string; name: string; channels: number; frames: number; bytes: number };
+/** One button of a soundboard. */
+export type Pad = { id: string; name: string; sound?: string | null; gain_db?: number; looped?: boolean; exclusive?: boolean; fade_ms?: number; color?: string | null; key?: string | null };
+/** A pad whose keyboard shortcut is not working (another program has the keys, or the system has no shortcuts). */
+export type HotkeyProblem = { board: string; pad: string; message: string };
+export type Board = { id: string; name: string; pads: Pad[] };
+/** Everything saved about soundboards (they are not part of the graph: a soundboard block only names one). */
+export type SoundLibrary = { sounds: SoundInfo[]; boards: Board[] };
+/** How the soundboards' memory is used. */
+export type SoundStatus = {
+  active: boolean;
+  cache_limit_bytes: number;
+  cache_allocated_bytes: number;
+  cache_used_bytes: number;
+  sounds_loaded: number;
+  active_boards: string[];
+  late_frames: number;
+  streams: number;
+  hotkey_problems?: HotkeyProblem[];
+};
+export type Settings = { sound_cache_mb: number };

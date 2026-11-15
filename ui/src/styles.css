@@ -465,3 +465,156 @@ button.inline {
 .react-flow__edge-path {
   stroke-width: 2;
 }
+
+/* a button that fills the width of a block */
+.mini.wide {
+  width: 100%;
+  margin: 4px 0;
+  padding: 2px 6px;
+}
+
+/* the soundboards panel: a drawer over the right of the canvas */
+.boards {
+  position: absolute;
+  z-index: 7;
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: min(620px, calc(100% - 24px));
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.boards.over {
+  outline: 3px dashed var(--primary);
+  outline-offset: -6px;
+}
+.boards > header {
+  display: flex;
+  align-items: center;
+}
+.boards h2,
+.boards h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.boards h3 {
+  font-size: 13px;
+  color: var(--muted);
+}
+.boards .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.boards .grow {
+  flex: 1;
+  min-width: 0;
+}
+.boards .drop-hint {
+  margin: 0;
+  font-size: 12px;
+}
+.boards .banner {
+  position: static;
+  margin: 0;
+}
+.pads {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+.pad {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--pad, var(--cat-input));
+  border-radius: 6px;
+}
+.pad.empty {
+  border-top-color: var(--line);
+}
+.pad.playing {
+  border-color: var(--ok);
+  border-top-color: var(--ok);
+  box-shadow: 0 0 0 2px var(--ok);
+}
+.pad .checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.color-row input[type='color'] {
+  width: 34px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: none;
+}
+.pad-top {
+  display: flex;
+  gap: 4px;
+}
+.pad-play {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 8px 6px;
+  font-weight: 600;
+  background: var(--panel);
+}
+.pad-play:not(:disabled):hover {
+  border-color: var(--primary);
+}
+.pad.playing .pad-play {
+  color: var(--ok);
+}
+.pad input:not([type]),
+.pad select {
+  width: 100%;
+  min-width: 0;
+}
+.sounds ul {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sounds li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sounds li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.memory {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.memory p {
+  margin: 0;
+}

@@ -15,4 +15,5 @@ single_instance_name = "Omu-Daemon"               # mutex / lock name
 virtual_manufacturer = "Omu"                      # USB manufacturer string of virtual devices (shown by Windows)
 virtual_vendor_id = 0x1209                        # USB vendor id (pid.codes test range: replace before any release)
 virtual_product_id = 0x0001                       # USB product id (idem)
+sound_cache_mb = 256                              # megabytes the soundboards may use for sounds kept in memory (a setting and an environment variable change it)
 virtual_server_port = 40391                       # TCP port, on this machine only, of the virtual devices' USB/IP server: fixed (and unusual) so that the driver can attach the permanent devices by itself at every boot

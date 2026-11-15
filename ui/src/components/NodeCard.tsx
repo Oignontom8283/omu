@@ -79,6 +79,33 @@ function DeviceEditor({ spec }: { spec: Of<'device_capture'> | Of<'device_render
   );
 }
 
+/** A soundboard block: which of the soundboards it plays, and a way to the panel where the pads are. */
+function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
+  const { library, update, openSoundboards } = useEditor();
+  const t = useT();
+  const known = library.boards.some((b) => b.id === spec.board);
+  return (
+    <>
+      <label className="field">
+        <span>{t('field.soundboard')}</span>
+        <select className="nodrag" value={spec.board} onChange={(e) => update(spec.id, { type: 'soundboard', board: e.target.value })}>
+          {!known && <option value={spec.board}>{spec.board ? t('field.notFound') : t('field.chooseSoundboard')}</option>}
+          {library.boards.map((b) => (
+            <option key={b.id} value={b.id}>
+              {b.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {!known && spec.board !== '' && <small className="warn">{t('field.soundboardMissing')}</small>}
+      <button className="mini wide nodrag" onClick={() => openSoundboards(known ? spec.board : undefined)}>
+        {t('soundboards.open')}
+      </button>
+      <small className="hint">{t('kind.soundboard.hint')}</small>
+    </>
+  );
+}
+
 function Params({ spec }: { spec: NodeSpec }) {
   const { update } = useEditor();
   const t = useT();
@@ -95,6 +122,8 @@ function Params({ spec }: { spec: NodeSpec }) {
           <input className="nodrag" value={spec.name} onChange={(e) => update(spec.id, { type: 'virtual_speaker', name: e.target.value })} />
         </label>
       );
+    case 'soundboard':
+      return <SoundboardEditor spec={spec} />;
     case 'virtual_mic':
       return (
         <label className="field">

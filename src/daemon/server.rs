@@ -2,6 +2,8 @@
 //!
 //! * `POST /rpc`   a JSON-RPC request (or batch) in the body, the reply in the response;
 //! * `GET  /ws`    a WebSocket carrying JSON-RPC both ways, plus the events the daemon pushes;
+//! * `POST /sounds?name=<file name>` the bytes of a sound file in the body (what a browser can send); it is
+//!   imported like `sounds.import` and the reply is the sound's description;
 //! * `GET  /health` answers `ok` without credentials (is a daemon there?);
 //! * everything else: the web panel's static files.
 //!
@@ -62,6 +64,7 @@ pub async fn bind(
         .route("/health", get(|| async { "ok" }))
         .route("/rpc", post(rpc))
         .route("/ws", get(ws))
+        .route("/sounds", post(upload))
         .fallback(|uri: Uri| async move { web::serve(&uri) })
         .with_state(state);
     Ok((listener, router))
@@ -125,6 +128,75 @@ fn refuse(state: &AppState, headers: &HeaderMap, query: Option<&str>) -> Option<
 
 fn unauthorized_body() -> String {
     serde_json::to_string(&RpcResponse::err(None, RpcError::unauthorized())).unwrap_or_default()
+}
+
+/// The most a sound upload may be: what a stored sound can hold (a WAV file's size is 32 bits).
+const MAX_UPLOAD_BYTES: u64 = u32::MAX as u64;
+
+/// Receives a sound file, writing it to disk as it arrives (a whole video's audio is never held in memory), then
+/// imports it.
+async fn upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: Uri,
+    Query(query): Query<HashMap<String, String>>,
+    body: axum::body::Body,
+) -> Response {
+    use tokio::io::AsyncWriteExt;
+    if let Some(r) = refuse(&state, &headers, uri.query()) {
+        return r;
+    }
+    let name = query.get("name").cloned().unwrap_or_else(|| "sound".into());
+    let sounds = state.daemon.sounds().clone();
+    let failure = |status: StatusCode, message: String| {
+        let reply = RpcResponse::err(None, RpcError::invalid_params(message));
+        (
+            status,
+            [(header::CONTENT_TYPE, "application/json")],
+            serde_json::to_string(&reply).unwrap_or_default(),
+        )
+            .into_response()
+    };
+    let path = match sounds.upload_slot(&name) {
+        Ok(p) => p,
+        Err(e) => return failure(StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    };
+    let received = async {
+        let mut file = tokio::fs::File::create(&path)
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut total = 0u64;
+        let mut stream = body.into_data_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| e.to_string())?;
+            total += chunk.len() as u64;
+            if total > MAX_UPLOAD_BYTES {
+                return Err("the file is too big (the most is 4 GB)".to_string());
+            }
+            file.write_all(&chunk).await.map_err(|e| e.to_string())?;
+        }
+        file.flush().await.map_err(|e| e.to_string())
+    };
+    if let Err(e) = received.await {
+        let _ = std::fs::remove_file(&path);
+        return failure(StatusCode::BAD_REQUEST, e);
+    }
+    let imported = {
+        let (sounds, path, name) = (sounds.clone(), path.clone(), name.clone());
+        tokio::task::spawn_blocking(move || sounds.finish_upload(&path, &name)).await
+    };
+    match imported {
+        Ok(Ok(info)) => (
+            [(header::CONTENT_TYPE, "application/json")],
+            serde_json::to_string(&info).unwrap_or_default(),
+        )
+            .into_response(),
+        Ok(Err(e)) => failure(StatusCode::UNPROCESSABLE_ENTITY, e.to_string()),
+        Err(_) => failure(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the import was interrupted".into(),
+        ),
+    }
 }
 
 async fn rpc(State(state): State<AppState>, headers: HeaderMap, uri: Uri, body: Bytes) -> Response {
