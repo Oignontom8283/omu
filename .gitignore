@@ -32,4 +32,4 @@ rustc-ice-*.txt
 /local/
 /ui/node_modules/
 /ui/dist/
-/gen/
+/src/gui/gen/
