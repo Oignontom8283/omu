@@ -21,7 +21,8 @@ deepfilter = ["omu-daemon/deepfilter"]
 omu-branding = { path = "../../branding" }
 omu-daemon = { path = "../../daemon", default-features = false }
 omu-desktop = { path = "../../desktop" }
-omu-diagnostics = { path = "../../diagnostics", features = ["logging"] }
+omu-diagnostics = { path = "../../diagnostics" }
+omu-logging = { path = "../../logging" }
 omu-discovery = { path = "../../discovery" }
 omu-types = { path = "../../types" }
 omu-virtual-devices = { path = "../../virtual_devices" }

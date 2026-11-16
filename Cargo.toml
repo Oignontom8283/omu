@@ -11,6 +11,7 @@ members = [
     "src/protocol",
     "src/graph",
     "src/hal",
+    "src/logging",
     "src/desktop",
     "src/deepfilter",
     "src/net",

@@ -85,7 +85,7 @@ fn clean_devices(data_dir: PathBuf, helper: bool) -> std::process::ExitCode {
     use omu_desktop::elevation::SystemElevator;
     use omu_types::KeptDevices;
     use omu_virtual_devices::clean::{self, Relaunch};
-    let _diag = diagnostics::init(Settings {
+    let _diag = omu_logging::init(Settings {
         program: omu_branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),
         // a helper started with rights has no window: it must not show an error box of its own
@@ -118,7 +118,7 @@ fn main() -> std::process::ExitCode {
     if args.clean_devices {
         return clean_devices(data_dir, args.elevated_helper);
     }
-    let mut diag = diagnostics::init(Settings {
+    let mut diag = omu_logging::init(Settings {
         program: omu_branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),
         dialog: true,

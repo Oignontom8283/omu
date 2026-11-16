@@ -13,7 +13,7 @@ path = "lib.rs"
 [dependencies]
 omu-branding = { path = "../branding" }
 omu-client = { path = "../client" }
-omu-diagnostics = { path = "../diagnostics", features = ["logging"] }
+omu-diagnostics = { path = "../diagnostics" }
 omu-discovery = { path = "../discovery" }
 omu-protocol = { path = "../protocol" }
 serde = { version = "1.0", features = ["derive"] }
