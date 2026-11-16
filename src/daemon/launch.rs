@@ -4,11 +4,11 @@
 use super::server::{self, ServerConfig};
 use super::store::Store;
 use super::{auth, Daemon};
-use crate::discovery::Discovery;
-use crate::engine::EngineConfig;
-use crate::hal::sim::{SimBackend, SimSource};
-use crate::hal::{Backend, VirtualDeviceProvider};
-use crate::types::AudioFormat;
+use omu_discovery::Discovery;
+use omu_engine::EngineConfig;
+use omu_hal::sim::{SimBackend, SimSource};
+use omu_hal::{Backend, VirtualDeviceProvider};
+use omu_types::AudioFormat;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -32,7 +32,7 @@ pub struct Options {
     /// Keep the user's startup list in step with the "start at logon" setting.
     pub autostart: bool,
     /// What the previous run left behind (reported by `system.info`).
-    pub previous_session: crate::diagnostics::PreviousSession,
+    pub previous_session: omu_diagnostics::PreviousSession,
 }
 
 impl Options {
@@ -85,14 +85,14 @@ fn real_backend() -> Result<
 > {
     #[cfg(windows)]
     {
-        let backend = Arc::new(crate::hal::wasapi::WasapiBackend::new());
+        let backend = Arc::new(omu_hal::wasapi::WasapiBackend::new());
         let config = EngineConfig {
-            thread_init: Some(crate::hal::wasapi::graph_thread_init()),
+            thread_init: Some(omu_hal::wasapi::graph_thread_init()),
             ..Default::default()
         };
         Ok((
             backend,
-            Some(crate::virtual_devices::platform_provider()),
+            Some(omu_virtual_devices::platform_provider()),
             config,
         ))
     }
@@ -133,8 +133,8 @@ pub async fn serve(
         demo = opts.demo,
         "starting the daemon"
     );
-    crate::diagnostics::note("backend", backend_name.clone());
-    crate::diagnostics::note("listen", opts.listen.to_string());
+    omu_diagnostics::note("backend", backend_name.clone());
+    omu_diagnostics::note("listen", opts.listen.to_string());
     let daemon = Arc::new(Daemon::new(
         backend,
         virtual_devices,
@@ -184,7 +184,7 @@ pub async fn serve(
     })?;
     // If the daemon dies without going through the end of this function, the file would send clients to nobody.
     let cleanup_dir = opts.data_dir.clone();
-    let _discovery_cleanup = crate::diagnostics::on_crash_cleanup("discovery file", move || {
+    let _discovery_cleanup = omu_diagnostics::on_crash_cleanup("discovery file", move || {
         Discovery::remove_if_mine(&cleanup_dir)
     });
     ready(&Info {

@@ -2,8 +2,8 @@
 //! (and the graph is running): the same global shortcuts the `hotkey` block uses, owned here instead of by a block.
 
 use super::SoundEngine;
-use crate::hal::{Backend, Running};
-use crate::types::{Board, GraphSpec, HotkeyProblem, KeyCombo, NodeKind};
+use omu_hal::{Backend, Running};
+use omu_types::{Board, GraphSpec, HotkeyProblem, KeyCombo, NodeKind};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -83,7 +83,7 @@ impl PadHotkeys {
                 }
             };
             let (engine, board, pad) = (sounds.clone(), w.board.clone(), w.pad.clone());
-            let press: crate::hal::HotkeyCallback = Box::new(move || {
+            let press: omu_hal::HotkeyCallback = Box::new(move || {
                 // pressed while the soundboard is not running, or a sound that is gone: nothing to play
                 if let Err(e) = engine.play(&board, &pad) {
                     tracing::debug!("pad shortcut: {e}");
@@ -139,7 +139,7 @@ impl PadHotkeys {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{NodeSpec, Pad};
+    use omu_types::{NodeSpec, Pad};
 
     fn board(id: &str, pads: &[(&str, Option<&str>)]) -> Board {
         Board {

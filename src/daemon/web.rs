@@ -14,7 +14,7 @@ use rust_embed::RustEmbed;
 
 #[cfg(feature = "web-panel")]
 #[derive(RustEmbed)]
-#[folder = "ui/dist/"]
+#[folder = "../../ui/dist/"]
 struct Assets;
 
 const NOT_BUILT: &str = "<!doctype html><meta charset=utf-8><title>Panel not built</title>\

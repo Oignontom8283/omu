@@ -7,8 +7,8 @@
 //! Limits worth knowing: a program running as administrator does not forward its shortcuts to a normal one, and a
 //! game with anti-cheat may block the registration; both appear as a failed block, never as a crash.
 
-use crate::hal::{HalError, HotkeyCallback, Running};
-use crate::types::{Key, KeyCombo};
+use crate::{HalError, HotkeyCallback, Running};
+use omu_types::{Key, KeyCombo};
 use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::Duration;

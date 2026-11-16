@@ -1,0 +1,29 @@
+[package]
+name = "omu-deepfilter"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "the DeepFilterNet noise reduction model, run on a thread of its own"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[features]
+model = ["dep:deep_filter", "dep:ndarray", "dep:tract-core", "dep:tract-onnx", "dep:tract-pulse", "dep:tract-hir"]
+
+[dependencies]
+omu-hal = { path = "../hal" }
+tracing = "0.1"
+rtrb = "0.4"
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "7b14b895fe7fc42cab72b4a4c1e49c982bd6404b", optional = true, default-features = false, features = ["tract"] }
+ndarray = { version = "0.15", optional = true }
+tract-core = { version = "=0.21.4", optional = true }
+tract-onnx = { version = "=0.21.4", optional = true }
+tract-pulse = { version = "=0.21.4", optional = true }
+tract-hir = { version = "=0.21.4", optional = true }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

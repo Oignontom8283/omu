@@ -2,7 +2,7 @@
 //! setting changes.
 
 use super::Daemon;
-use crate::tray::{Actions, Tray};
+use omu_desktop::tray::{Actions, Tray};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
@@ -109,7 +109,7 @@ fn window_executable() -> Option<PathBuf> {
     let me = std::env::current_exe().ok()?;
     let name = format!(
         "{}{}",
-        crate::branding::GUI_EXECUTABLE,
+        omu_branding::GUI_EXECUTABLE,
         std::env::consts::EXE_SUFFIX
     );
     let path = me.with_file_name(name);

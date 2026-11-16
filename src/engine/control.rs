@@ -7,11 +7,9 @@
 use super::bridge::{sink_bridge, source_bridge, BridgeStats, SinkProducer, SourceConsumer};
 use super::plan::{Meter, NodeOp, Plan, PlanNode, Port, Wire};
 use super::runtime::{GraphThread, RuntimeStats, ThreadInit};
-use crate::graph::ValidGraph;
-use crate::hal::{
-    Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider,
-};
-use crate::types::{
+use omu_graph::ValidGraph;
+use omu_hal::{Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider};
+use omu_types::{
     EngineStatus, KeyCombo, NodeId, NodeKind, NodeState, NodeStatus, PortType, ENGINE_SAMPLE_RATE,
 };
 use std::collections::HashMap;
@@ -32,7 +30,7 @@ pub struct EngineConfig {
     pub retry_initial: Duration,
     pub retry_max: Duration,
     /// The soundboards' memory and sounds; without it a soundboard block is silent.
-    pub sounds: Option<Arc<crate::soundboard::SoundEngine>>,
+    pub sounds: Option<Arc<omu_soundboard::SoundEngine>>,
 }
 
 impl Default for EngineConfig {
@@ -54,7 +52,7 @@ enum Io {
     /// Actions counted by the system's keyboard shortcut callback.
     Trigger(Arc<AtomicU32>),
     /// The larger noise reduction, running on its own thread.
-    Filter(Arc<Mutex<crate::dsp::deepfilter::Endpoints>>),
+    Filter(Arc<Mutex<omu_deepfilter::Endpoints>>),
 }
 
 struct Resource {
@@ -539,7 +537,7 @@ impl Inner {
     }
 
     fn open_node(&self, kind: &NodeKind) -> Result<Resource, String> {
-        let describe = |e: crate::hal::HalError| e.to_string();
+        let describe = |e: omu_hal::HalError| e.to_string();
         match kind {
             NodeKind::AppCapture { target } => self.start_source(
                 kind,
@@ -567,7 +565,7 @@ impl Inner {
                     .ok_or_else(|| {
                         "the DeepFilterNet module is not installed or not switched on (see the Modules panel)".to_string()
                     })?;
-                let (endpoints, worker) = crate::dsp::deepfilter::start(&model, *limit_db)?;
+                let (endpoints, worker) = omu_deepfilter::start(&model, *limit_db)?;
                 Ok(Resource {
                     kind: kind.clone(),
                     io: Io::Filter(endpoints),
@@ -578,12 +576,12 @@ impl Inner {
             }
             NodeKind::NetworkIn { port, stream, from } => {
                 let capture =
-                    crate::net::vban::VbanCapture::open(*port, stream, from).map_err(describe)?;
+                    omu_net::vban::VbanCapture::open(*port, stream, from).map_err(describe)?;
                 self.start_source(kind, Box::new(capture))
             }
             NodeKind::NetworkOut { host, port, stream } => {
                 let render =
-                    crate::net::vban::VbanRender::open(host, *port, stream).map_err(describe)?;
+                    omu_net::vban::VbanRender::open(host, *port, stream).map_err(describe)?;
                 self.start_sink(kind, Box::new(render))
             }
             NodeKind::VirtualMic { name } => {

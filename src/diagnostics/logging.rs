@@ -8,7 +8,7 @@
 //! * a ring of the last lines in memory, which crash reports and the `logs.recent` request read.
 //!
 //! The level is chosen with the `OMU_LOG` environment variable (the prefix comes from the branding), in the usual
-//! `tracing` filter syntax: `debug`, `warn,omu::engine=trace`... Without it the file keeps `info` and the details of
+//! `tracing` filter syntax: `debug`, `warn,omu_engine=trace`... Without it the file keeps `info` and the details of
 //! this program (`debug`), the console shows `info`.
 
 use super::ring;
@@ -59,7 +59,7 @@ impl<'a> MakeWriter<'a> for RingWriter {
 }
 
 fn filter(default: &str) -> EnvFilter {
-    EnvFilter::try_from_env(crate::branding::env_var("LOG"))
+    EnvFilter::try_from_env(omu_branding::env_var("LOG"))
         .unwrap_or_else(|_| EnvFilter::new(default))
 }
 

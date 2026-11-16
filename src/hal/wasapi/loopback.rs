@@ -10,7 +10,7 @@
 
 use super::com::{describe, ComGuard};
 use super::stream::Event;
-use crate::hal::HalError;
+use crate::HalError;
 use std::mem::ManuallyDrop;
 use std::sync::Arc;
 use std::time::Duration;

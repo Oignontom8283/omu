@@ -2,8 +2,8 @@
 
 use super::com::{backend_error, ComGuard};
 use super::devices::list_direction;
-use crate::hal::{AppInfo, Direction, HalError};
-use crate::types::AppTarget;
+use crate::{AppInfo, Direction, HalError};
+use omu_types::AppTarget;
 use std::collections::{HashMap, HashSet};
 use windows::core::Interface;
 use windows::Win32::Foundation::CloseHandle;

@@ -4,8 +4,8 @@
 //! FFmpeg is only ever run as a separate program with fixed arguments, never linked in.
 
 use super::download::{agent, fetch, host_of, Counters};
-use crate::soundboard::wav::WavWriter;
-use crate::types::SoundInfo;
+use omu_audiofile::wav::WavWriter;
+use omu_types::SoundInfo;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

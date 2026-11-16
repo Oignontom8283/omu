@@ -9,7 +9,7 @@
 //! (crash, kill), so it can never be left behind. The discovery file is looked at too, which also catches a daemon
 //! of an older version that does not take the lock.
 
-use crate::discovery::Discovery;
+use omu_discovery::Discovery;
 use std::path::Path;
 
 /// How far the lock reaches.
@@ -54,7 +54,7 @@ fn folder_key(dir: &Path) -> String {
 }
 
 fn lock_name(scope: Scope<'_>) -> String {
-    let base = crate::branding::SINGLE_INSTANCE_NAME;
+    let base = omu_branding::SINGLE_INSTANCE_NAME;
     match scope {
         Scope::Machine => format!("Global\\{base}"),
         Scope::Folder(dir) => format!("Global\\{base}-{}", folder_key(dir)),
@@ -70,7 +70,7 @@ fn already_running(pid: Option<u32>, address: Option<&str>) -> String {
     format!(
         "{} is already running on this computer{who}. Two audio managers at the same time would fight over the same \
          devices, so this one stops. Use the one that runs, or stop it first.",
-        crate::branding::DISPLAY_NAME
+        omu_branding::DISPLAY_NAME
     )
 }
 
@@ -79,7 +79,7 @@ fn already_running(pid: Option<u32>, address: Option<&str>) -> String {
 pub fn acquire(scope: Scope<'_>, data_dir: &Path) -> Result<Instance, String> {
     // A daemon that is running announces itself there (older versions do not take the lock but do write it).
     if let Some(d) = Discovery::read(data_dir) {
-        if d.pid != std::process::id() && crate::diagnostics::session::pid_alive(d.pid) {
+        if d.pid != std::process::id() && omu_diagnostics::session::pid_alive(d.pid) {
             return Err(already_running(Some(d.pid), Some(&d.address)));
         }
     }
@@ -145,7 +145,7 @@ mod tests {
         assert_ne!(lock_name(Scope::Machine), lock_name(Scope::Folder(&a)));
         assert_ne!(lock_name(Scope::Folder(&a)), lock_name(Scope::Folder(&b)));
         assert_eq!(lock_name(Scope::Folder(&a)), lock_name(Scope::Folder(&a)));
-        assert!(lock_name(Scope::Machine).contains(crate::branding::SINGLE_INSTANCE_NAME));
+        assert!(lock_name(Scope::Machine).contains(omu_branding::SINGLE_INSTANCE_NAME));
     }
 
     #[cfg(windows)]

@@ -11,8 +11,8 @@
 use super::mic::{attach, name_hash, Attach, Shared, FULL_SCALE_24};
 use super::tool::UsbipTool;
 use super::usb::uac2::{Uac2Config, Uac2Device, Uac2Streams};
-use crate::hal::{CaptureCallback, CaptureStream, HalError, Running, StreamHealth};
-use crate::types::AudioFormat;
+use omu_hal::{CaptureCallback, CaptureStream, HalError, Running, StreamHealth};
+use omu_types::AudioFormat;
 use std::sync::{Arc, Mutex};
 
 /// Where the audio of a speaker goes: the engine's source callback, given what the USB host played.

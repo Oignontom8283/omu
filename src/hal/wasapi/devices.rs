@@ -1,8 +1,8 @@
 //! Device enumeration and resolution.
 
 use super::com::{backend_error, ComGuard};
-use crate::hal::{DeviceInfo, Direction, HalError};
-use crate::types::{AudioFormat, DeviceRef};
+use crate::{DeviceInfo, Direction, HalError};
+use omu_types::{AudioFormat, DeviceRef};
 use windows::core::{Interface, PCWSTR};
 use windows::Win32::Devices::FunctionDiscovery::PKEY_Device_FriendlyName;
 use windows::Win32::Media::Audio::{

@@ -1,10 +1,10 @@
 //! The soundboards people made, the sounds in them and the settings, saved in the daemon's data folder.
 //!
 //! `soundboards.json` holds the soundboards and the list of imported sounds; each sound is a file `sounds/<id>.wav`
-//! in the format of [`super::wav`]. Everything is written atomically (a temporary file, then a rename), and a missing
+//! in the format of [`omu_audiofile::wav`]. Everything is written atomically (a temporary file, then a rename), and a missing
 //! or unreadable file means an empty library: the daemon never refuses to start because of it.
 
-use crate::types::{Board, Settings, SoundInfo, SoundLibrary};
+use omu_types::{Board, Settings, SoundInfo, SoundLibrary};
 use std::collections::HashSet;
 use std::io;
 use std::path::PathBuf;
@@ -145,7 +145,7 @@ impl Library {
                 p.key = match p.key.as_deref().map(str::trim) {
                     None | Some("") => None,
                     Some(text) => Some(
-                        crate::types::KeyCombo::parse(text)
+                        omu_types::KeyCombo::parse(text)
                             .map_err(|e| format!("pad {:?}: {e}", p.name))?
                             .to_string(),
                     ),
@@ -238,7 +238,7 @@ impl Library {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::Pad;
+    use omu_types::Pad;
 
     fn temp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("omu-library-{name}-{}", std::process::id()));
@@ -361,7 +361,7 @@ mod tests {
     fn pad_options_are_checked_and_shortcuts_are_written_the_normal_way() {
         let dir = temp("options");
         let lib = Library::load(&dir);
-        let with = |change: &dyn Fn(&mut crate::types::Pad)| {
+        let with = |change: &dyn Fn(&mut omu_types::Pad)| {
             let mut b = board("b", &[("p", None)]);
             change(&mut b.pads[0]);
             vec![b]

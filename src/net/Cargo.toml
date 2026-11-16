@@ -1,0 +1,20 @@
+[package]
+name = "omu-net"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "sound over the network (VBAN)"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+omu-dsp = { path = "../dsp" }
+omu-hal = { path = "../hal" }
+omu-types = { path = "../types" }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

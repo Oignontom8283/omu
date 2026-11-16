@@ -7,7 +7,7 @@ use super::{
     HalError, HotkeyCallback, RenderCallback, RenderStream, Running, StreamHealth,
     VirtualDeviceProvider,
 };
-use crate::types::{AppTarget, AudioFormat, DeviceRef, KeyCombo};
+use omu_types::{AppTarget, AudioFormat, DeviceRef, KeyCombo};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

@@ -1,0 +1,22 @@
+[package]
+name = "omu-types"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "the data types shared by every part of the program: graph, blocks, devices, soundboards, settings"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+omu-branding = { path = "../branding" }
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

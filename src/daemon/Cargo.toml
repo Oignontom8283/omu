@@ -1,0 +1,82 @@
+[package]
+name = "omu-daemon"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "the daemon: control server, embedded web panel and what it runs"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[features]
+default = ["tray", "web-panel", "deepfilter"]
+tray = []
+web-panel = ["dep:rust-embed"]
+deepfilter = ["omu-engine/deepfilter", "omu-modules/deepfilter"]
+
+[dependencies]
+omu-branding = { path = "../branding" }
+omu-desktop = { path = "../desktop" }
+omu-diagnostics = { path = "../diagnostics", features = ["logging"] }
+omu-discovery = { path = "../discovery" }
+omu-engine = { path = "../engine" }
+omu-graph = { path = "../graph" }
+omu-hal = { path = "../hal" }
+omu-protocol = { path = "../protocol" }
+omu-soundboard = { path = "../soundboard" }
+omu-types = { path = "../types" }
+omu-virtual-devices = { path = "../virtual_devices" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tracing = "0.1"
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs", "io-util"] }
+axum = { version = "0.8", features = ["ws"] }
+futures-util = "0.3"
+getrandom = "0.4"
+rust-embed = { version = "8.14", optional = true, features = ["mime-guess"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Globalization",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_FunctionDiscovery",
+    "Win32_Devices_Properties",
+    "Win32_Media_Audio",
+    "Win32_Media",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Kernel",
+    "Win32_System_Memory",
+    "Win32_System_Registry",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+omu-client = { path = "../client" }
+omu-modules = { path = "../modules" }
+tungstenite = "0.30"
+ureq = { version = "3.5", default-features = false, features = ["json"] }
+
+[build-dependencies]
+omu-build = { path = "../build" }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

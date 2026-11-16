@@ -138,7 +138,7 @@ fn default_compress_mb() -> u32 {
 }
 
 fn default_cache_mb() -> u32 {
-    crate::branding::SOUND_CACHE_MB as u32
+    omu_branding::SOUND_CACHE_MB as u32
 }
 
 impl Default for Settings {
