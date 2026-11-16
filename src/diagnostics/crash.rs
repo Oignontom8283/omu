@@ -78,7 +78,7 @@ pub(super) fn install(context: Context) {
 }
 
 /// Used by the Windows exception filter (to find the crash folder).
-#[cfg_attr(not(all(windows, feature = "logging")), allow(dead_code))]
+#[cfg_attr(not(windows), allow(dead_code))]
 pub(super) fn context() -> Option<&'static Context> {
     CONTEXT.get()
 }

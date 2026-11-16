@@ -49,21 +49,14 @@ pub fn wait_for(method: &str) -> Duration {
 pub struct Client {
     address: String,
     token: String,
-    agent: ureq::Agent,
     next_id: AtomicI64,
 }
 
 impl Client {
     pub fn new(address: impl Into<String>, token: impl Into<String>) -> Client {
-        let agent: ureq::Agent = ureq::Agent::config_builder()
-            .timeout_global(Some(Duration::from_secs(30)))
-            .http_status_as_error(false)
-            .build()
-            .into();
         Client {
             address: address.into(),
             token: token.into(),
-            agent,
             next_id: AtomicI64::new(1),
         }
     }
@@ -96,20 +89,18 @@ impl Client {
     /// Sends a raw request and returns the response (the transport is HTTP, `POST /rpc`).
     pub fn send(&self, request: &Request) -> Result<Response, ClientError> {
         let url = format!("http://{}/rpc", self.address);
-        let mut response = self
-            .agent
-            .post(&url)
-            .config()
-            .timeout_global(Some(wait_for(&request.method)))
-            .build()
-            .header("Authorization", format!("Bearer {}", self.token))
-            .send_json(request)
+        let response = minreq::post(&url)
+            .with_header("Authorization", format!("Bearer {}", self.token))
+            .with_json(request)
+            .map_err(|e| ClientError::Transport(e.to_string()))?
+            .with_timeout(wait_for(&request.method).as_secs())
+            .send()
             .map_err(|e| self.unreachable(e))?;
-        let status = response.status().as_u16();
+        let status = response.status_code;
         let text = response
-            .body_mut()
-            .read_to_string()
-            .map_err(|e| ClientError::Transport(e.to_string()))?;
+            .as_str()
+            .map_err(|e| ClientError::Transport(e.to_string()))?
+            .to_owned();
         match serde_json::from_str::<Response>(&text) {
             Ok(r) => Ok(r),
             Err(_) if status == 403 => Err(ClientError::Transport(
@@ -121,7 +112,7 @@ impl Client {
         }
     }
 
-    fn unreachable(&self, e: ureq::Error) -> ClientError {
+    fn unreachable(&self, e: minreq::Error) -> ClientError {
         ClientError::NoDaemon(format!(
             "cannot reach the daemon at {}: {e} (is it running? start it with `{}`)",
             self.address,

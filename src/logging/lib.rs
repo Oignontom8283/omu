@@ -11,7 +11,7 @@
 //! `tracing` filter syntax: `debug`, `warn,omu_engine=trace`... Without it the file keeps `info` and the details of
 //! this program (`debug`), the console shows `info`.
 
-use super::ring;
+use omu_diagnostics::{ring, Guard, Settings, LOG_DIR};
 use std::io;
 use std::path::Path;
 use std::sync::Mutex;
@@ -64,7 +64,7 @@ fn filter(default: &str) -> EnvFilter {
 }
 
 /// Starts the logging. Returns what went wrong (the program goes on without a log file in that case).
-pub(super) fn init(program: &str, log_dir: &Path, console: bool) -> Result<(), String> {
+fn start(program: &str, log_dir: &Path, console: bool) -> Result<(), String> {
     // the appender reads the folder to prune old files: it must exist from the first run
     let _ = std::fs::create_dir_all(log_dir);
     let file = match Builder::new()
@@ -115,7 +115,20 @@ pub(super) fn init(program: &str, log_dir: &Path, console: bool) -> Result<(), S
 }
 
 /// Waits until the background thread has written everything (up to a second); logging then stops working.
-pub(super) fn flush() {
+fn flush() {
     let guard = FILE_GUARD.lock().unwrap_or_else(|e| e.into_inner()).take();
     drop(guard);
+}
+
+/// Sets diagnostics up with log files: starts the logging, then everything [`omu_diagnostics::init`] does.
+pub fn init(settings: Settings) -> Guard {
+    if let Err(e) = start(
+        settings.program,
+        &settings.data_dir.join(LOG_DIR),
+        settings.console_log,
+    ) {
+        eprintln!("warning: logging could not start: {e}");
+    }
+    omu_diagnostics::set_log_flusher(flush);
+    omu_diagnostics::init(settings)
 }

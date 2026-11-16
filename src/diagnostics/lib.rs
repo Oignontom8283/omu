@@ -2,7 +2,8 @@
 //!
 //! A program calls [`init`] first thing in `main` and keeps the returned [`Guard`] until it exits:
 //!
-//! * **logs** (feature `logging`): file, console and an in-memory ring, see [`logging`](self);
+//! * **logs**: the in-memory [`ring`] of recent lines; the file and console backend is the `omu-logging` crate, which
+//!   the programs that want files call instead of [`init`] (the command line has none);
 //! * **crash handling**: panics and (on Windows) native exceptions write a report with backtrace, recent log lines
 //!   and state notes, undo what must be undone ([`shutdown`]) and tell the user, see [`crash`];
 //! * **session marker**: tells the next start whether this run ended cleanly, see [`session`].
@@ -12,8 +13,6 @@
 
 pub mod clock;
 pub mod crash;
-#[cfg(feature = "logging")]
-mod logging;
 mod platform;
 pub mod ring;
 pub mod session;
@@ -55,14 +54,6 @@ pub struct Guard {
 
 /// Sets diagnostics up. Never fails: whatever cannot be set up (no log file...) is reported on stderr and skipped.
 pub fn init(settings: Settings) -> Guard {
-    #[cfg(feature = "logging")]
-    if let Err(e) = logging::init(
-        settings.program,
-        &settings.data_dir.join(LOG_DIR),
-        settings.console_log,
-    ) {
-        eprintln!("warning: logging could not start: {e}");
-    }
     crash::install(crash::Context {
         program: settings.program,
         crash_dir: settings.data_dir.join(CRASH_DIR),
@@ -103,8 +94,16 @@ impl Guard {
 
 /// Writes out the logs still waiting in memory. After a crash or at exit; logging stops afterwards.
 pub fn flush_logs() {
-    #[cfg(feature = "logging")]
-    logging::flush();
+    if let Some(flush) = LOG_FLUSHER.get() {
+        flush();
+    }
+}
+
+static LOG_FLUSHER: std::sync::OnceLock<fn()> = std::sync::OnceLock::new();
+
+/// Lets a logging backend say how to write out its pending lines ([`flush_logs`] calls it, also from a crash).
+pub fn set_log_flusher(flush: fn()) {
+    let _ = LOG_FLUSHER.set(flush);
 }
 
 impl Drop for Guard {

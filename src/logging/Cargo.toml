@@ -1,0 +1,22 @@
+[package]
+name = "omu-logging"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "log files and console output for the daemon and the window"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+omu-branding = { path = "../branding" }
+omu-diagnostics = { path = "../diagnostics" }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "fmt", "env-filter", "registry", "tracing-log", "ansi"] }
+tracing-appender = "0.2"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

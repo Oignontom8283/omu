@@ -76,7 +76,7 @@ pub fn end_current() {
     }
 }
 
-#[cfg(all(windows, feature = "logging"))]
+#[cfg(windows)]
 pub fn pid_alive(pid: u32) -> bool {
     use windows::Win32::Foundation::CloseHandle;
     use windows::Win32::System::Threading::{
@@ -95,7 +95,7 @@ pub fn pid_alive(pid: u32) -> bool {
     }
 }
 
-#[cfg(not(all(windows, feature = "logging")))]
+#[cfg(not(windows))]
 pub fn pid_alive(pid: u32) -> bool {
     Path::new(&format!("/proc/{pid}")).exists()
 }

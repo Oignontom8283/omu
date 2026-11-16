@@ -34,15 +34,14 @@ dev target="all": (_cargo "build" replace_regex(target, "^(daemon|demon|server)(
 
 # Build (release) and run: just run demon --demo     just run cli status     just run gui
 run target="demon" *args:
-    {{ if target == "cli" { "cargo run --release -p app-omu-cli -- " + args } else if target == "gui" { "cargo run --release -p app-omu-gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --release -p app-omud -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
+    {{ if target == "cli" { "cargo run --release --bin omu-cli -- " + args } else if target == "gui" { "cargo run --release --bin omu-gui" } else if replace_regex(target, "^(daemon|demon|server)(/server)?$", "demon") == "demon" { "cargo run --release --bin omud -- " + args } else { error("run: unknown target `" + target + "` (use gui, cli, demon or server)") } }}
 
 # The cargo command of a target (private). Each executable is a package of its own (src/bin/) that lists the components it
-# needs, so building one compiles only those: the command line never compiles the audio engine. `-p` matters: in a workspace
-# `--bin` alone would still resolve the features of every member together. The daemon's options (the
+# needs, so building one compiles only those: the command line never compiles the audio engine. The daemon's options (the
 # icon, the web panel, the DeepFilterNet code) are default features of its package. `all` builds the three one after the other.
 [private]
 _cargo verb target native:
-    {{ if target == "all" { just_executable() + " _each " + quote(verb) + " " + (if native == "" { "-" } else { quote(native) }) } else { "cargo " + verb + " -p " + (if target == "gui" { "app-omu-gui" } else if target == "cli" { "app-omu-cli" } else if target == "demon" { "app-omud" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else if native == "-" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
+    {{ if target == "all" { just_executable() + " _each " + quote(verb) + " " + (if native == "" { "-" } else { quote(native) }) } else { "cargo " + verb + " --bin " + (if target == "gui" { "omu-gui" } else if target == "cli" { "omu-cli" } else if target == "demon" { "omud" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else if native == "-" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
 
 [private]
 _each verb native: (_cargo verb "cli" native) (_cargo verb "demon" native) (_cargo verb "gui" native)
@@ -72,7 +71,7 @@ verify: fmt-check lint test client-only
 
 # The client-only build: what the command line needs (no audio engine, no Windows API)
 client-only:
-    cargo check -p app-omu-cli
+    cargo check --bin omu-cli
 
 # Type-check and test the web panel
 ui-test:
@@ -85,7 +84,7 @@ ui-hot:
 
 # Try everything without real audio: the daemon with a simulated audio system, serving the panel
 demo:
-    cargo run -p app-omud -- --demo
+    cargo run --bin omud -- --demo
 
 # Everything, Rust and web panel
 verify-all: verify ui-test

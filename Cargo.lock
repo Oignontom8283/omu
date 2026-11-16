@@ -139,6 +139,7 @@ dependencies = [
  "omu-diagnostics",
  "omu-discovery",
  "omu-gui",
+ "omu-logging",
 ]
 
 [[package]]
@@ -152,6 +153,7 @@ dependencies = [
  "omu-desktop",
  "omu-diagnostics",
  "omu-discovery",
+ "omu-logging",
  "omu-protocol",
  "omu-types",
  "omu-virtual-devices",
@@ -2637,6 +2639,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "minreq"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "659579df697b372ef9e36f02fcbb41f6d6f157dcec7db9c9618fa0f23cf0fc20"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mio"
 version = "1.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3076,11 +3088,11 @@ dependencies = [
 name = "omu-client"
 version = "0.22.1"
 dependencies = [
+ "minreq",
  "omu-branding",
  "omu-discovery",
  "omu-protocol",
  "serde_json",
- "ureq",
 ]
 
 [[package]]
@@ -3145,8 +3157,6 @@ dependencies = [
  "omu-branding",
  "serde",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
  "windows",
 ]
 
@@ -3219,6 +3229,17 @@ dependencies = [
  "thiserror 2.0.21",
  "windows",
  "windows-core",
+]
+
+[[package]]
+name = "omu-logging"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "omu-diagnostics",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]

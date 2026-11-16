@@ -19,7 +19,7 @@ deepfilter = ["omu-engine/deepfilter", "omu-modules/deepfilter"]
 [dependencies]
 omu-branding = { path = "../branding" }
 omu-desktop = { path = "../desktop" }
-omu-diagnostics = { path = "../diagnostics", features = ["logging"] }
+omu-diagnostics = { path = "../diagnostics" }
 omu-discovery = { path = "../discovery" }
 omu-engine = { path = "../engine" }
 omu-graph = { path = "../graph" }

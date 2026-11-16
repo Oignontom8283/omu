@@ -1,17 +1,17 @@
 //! The operating-system side of crash handling (Windows): the unhandled-exception filter with a minidump, the
-//! console and logoff events, and the error dialog. Without the `logging` feature (the command line) or on other
+//! console and logoff events, and the error dialog. On other
 //! systems these do nothing and the panic hook alone applies.
 
-#[cfg(all(windows, feature = "logging"))]
+#[cfg(windows)]
 pub use imp::{install_handlers, show_error};
 
-#[cfg(not(all(windows, feature = "logging")))]
+#[cfg(not(windows))]
 pub fn install_handlers() {}
 
-#[cfg(not(all(windows, feature = "logging")))]
+#[cfg(not(windows))]
 pub fn show_error(_title: &str, _text: &str) {}
 
-#[cfg(all(windows, feature = "logging"))]
+#[cfg(windows)]
 mod imp {
     use crate::crash::{self, Report};
     use crate::{clock, session, shutdown};

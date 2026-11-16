@@ -13,7 +13,8 @@ path = "main.rs"
 
 [dependencies]
 omu-branding = { path = "../../branding" }
-omu-diagnostics = { path = "../../diagnostics", features = ["logging"] }
+omu-diagnostics = { path = "../../diagnostics" }
+omu-logging = { path = "../../logging" }
 omu-discovery = { path = "../../discovery" }
 omu-gui = { path = "../../gui" }
 
