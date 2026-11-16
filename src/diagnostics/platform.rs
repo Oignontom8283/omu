@@ -13,8 +13,8 @@ pub fn show_error(_title: &str, _text: &str) {}
 
 #[cfg(all(windows, feature = "logging"))]
 mod imp {
-    use crate::diagnostics::crash::{self, Report};
-    use crate::diagnostics::{clock, session, shutdown};
+    use crate::crash::{self, Report};
+    use crate::{clock, session, shutdown};
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::{Duration, SystemTime};
     use windows::core::BOOL;
@@ -150,7 +150,7 @@ mod imp {
             let n = shutdown::run_all();
             tracing::info!("{n} cleanup(s) run");
             session::end_current();
-            crate::diagnostics::flush_logs();
+            crate::flush_logs();
         }
         false.into() // let the next handler (the default one) end the process
     }

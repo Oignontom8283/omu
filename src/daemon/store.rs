@@ -4,8 +4,8 @@
 //! or a power cut never leaves a half-written file. A missing or unreadable file means "nothing saved": the daemon
 //! then starts empty instead of refusing to start.
 
-use crate::protocol::methods::Layout;
-use crate::types::GraphSpec;
+use omu_protocol::methods::Layout;
+use omu_types::GraphSpec;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -78,8 +78,8 @@ pub(crate) fn temp_dir(tag: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::protocol::methods::NodeLayout;
-    use crate::types::{NodeKind, NodeSpec};
+    use omu_protocol::methods::NodeLayout;
+    use omu_types::{NodeKind, NodeSpec};
 
     #[test]
     fn nothing_saved_means_empty_defaults() {

@@ -1,0 +1,30 @@
+[package]
+name = "omu-engine"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "the real-time audio engine: bridges, graph plan, graph thread and supervisor"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[features]
+deepfilter = ["omu-deepfilter/model"]
+
+[dependencies]
+omu-deepfilter = { path = "../deepfilter" }
+omu-diagnostics = { path = "../diagnostics" }
+omu-dsp = { path = "../dsp" }
+omu-graph = { path = "../graph" }
+omu-hal = { path = "../hal" }
+omu-net = { path = "../net" }
+omu-soundboard = { path = "../soundboard" }
+omu-types = { path = "../types" }
+tracing = "0.1"
+rtrb = "0.4"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

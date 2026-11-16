@@ -3,8 +3,8 @@
 //! Each method is a zero-sized type implementing [`Method`], so a client call is typed end to end
 //! (`client.call::<GraphSet>(&graph)`) and the daemon dispatches on the same names.
 
-use crate::diagnostics::Line;
-use crate::types::{
+use omu_diagnostics::Line;
+use omu_types::{
     AppInfo, Board, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, ModuleInfo,
     Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices,
 };

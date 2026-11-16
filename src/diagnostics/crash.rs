@@ -196,7 +196,7 @@ pub(super) fn write_report(report: &Report<'_>) -> Option<PathBuf> {
 fn render(context: &Context, report: &Report<'_>, now: SystemTime) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
-    let _ = writeln!(out, "{} crash report", crate::branding::DISPLAY_NAME);
+    let _ = writeln!(out, "{} crash report", omu_branding::DISPLAY_NAME);
     let _ = writeln!(out, "=======================");
     let _ = writeln!(out, "kind:      {}", report.kind);
     let _ = writeln!(out, "message:   {}", report.summary);
@@ -305,9 +305,9 @@ pub fn fail(message: &str, exit_code: i32) -> ! {
 fn tell_user_and_exit(text: &str, exit_code: i32) -> ! {
     eprintln!("\nerror: {text}");
     if CONTEXT.get().is_some_and(|c| c.dialog)
-        && std::env::var_os(crate::branding::env_var("NO_DIALOG")).is_none()
+        && std::env::var_os(omu_branding::env_var("NO_DIALOG")).is_none()
     {
-        platform::show_error(crate::branding::DISPLAY_NAME, text);
+        platform::show_error(omu_branding::DISPLAY_NAME, text);
     }
     std::process::exit(exit_code);
 }

@@ -9,9 +9,9 @@
 //!   a timer fired. An action is consumed by the nodes it reaches (a variable changes) and then forgotten.
 
 use super::bridge::{SinkProducer, SourceConsumer};
-use crate::dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
-use crate::soundboard::voices::BoardRuntime;
-use crate::types::{
+use omu_dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
+use omu_soundboard::voices::BoardRuntime;
+use omu_types::{
     port_number, LogicOp, NodeId, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES, MAX_DELAY_MS,
 };
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
@@ -167,7 +167,7 @@ pub enum NodeOp {
     NoiseReduction(Arc<Mutex<Denoiser>>),
     /// The larger noise reduction: the model runs on a thread of its own (see `dsp::deepfilter`); this hands it each
     /// cycle's sound and takes back what it finished. The resource that owns the thread outlives plans.
-    DeepFilter(Arc<Mutex<crate::dsp::deepfilter::Endpoints>>),
+    DeepFilter(Arc<Mutex<omu_deepfilter::Endpoints>>),
     /// The sound, later: a ring of samples that is read before it is written.
     Delay {
         line: Vec<f32>,
@@ -661,8 +661,8 @@ impl Plan {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::bridge::{sink_bridge, source_bridge};
-    use crate::types::AudioFormat;
+    use crate::bridge::{sink_bridge, source_bridge};
+    use omu_types::AudioFormat;
 
     fn wire(from: usize) -> Wire {
         Wire {

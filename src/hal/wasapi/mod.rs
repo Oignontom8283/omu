@@ -14,12 +14,12 @@ mod hotkey;
 mod loopback;
 mod stream;
 
-use crate::hal::{
+use crate::{
     AppInfo, Backend, Capabilities, CaptureStream, DeviceInfo, Direction, HalError, RenderStream,
     StreamHealth,
 };
-use crate::types::{AppTarget, AudioFormat, DeviceRef, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 use com::{backend_error, ComGuard};
+use omu_types::{AppTarget, AudioFormat, DeviceRef, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 use std::sync::Arc;
 use stream::{Client, WasapiCapture, WasapiRender};
 use windows::Win32::Media::Audio::IAudioClient;
@@ -102,18 +102,18 @@ impl Backend for WasapiBackend {
 
     fn open_hotkey(
         &self,
-        combo: &crate::types::KeyCombo,
-        on_press: crate::hal::HotkeyCallback,
-    ) -> Result<Box<dyn crate::hal::Running>, HalError> {
+        combo: &omu_types::KeyCombo,
+        on_press: crate::HotkeyCallback,
+    ) -> Result<Box<dyn crate::Running>, HalError> {
         hotkey::register(combo, on_press)
     }
 
     fn open_hotkey_hold(
         &self,
-        combo: &crate::types::KeyCombo,
-        on_press: crate::hal::HotkeyCallback,
-        on_release: crate::hal::HotkeyCallback,
-    ) -> Result<Box<dyn crate::hal::Running>, HalError> {
+        combo: &omu_types::KeyCombo,
+        on_press: crate::HotkeyCallback,
+        on_release: crate::HotkeyCallback,
+    ) -> Result<Box<dyn crate::Running>, HalError> {
         hotkey::register_hold(combo, on_press, on_release)
     }
 

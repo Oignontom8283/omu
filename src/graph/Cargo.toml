@@ -1,0 +1,19 @@
+[package]
+name = "omu-graph"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "validation of the audio graph"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+omu-types = { path = "../types" }
+thiserror = "2.0"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

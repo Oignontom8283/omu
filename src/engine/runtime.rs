@@ -3,7 +3,7 @@
 //! thread).
 
 use super::plan::Plan;
-use crate::types::ENGINE_SAMPLE_RATE;
+use omu_types::ENGINE_SAMPLE_RATE;
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -118,7 +118,7 @@ fn run(
             // A panic in a block must not take the process down: it is reported (crash report, log), the plan is
             // dropped and the thread keeps its timer; the supervisor sees the counter and builds a new plan.
             // Nothing here may log or allocate on the normal path: only the panic path does.
-            if crate::diagnostics::contained(|| plan.process()).is_err() {
+            if omu_diagnostics::contained(|| plan.process()).is_err() {
                 stats.panics.fetch_add(1, Ordering::Relaxed);
                 current = None;
             }
@@ -151,7 +151,7 @@ fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::plan::{Meter, NodeOp, PlanNode};
+    use crate::plan::{Meter, NodeOp, PlanNode};
 
     fn plan_of(op: NodeOp) -> Box<Plan> {
         Box::new(Plan::new(

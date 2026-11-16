@@ -11,7 +11,6 @@
 //! runs audio code on its own threads: requests that may block (opening devices) go to the blocking pool.
 
 use super::{auth, web, Daemon};
-use crate::protocol::{Response as RpcResponse, RpcError};
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
@@ -20,6 +19,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
+use omu_protocol::{Response as RpcResponse, RpcError};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -205,10 +205,7 @@ async fn upload(
             serde_json::to_string(&info).unwrap_or_default(),
         )
             .into_response(),
-        Ok(Err(e)) => failure_with(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            crate::daemon::sound_error(e),
-        ),
+        Ok(Err(e)) => failure_with(StatusCode::UNPROCESSABLE_ENTITY, crate::sound_error(e)),
         Err(_) => failure(
             StatusCode::INTERNAL_SERVER_ERROR,
             "the import was interrupted".into(),

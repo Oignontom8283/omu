@@ -1,6 +1,6 @@
 //! COM apartment handling and small conversions shared by the WASAPI modules.
 
-use crate::hal::HalError;
+use crate::HalError;
 use windows::core::Error;
 use windows::Win32::Foundation::{RPC_E_CHANGED_MODE, S_FALSE, S_OK};
 use windows::Win32::Media::Audio::AUDCLNT_E_DEVICE_INVALIDATED;

@@ -2,14 +2,14 @@
 //! See `omud --help`.
 
 use clap::Parser;
-use omu::daemon::instance;
-use omu::daemon::launch::{serve, Options, DEFAULT_LISTEN};
-use omu::diagnostics::{self, Settings};
+use omu_daemon::instance;
+use omu_daemon::launch::{serve, Options, DEFAULT_LISTEN};
+use omu_diagnostics::{self as diagnostics, Settings};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = omu::branding::DAEMON_EXECUTABLE, version, about = "Audio routing daemon")]
+#[command(name = omu_branding::DAEMON_EXECUTABLE, version, about = "Audio routing daemon")]
 struct Args {
     /// Address and port of the control server. Loopback by default; anything else exposes the daemon to the
     /// network (the access token then travels unencrypted unless a TLS proxy or an SSH tunnel is used).
@@ -81,12 +81,12 @@ fn crash_on_purpose(kind: &str) {
 /// `--clean-devices`: the old devices of the saved graph's neighbours, forgotten; no daemon is started, so it runs next
 /// to a daemon that is running.
 fn clean_devices(data_dir: PathBuf, helper: bool) -> std::process::ExitCode {
-    use omu::daemon::store::Store;
-    use omu::elevation::SystemElevator;
-    use omu::types::KeptDevices;
-    use omu::virtual_devices::clean::{self, Relaunch};
+    use omu_daemon::store::Store;
+    use omu_desktop::elevation::SystemElevator;
+    use omu_types::KeptDevices;
+    use omu_virtual_devices::clean::{self, Relaunch};
     let _diag = diagnostics::init(Settings {
-        program: omu::branding::DAEMON_EXECUTABLE,
+        program: omu_branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),
         // a helper started with rights has no window: it must not show an error box of its own
         dialog: false,
@@ -100,7 +100,7 @@ fn clean_devices(data_dir: PathBuf, helper: bool) -> std::process::ExitCode {
             return std::process::ExitCode::from(clean::EXIT_FAILED as u8);
         }
     };
-    let provider = omu::virtual_devices::platform_provider();
+    let provider = omu_virtual_devices::platform_provider();
     let code = clean::run_helper(
         &*provider,
         &kept,
@@ -114,12 +114,12 @@ fn clean_devices(data_dir: PathBuf, helper: bool) -> std::process::ExitCode {
 
 fn main() -> std::process::ExitCode {
     let args = Args::parse();
-    let data_dir = args.data_dir.unwrap_or_else(omu::discovery::data_dir);
+    let data_dir = args.data_dir.unwrap_or_else(omu_discovery::data_dir);
     if args.clean_devices {
         return clean_devices(data_dir, args.elevated_helper);
     }
     let mut diag = diagnostics::init(Settings {
-        program: omu::branding::DAEMON_EXECUTABLE,
+        program: omu_branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),
         dialog: true,
         console_log: !(args.quiet || args.background),
@@ -160,11 +160,11 @@ fn main() -> std::process::ExitCode {
         Ok(r) => r,
         Err(e) => diagnostics::fail(&format!("cannot start the async runtime: {e}"), 1),
     };
-    let ready = move |info: &omu::daemon::launch::Info| {
+    let ready = move |info: &omu_daemon::launch::Info| {
         if !background {
             println!(
                 "{} daemon listening on http://{}",
-                omu::branding::DISPLAY_NAME,
+                omu_branding::DISPLAY_NAME,
                 info.address
             );
             println!("audio backend: {}", info.backend);

@@ -13,11 +13,11 @@ use super::speaker::{serial_of as speaker_serial, SpeakerStream};
 use super::tool::UsbipTool;
 use super::usb::uac2::{Uac2Config, Uac2Device, Uac2Streams};
 use super::usb::{MonotonicClock, Server, UsbDevice};
-use crate::hal::{
+use omu_hal::{
     CaptureStream, HalError, RenderCallback, RenderStream, Running, StreamHealth,
     VirtualDeviceProvider,
 };
-use crate::types::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
+use omu_types::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -123,10 +123,10 @@ impl UsbMicProvider {
     pub fn new(tool: Arc<dyn UsbipTool>) -> UsbMicProvider {
         UsbMicProvider {
             tool,
-            server_port: crate::branding::VIRTUAL_SERVER_PORT,
-            vendor_id: crate::branding::VIRTUAL_VENDOR_ID,
-            product_id: crate::branding::VIRTUAL_PRODUCT_ID,
-            manufacturer: crate::branding::VIRTUAL_MANUFACTURER.into(),
+            server_port: omu_branding::VIRTUAL_SERVER_PORT,
+            vendor_id: omu_branding::VIRTUAL_VENDOR_ID,
+            product_id: omu_branding::VIRTUAL_PRODUCT_ID,
+            manufacturer: omu_branding::VIRTUAL_MANUFACTURER.into(),
             shared: Mutex::new(None),
             names: Mutex::new(vec![]),
             speaker_names: Mutex::new(vec![]),
@@ -136,8 +136,8 @@ impl UsbMicProvider {
     /// What the system remembers of devices of ours that are gone and not in `kept`, with the records to forget.
     fn stale_records(
         &self,
-        kept: &crate::types::KeptDevices,
-    ) -> Result<Vec<(crate::types::StaleDevice, Vec<String>)>, HalError> {
+        kept: &omu_types::KeptDevices,
+    ) -> Result<Vec<(omu_types::StaleDevice, Vec<String>)>, HalError> {
         if !cfg!(windows) {
             return Err(HalError::Unsupported(
                 "this system does not remember devices the way Windows does".into(),
@@ -309,8 +309,8 @@ impl VirtualDeviceProvider for UsbMicProvider {
 
     fn stale_devices(
         &self,
-        kept: &crate::types::KeptDevices,
-    ) -> Result<Vec<crate::types::StaleDevice>, HalError> {
+        kept: &omu_types::KeptDevices,
+    ) -> Result<Vec<omu_types::StaleDevice>, HalError> {
         Ok(self
             .stale_records(kept)?
             .into_iter()
@@ -318,7 +318,7 @@ impl VirtualDeviceProvider for UsbMicProvider {
             .collect())
     }
 
-    fn forget_stale_devices(&self, kept: &crate::types::KeptDevices) -> Result<(), HalError> {
+    fn forget_stale_devices(&self, kept: &omu_types::KeptDevices) -> Result<(), HalError> {
         let ids: Vec<String> = self
             .stale_records(kept)?
             .into_iter()
@@ -453,7 +453,7 @@ pub(super) fn attach(
     // If the program dies before this stream is dropped, Windows would keep a ghost device: detach it anyway.
     let cleanup = {
         let (tool, server, busid) = (a.tool.clone(), server.clone(), a.busid.to_owned());
-        crate::diagnostics::on_crash_cleanup(a.what, move || {
+        omu_diagnostics::on_crash_cleanup(a.what, move || {
             let _ = tool.detach(port);
             server.remove(&busid);
         })
@@ -538,7 +538,7 @@ struct UsbRunning {
     stop: Arc<AtomicBool>,
     monitor: Option<JoinHandle<()>>,
     /// Forgets the crash cleanup once this stream has detached the device itself.
-    _cleanup: crate::diagnostics::Registration,
+    _cleanup: omu_diagnostics::Registration,
 }
 
 impl Running for UsbRunning {}
@@ -562,8 +562,8 @@ impl Drop for UsbRunning {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::virtual_devices::tool::fake::FakeTool;
-    use crate::virtual_devices::usb::{IsoTiming, UsbDevice};
+    use crate::tool::fake::FakeTool;
+    use crate::usb::{IsoTiming, UsbDevice};
 
     /// A provider whose server is on any free port (tests run side by side and must not fight over the real one).
     fn provider(tool: &Arc<FakeTool>) -> UsbMicProvider {
@@ -743,13 +743,13 @@ mod tests {
 
     #[test]
     fn devices_left_by_a_crashed_run_are_detached_but_others_are_not() {
-        use crate::virtual_devices::tool::Imported;
+        use crate::tool::Imported;
         let tool = Arc::new(FakeTool::default());
         *tool.imported.lock().unwrap() = vec![
             Imported {
                 port: 5,
-                vendor_id: crate::branding::VIRTUAL_VENDOR_ID,
-                product_id: crate::branding::VIRTUAL_PRODUCT_ID,
+                vendor_id: omu_branding::VIRTUAL_VENDOR_ID,
+                product_id: omu_branding::VIRTUAL_PRODUCT_ID,
                 server_port: Some(40000),
                 busid: None,
             },
@@ -762,8 +762,8 @@ mod tests {
             },
             Imported {
                 port: 7,
-                vendor_id: crate::branding::VIRTUAL_VENDOR_ID,
-                product_id: crate::branding::VIRTUAL_PRODUCT_ID,
+                vendor_id: omu_branding::VIRTUAL_VENDOR_ID,
+                product_id: omu_branding::VIRTUAL_PRODUCT_ID,
                 server_port: None,
                 busid: None,
             },
@@ -785,14 +785,14 @@ mod tests {
 
     // ---- through the whole engine: what the user does in the panel (rename a block, remove it)
 
-    fn engine_with(tool: &Arc<FakeTool>) -> crate::engine::Engine {
+    fn engine_with(tool: &Arc<FakeTool>) -> omu_engine::Engine {
         engine_over(provider(tool))
     }
 
-    fn engine_over(provider: UsbMicProvider) -> crate::engine::Engine {
-        use crate::engine::{Engine, EngineConfig};
-        use crate::hal::sim::SimBackend;
-        use crate::hal::{Backend, VirtualDeviceProvider};
+    fn engine_over(provider: UsbMicProvider) -> omu_engine::Engine {
+        use omu_engine::{Engine, EngineConfig};
+        use omu_hal::sim::SimBackend;
+        use omu_hal::{Backend, VirtualDeviceProvider};
         let sim = SimBackend::new();
         Engine::new(
             Arc::new(sim) as Arc<dyn Backend>,
@@ -801,8 +801,8 @@ mod tests {
         )
     }
 
-    fn mic_graph(names: &[&str]) -> crate::graph::ValidGraph {
-        use crate::types::{GraphSpec, NodeKind, NodeSpec};
+    fn mic_graph(names: &[&str]) -> omu_graph::ValidGraph {
+        use omu_types::{GraphSpec, NodeKind, NodeSpec};
         let spec = GraphSpec {
             nodes: names
                 .iter()
@@ -816,7 +816,7 @@ mod tests {
                 .collect(),
             edges: vec![],
         };
-        crate::graph::validate(&spec).unwrap()
+        omu_graph::validate(&spec).unwrap()
     }
 
     fn wait_until(what: &str, mut cond: impl FnMut() -> bool) {
@@ -880,7 +880,7 @@ mod tests {
         // the same block and the same device name, but the block gets a display name
         let mut named = mic_graph(&["Alpha"]).spec;
         named.nodes[0].display = Some("Mon micro".into());
-        engine.apply(crate::graph::validate(&named).unwrap());
+        engine.apply(omu_graph::validate(&named).unwrap());
         std::thread::sleep(Duration::from_millis(500));
         assert_eq!(tool.attached.lock().unwrap().len(), 1, "not attached again");
         assert!(tool.detached.lock().unwrap().is_empty(), "not detached");
@@ -1010,7 +1010,7 @@ mod tests {
 
     #[test]
     fn a_device_the_driver_already_attached_by_itself_is_taken_over() {
-        use crate::virtual_devices::tool::Imported;
+        use crate::tool::Imported;
         let tool = Arc::new(FakeTool::default());
         let p = fixed_provider(&tool);
         let shared = p.server().unwrap();
@@ -1018,8 +1018,8 @@ mod tests {
         *tool.attach_error.lock().unwrap() = Some("already attached".into());
         tool.imported.lock().unwrap().push(Imported {
             port: 9,
-            vendor_id: crate::branding::VIRTUAL_VENDOR_ID,
-            product_id: crate::branding::VIRTUAL_PRODUCT_ID,
+            vendor_id: omu_branding::VIRTUAL_VENDOR_ID,
+            product_id: omu_branding::VIRTUAL_PRODUCT_ID,
             server_port: Some(shared.server.port()),
             busid: Some(shared.busid_for(1, "Alpha")),
         });

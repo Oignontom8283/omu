@@ -1,0 +1,22 @@
+[package]
+name = "app-omu-cli"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "the omu-cli executable"
+license-file = "../../../LICENSE"
+publish = false
+
+[[bin]]
+name = "omu-cli"
+path = "main.rs"
+
+[dependencies]
+omu-branding = { path = "../../branding" }
+omu-cli = { path = "../../cli" }
+omu-diagnostics = { path = "../../diagnostics" }
+omu-discovery = { path = "../../discovery" }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

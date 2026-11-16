@@ -4,9 +4,9 @@
 //! (the developer who runs the daemon from an elevated terminal) does the work itself, without any confirmation
 //! window; any other starts this same program again with the rights, which asks the user once for the whole run.
 
-use crate::elevation::{ElevateError, Elevator};
-use crate::hal::{HalError, VirtualDeviceProvider};
-use crate::types::{CleanOutcome, KeptDevices, StaleDevice, StaleDevices};
+use omu_desktop::elevation::{ElevateError, Elevator};
+use omu_hal::{HalError, VirtualDeviceProvider};
+use omu_types::{CleanOutcome, KeptDevices, StaleDevice, StaleDevices};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -193,7 +193,7 @@ pub fn run_helper(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::elevation::Elevator;
+    use omu_desktop::elevation::Elevator;
     use std::path::Path;
     use std::sync::Mutex;
 
@@ -229,7 +229,7 @@ mod tests {
         fn create_microphone(
             &self,
             _name: &str,
-        ) -> Result<Box<dyn crate::hal::RenderStream>, HalError> {
+        ) -> Result<Box<dyn omu_hal::RenderStream>, HalError> {
             Err(HalError::Unsupported("test".into()))
         }
         fn stale_devices(&self, _kept: &KeptDevices) -> Result<Vec<StaleDevice>, HalError> {

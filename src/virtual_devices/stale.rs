@@ -12,7 +12,7 @@
 
 use super::mic::name_hash;
 use super::speaker;
-use crate::types::{KeptDevices, StaleDevice};
+use omu_types::{KeptDevices, StaleDevice};
 use std::collections::BTreeMap;
 
 /// One device as the system remembers it.

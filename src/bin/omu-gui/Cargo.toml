@@ -1,0 +1,22 @@
+[package]
+name = "app-omu-gui"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "the omu-gui executable"
+license-file = "../../../LICENSE"
+publish = false
+
+[[bin]]
+name = "omu-gui"
+path = "main.rs"
+
+[dependencies]
+omu-branding = { path = "../../branding" }
+omu-diagnostics = { path = "../../diagnostics", features = ["logging"] }
+omu-discovery = { path = "../../discovery" }
+omu-gui = { path = "../../gui" }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

@@ -461,7 +461,7 @@ impl BoardRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::soundboard::pool::BlockPool;
+    use crate::pool::BlockPool;
 
     /// A sound of `samples` (interleaved) made of pool blocks.
     pub(crate) fn sound_of(

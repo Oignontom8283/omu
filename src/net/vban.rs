@@ -9,11 +9,11 @@
 //! audio). The low 3 bits of the fourth byte are the sample format and its high nibble the codec (0 = plain PCM). The
 //! data may hold up to [`MAX_DATA`] bytes.
 
-use crate::dsp::resample::StreamResampler;
-use crate::hal::{
+use omu_dsp::resample::StreamResampler;
+use omu_hal::{
     CaptureCallback, CaptureStream, HalError, RenderCallback, RenderStream, Running, StreamHealth,
 };
-use crate::types::AudioFormat;
+use omu_types::AudioFormat;
 use std::net::{IpAddr, SocketAddr, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -31,7 +31,7 @@ pub const RATES: [u32; 21] = [
 /// Frames per packet when sending: 256 stereo 16-bit frames are 1024 bytes, 5.3 ms of sound.
 const SEND_FRAMES: usize = 256;
 /// The longest stream name.
-pub const NAME_LEN: usize = crate::types::MAX_STREAM_NAME;
+pub const NAME_LEN: usize = omu_types::MAX_STREAM_NAME;
 
 /// How the samples of a packet are written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

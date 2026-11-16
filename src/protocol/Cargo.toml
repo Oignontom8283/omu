@@ -1,0 +1,21 @@
+[package]
+name = "omu-protocol"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "the JSON-RPC control protocol: envelopes, methods and events"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+omu-diagnostics = { path = "../diagnostics" }
+omu-types = { path = "../types" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

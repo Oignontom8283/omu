@@ -1,0 +1,20 @@
+[package]
+name = "omu-branding"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "the product name and identifiers, resolved at compile time from branding.toml"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+
+[build-dependencies]
+toml = "1.2"
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

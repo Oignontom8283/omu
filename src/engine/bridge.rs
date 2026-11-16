@@ -11,8 +11,8 @@
 //! Nothing here allocates or blocks after construction. Underruns produce silence and are counted; the bridge
 //! then refills to its target level before resuming, which gives a clean recovery instead of stuttering.
 
-use crate::dsp::{remix, RateController, StreamResampler};
-use crate::types::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
+use omu_dsp::{remix, RateController, StreamResampler};
+use omu_types::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 use rtrb::{Consumer, Producer, RingBuffer};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;

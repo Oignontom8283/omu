@@ -122,6 +122,46 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb5dfbc6d8d2675589ccbe4d0fd61df2419075625f8c1a62325e718e2b0049f9"
 
 [[package]]
+name = "app-omu-cli"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "omu-cli",
+ "omu-diagnostics",
+ "omu-discovery",
+]
+
+[[package]]
+name = "app-omu-gui"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "omu-diagnostics",
+ "omu-discovery",
+ "omu-gui",
+]
+
+[[package]]
+name = "app-omud"
+version = "0.22.1"
+dependencies = [
+ "clap",
+ "omu-branding",
+ "omu-client",
+ "omu-daemon",
+ "omu-desktop",
+ "omu-diagnostics",
+ "omu-discovery",
+ "omu-protocol",
+ "omu-types",
+ "omu-virtual-devices",
+ "tokio",
+ "tracing",
+ "tungstenite 0.30.0",
+ "windows",
+]
+
+[[package]]
 name = "ar_archive_writer"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2993,44 +3033,267 @@ dependencies = [
 ]
 
 [[package]]
-name = "omu"
+name = "omu-audiofile"
+version = "0.22.1"
+dependencies = [
+ "claxon",
+ "flacenc",
+ "omu-dsp",
+ "omu-types",
+ "symphonia",
+]
+
+[[package]]
+name = "omu-branding"
+version = "0.22.1"
+dependencies = [
+ "toml 1.2.1+spec-1.1.0",
+]
+
+[[package]]
+name = "omu-build"
+version = "0.22.1"
+dependencies = [
+ "toml 1.2.1+spec-1.1.0",
+]
+
+[[package]]
+name = "omu-cli"
+version = "0.22.1"
+dependencies = [
+ "clap",
+ "omu-branding",
+ "omu-client",
+ "omu-daemon",
+ "omu-graph",
+ "omu-protocol",
+ "omu-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "omu-client"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "omu-discovery",
+ "omu-protocol",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
+name = "omu-daemon"
 version = "0.22.1"
 dependencies = [
  "axum",
- "clap",
- "claxon",
- "deep_filter",
- "dirs",
- "flacenc",
- "flate2",
  "futures-util",
  "getrandom 0.4.3",
- "ndarray",
- "nnnoiseless",
- "rfd",
- "rtrb",
+ "omu-branding",
+ "omu-build",
+ "omu-client",
+ "omu-desktop",
+ "omu-diagnostics",
+ "omu-discovery",
+ "omu-engine",
+ "omu-graph",
+ "omu-hal",
+ "omu-modules",
+ "omu-protocol",
+ "omu-soundboard",
+ "omu-types",
+ "omu-virtual-devices",
  "rust-embed",
  "serde",
  "serde_json",
- "sha2 0.10.9",
- "symphonia",
- "tauri",
- "tauri-build",
- "thiserror 2.0.21",
  "tokio",
- "toml 1.2.1+spec-1.1.0",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
+ "tungstenite 0.30.0",
+ "ureq",
+ "windows",
+]
+
+[[package]]
+name = "omu-deepfilter"
+version = "0.22.1"
+dependencies = [
+ "deep_filter",
+ "ndarray",
+ "omu-hal",
+ "rtrb",
+ "tracing",
  "tract-core",
  "tract-hir",
  "tract-onnx",
  "tract-pulse",
- "tungstenite 0.30.0",
- "ureq",
+]
+
+[[package]]
+name = "omu-desktop"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "omu-diagnostics",
+ "windows",
+]
+
+[[package]]
+name = "omu-diagnostics"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "serde",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "windows",
+]
+
+[[package]]
+name = "omu-discovery"
+version = "0.22.1"
+dependencies = [
+ "dirs",
+ "omu-branding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "omu-dsp"
+version = "0.22.1"
+dependencies = [
+ "nnnoiseless",
+]
+
+[[package]]
+name = "omu-engine"
+version = "0.22.1"
+dependencies = [
+ "omu-deepfilter",
+ "omu-diagnostics",
+ "omu-dsp",
+ "omu-graph",
+ "omu-hal",
+ "omu-net",
+ "omu-soundboard",
+ "omu-types",
+ "rtrb",
+ "tracing",
+]
+
+[[package]]
+name = "omu-graph"
+version = "0.22.1"
+dependencies = [
+ "omu-types",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "omu-gui"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "omu-build",
+ "omu-client",
+ "omu-daemon",
+ "omu-diagnostics",
+ "omu-discovery",
+ "omu-protocol",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tracing",
+ "windows",
+]
+
+[[package]]
+name = "omu-hal"
+version = "0.22.1"
+dependencies = [
+ "omu-types",
+ "thiserror 2.0.21",
  "windows",
  "windows-core",
+]
+
+[[package]]
+name = "omu-modules"
+version = "0.22.1"
+dependencies = [
+ "flate2",
+ "omu-audiofile",
+ "omu-diagnostics",
+ "omu-types",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tracing",
+ "ureq",
+ "windows",
  "zip",
+]
+
+[[package]]
+name = "omu-net"
+version = "0.22.1"
+dependencies = [
+ "omu-dsp",
+ "omu-hal",
+ "omu-types",
+]
+
+[[package]]
+name = "omu-protocol"
+version = "0.22.1"
+dependencies = [
+ "omu-diagnostics",
+ "omu-types",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "omu-soundboard"
+version = "0.22.1"
+dependencies = [
+ "omu-audiofile",
+ "omu-branding",
+ "omu-dsp",
+ "omu-hal",
+ "omu-modules",
+ "omu-types",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tracing",
+]
+
+[[package]]
+name = "omu-types"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "omu-virtual-devices"
+version = "0.22.1"
+dependencies = [
+ "omu-branding",
+ "omu-desktop",
+ "omu-diagnostics",
+ "omu-engine",
+ "omu-graph",
+ "omu-hal",
+ "omu-types",
+ "tracing",
+ "windows",
 ]
 
 [[package]]

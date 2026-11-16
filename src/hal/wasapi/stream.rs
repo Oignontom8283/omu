@@ -6,10 +6,10 @@
 //! stops its thread and goes silent; nothing here panics or aborts.
 
 use super::com::{describe, ComGuard};
-use crate::hal::{
+use crate::{
     CaptureCallback, CaptureStream, HalError, RenderCallback, RenderStream, Running, StreamHealth,
 };
-use crate::types::AudioFormat;
+use omu_types::AudioFormat;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 use std::sync::Arc;

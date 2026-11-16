@@ -1,0 +1,18 @@
+[package]
+name = "omu-dsp"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "audio building blocks: gain, mixing, channel remix, resampling, noise reduction"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+nnnoiseless = { version = "0.5", default-features = false }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

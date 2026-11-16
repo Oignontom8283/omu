@@ -10,14 +10,14 @@
 
 use super::library::{new_id, Library};
 use super::pool::{BlockPool, BlockRef};
-use super::stored::Stored;
 use super::voices::{BoardRuntime, Command, LoadedSound, PlayCommand, StreamShared, FADE_FRAMES};
 use super::{
     AHEAD_SEGMENTS, BLOCK_SAMPLES, DEFAULT_CACHE_MB, ENGINE_RATE, MAX_STREAMS, SEGMENT_SECONDS,
     WHOLE_SOUND_MAX_BYTES,
 };
-use crate::dsp::db_to_linear;
-use crate::types::{Board, Pad, Settings, SoundInfo, SoundStatus};
+use omu_audiofile::stored::Stored;
+use omu_dsp::db_to_linear;
+use omu_types::{Board, Pad, Settings, SoundInfo, SoundStatus};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -91,7 +91,7 @@ struct StreamJob {
 struct Shared {
     library: Library,
     /// The optional modules (FFmpeg reads the files the program cannot).
-    modules: Arc<crate::modules::Modules>,
+    modules: Arc<omu_modules::Modules>,
     /// A fixed limit in bytes (tests, embedding); otherwise the environment variable, then the setting.
     limit_override: Option<u64>,
     inner: Mutex<Inner>,
@@ -176,7 +176,7 @@ impl SoundEngine {
     fn build(dir: PathBuf, limit_override: Option<u64>) -> SoundEngine {
         SoundEngine {
             shared: Arc::new(Shared {
-                modules: Arc::new(crate::modules::Modules::new(&dir)),
+                modules: Arc::new(omu_modules::Modules::new(&dir)),
                 library: Library::load(dir),
                 limit_override,
                 inner: Mutex::new(Inner {
@@ -208,7 +208,7 @@ impl SoundEngine {
     }
 
     /// The optional modules.
-    pub fn modules(&self) -> &Arc<crate::modules::Modules> {
+    pub fn modules(&self) -> &Arc<omu_modules::Modules> {
         &self.shared.modules
     }
 
@@ -218,7 +218,7 @@ impl SoundEngine {
         if let Some(b) = self.shared.limit_override {
             return b;
         }
-        let mb = std::env::var(crate::branding::env_var("SOUND_CACHE_MB"))
+        let mb = std::env::var(omu_branding::env_var("SOUND_CACHE_MB"))
             .ok()
             .and_then(|v| v.trim().parse::<u64>().ok())
             .unwrap_or(self.shared.library.settings().sound_cache_mb as u64);
@@ -314,12 +314,12 @@ impl SoundEngine {
             .or_else(|| source.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "sound".into());
         let destination = self.shared.library.path_of(&id);
-        let info = match super::import::import_file(source, &destination, &id, &name) {
+        let info = match omu_audiofile::import::import_file(source, &destination, &id, &name) {
             Ok(info) => info,
             // this program cannot read it: FFmpeg, if the module is on, may
-            Err(super::import::ImportError::Unsupported(why)) => {
+            Err(omu_audiofile::import::ImportError::Unsupported(why)) => {
                 match self.shared.modules.ffmpeg() {
-                    Some(ffmpeg) => crate::modules::ffmpeg::import(&ffmpeg, source, &destination, &id, &name)
+                    Some(ffmpeg) => omu_modules::ffmpeg::import(&ffmpeg, source, &destination, &id, &name)
                         .map_err(SoundError::Io)?,
                     None => {
                         return Err(SoundError::ModuleNeeded(format!(
@@ -328,7 +328,7 @@ impl SoundEngine {
                     }
                 }
             }
-            Err(super::import::ImportError::Failed(e)) => return Err(SoundError::Io(e)),
+            Err(omu_audiofile::import::ImportError::Failed(e)) => return Err(SoundError::Io(e)),
         };
         self.shared
             .library
@@ -358,7 +358,7 @@ impl SoundEngine {
         }
         let (plain, packed) = (lib.path_of(id), lib.packed_path_of(id));
         let partial = packed.with_extension("omuf.part");
-        super::stored::compress(&plain, &partial).map_err(SoundError::Io)?;
+        omu_audiofile::stored::compress(&plain, &partial).map_err(SoundError::Io)?;
         std::fs::rename(&partial, &packed).map_err(|e| SoundError::Io(e.to_string()))?;
         let bytes = std::fs::metadata(&packed).map_or(info.bytes, |m| m.len());
         let packed_info = SoundInfo {
@@ -784,7 +784,7 @@ fn service(shared: &Shared, job: &mut StreamJob, worked: &mut bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::soundboard::wav::WavWriter;
+    use omu_audiofile::wav::WavWriter;
 
     fn temp(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("omu-sounds-{name}-{}", std::process::id()));
