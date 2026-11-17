@@ -169,7 +169,7 @@ fn main() -> std::process::ExitCode {
             );
             println!("audio backend: {}", info.backend);
             println!("web panel: {}", info.panel_url);
-            println!("press Ctrl-C to stop");
+            println!("press Ctrl-C (or close this window) to stop");
         }
         if !loopback {
             tracing::warn!("listening on a non-local address; the access token is sent in clear text over the network");
@@ -179,11 +179,47 @@ fn main() -> std::process::ExitCode {
         }
     };
     let shutdown = async {
-        let _ = tokio::signal::ctrl_c().await;
-        tracing::info!("Ctrl-C received, stopping");
+        let why = stop_requested().await;
+        tracing::info!("{why}: stopping");
     };
     match runtime.block_on(serve(opts, ready, shutdown)) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => diagnostics::fail(&e, 1),
+    }
+}
+
+/// Resolves when the user or the system asks the daemon to stop, and says why: Ctrl-C, Ctrl-Break, the console window
+/// closed, the user logging off, Windows shutting down (on other systems: Ctrl-C or SIGTERM). The daemon then leaves
+/// the audio system in order instead of being cut off; Windows gives a few seconds for that after a close.
+async fn stop_requested() -> &'static str {
+    #[cfg(windows)]
+    {
+        use tokio::signal::windows as w;
+        match (w::ctrl_break(), w::ctrl_close(), w::ctrl_logoff(), w::ctrl_shutdown()) {
+            (Ok(mut brk), Ok(mut close), Ok(mut logoff), Ok(mut down)) => tokio::select! {
+                _ = tokio::signal::ctrl_c() => "Ctrl-C received",
+                _ = brk.recv() => "Ctrl-Break received",
+                _ = close.recv() => "the console window was closed",
+                _ = logoff.recv() => "the user is logging off",
+                _ = down.recv() => "Windows is shutting down",
+            },
+            _ => {
+                let _ = tokio::signal::ctrl_c().await;
+                "Ctrl-C received"
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut term) => tokio::select! {
+                _ = tokio::signal::ctrl_c() => "Ctrl-C received",
+                _ = term.recv() => "SIGTERM received",
+            },
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+                "Ctrl-C received"
+            }
+        }
     }
 }
