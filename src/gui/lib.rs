@@ -94,16 +94,26 @@ pub fn start_daemon_from(dir: &std::path::Path) -> Result<(), String> {
         ));
     }
     let mut command = std::process::Command::new(daemon);
-    command
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
+    // A debug build (development) gives the daemon a console window of its own, which shows its logs; a release build
+    // starts it without any window.
+    let visible = cfg!(debug_assertions);
+    if !visible {
+        command
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null());
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
+        command.creation_flags(if visible {
+            CREATE_NEW_CONSOLE
+        } else {
+            DETACHED_PROCESS | CREATE_NO_WINDOW
+        });
     }
     tracing::info!("starting the daemon");
     command.spawn().map(|_| ()).map_err(|e| {
