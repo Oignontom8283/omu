@@ -1,7 +1,7 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { useEffect } from 'react';
 import { useEditor } from '../context.ts';
-import { KINDS_BY_CATEGORY, MAX_BRANCHES, MAX_ENTRIES, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, type PortMeta } from '../graph.ts';
+import { GRID, KINDS_BY_CATEGORY, MAX_BRANCHES, MAX_ENTRIES, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { DeviceRef, LogicOp, NodeSpec, NodeType } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
@@ -463,16 +463,23 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
   return (
     <div className={`node cat-${category}${selected ? ' selected' : ''}${failed ? ' failed' : ''}`}>
       <header>
-        <select className="kind nodrag" value={spec.type} title={t(`category.${category}.hint`)} onChange={(e) => changeKind(spec.id, e.target.value as NodeType)}>
-          {KINDS_BY_CATEGORY[category].map((k) => (
-            <option key={k} value={k}>
-              {t(`category.${category}`)} · {t(`kind.${k}`)}
-            </option>
-          ))}
-        </select>
-        <NameField spec={spec} />
+        <div className="bar">
+          <select className="kind nodrag" value={spec.type} title={t(`category.${category}.hint`)} onChange={(e) => changeKind(spec.id, e.target.value as NodeType)}>
+            {KINDS_BY_CATEGORY[category].map((k) => (
+              <option key={k} value={k}>
+                {t(`category.${category}`)} · {t(`kind.${k}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="name">
+          <NameField spec={spec} />
+        </div>
       </header>
       <div className="ports">
+        {zonesOf(spec).map((z) => (
+          <div key={z.start} className="zone" style={{ top: z.start * GRID, height: z.rows * GRID }} aria-hidden="true" />
+        ))}
         <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} text={padName(q)} />)}</div>
         <div>{ports.filter((q) => q.dir === 'out').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} />)}</div>
       </div>

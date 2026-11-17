@@ -20,6 +20,7 @@ import { Modules } from './components/Modules.tsx';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { Soundboards } from './components/Soundboards.tsx';
 import {
+  GRID,
   KINDS_BY_CATEGORY,
   canConnect,
   canonical,
@@ -485,13 +486,15 @@ export function App() {
             isValidConnection={isValidConnection}
             onNodeDragStop={() => saveLayout()}
             deleteKeyCode={['Backspace', 'Delete']}
+            snapToGrid
+            snapGrid={[GRID, GRID]}
             fitView
             fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
             minZoom={0.2}
             colorMode={resolved}
             proOptions={{ hideAttribution: true }}
           >
-            <Background gap={24} />
+            <Background gap={GRID} />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable nodeColor={(n) => `var(--cat-${categoryOf((n.data as { spec: { type: NodeType } }).spec.type)})`} />
           </ReactFlow>

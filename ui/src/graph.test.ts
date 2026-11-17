@@ -12,6 +12,7 @@ import {
   branchCount,
   entryPortOf,
   portsOf,
+  zonesOf,
   canConnect,
   entryCount,
   entryHandles,
@@ -126,6 +127,22 @@ test('the families send and receive the flows they should', () => {
   }
   for (const t of KINDS_BY_CATEGORY.condition) assert.ok(only(sends(t), 'condition'), t);
   for (const t of KINDS_BY_CATEGORY.processing) assert.ok(only(sends(t), 'audio'), t);
+});
+
+test('a branch draws one orange zone over its conditions and the else; a select one per sound and its condition', () => {
+  assert.deepEqual(zonesOf({ type: 'branch', branches: 1 }), [{ start: 1, rows: 2 }]);
+  assert.deepEqual(zonesOf({ type: 'branch', branches: 3 }), [{ start: 1, rows: 4 }]);
+  assert.deepEqual(zonesOf({ type: 'select', branches: 2 }), [{ start: 0, rows: 2 }, { start: 2, rows: 2 }, { start: 4, rows: 1 }]);
+  assert.deepEqual(zonesOf({ type: 'gain' }), []);
+  // a zone never reaches past the rows the block draws: left column of a select, right column of a branch
+  const rowsOfLeft = (kind: Parameters<typeof portsOf>[0]) => portsOf(kind).filter((q) => q.dir === 'in').length;
+  const select = { type: 'select', branches: 3 } as const;
+  const last = zonesOf(select).at(-1)!;
+  assert.equal(last.start + last.rows, rowsOfLeft(select));
+  const branch = { type: 'branch', branches: 3 } as const;
+  const rightRows = portsOf(branch).filter((q) => q.dir === 'out').length + 1; // the gap row
+  const z = zonesOf(branch)[0]!;
+  assert.equal(z.start + z.rows, rightRows);
 });
 
 test('a branch has a condition per branch and a sound output per branch plus an else; a select the other way round', () => {
