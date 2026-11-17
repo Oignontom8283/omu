@@ -114,8 +114,10 @@ body {
 .tabs button.dirty::after {
   content: ' \2022';
 }
-/* under the tabs of the graph: the families of blocks, solid colours, the blocks of a family right under it */
+/* under the tabs of the graph: the families of blocks as solid colours; hovering one shows its blocks under the bar */
 .catbar {
+  position: relative;
+  z-index: 10;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -124,12 +126,15 @@ body {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
 }
+.catbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
 .cats {
   display: flex;
   gap: 6px;
-}
-.cat-wrap {
-  position: relative;
 }
 .cats .cat {
   border: 0;
@@ -147,30 +152,50 @@ body {
 .cats .cat.open {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--cat) 35%, transparent);
 }
-.cat-menu {
+.tray {
   position: absolute;
-  z-index: 20;
-  top: calc(100% + 4px);
+  top: 100%;
   left: 0;
-  min-width: 190px;
-  display: flex;
-  flex-direction: column;
-  padding: 4px;
+  right: 0;
+  padding: 8px 0 0;
   background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
 }
-.cat-menu button {
-  border: 0;
-  border-left: 3px solid var(--cat);
-  border-radius: 3px;
+/* the copy of a block that follows the pointer from the tray to the graph */
+.ghost {
+  position: fixed;
+  z-index: 60;
+  transform-origin: 0 0;
+  pointer-events: none;
+  opacity: 0.92;
+  filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.25));
+}
+.tray.dragging {
+  opacity: 0;
+  pointer-events: none;
+}
+.tray-title {
+  margin: 0 12px 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.tray-title strong {
+  color: var(--text);
+}
+/* the blocks of a family: the graph's own blocks in a small editor; they are only to be picked up */
+.shelf {
+  width: 100%;
+  max-height: 60vh;
+}
+.shelf .react-flow {
   background: transparent;
-  padding: 5px 10px;
-  text-align: left;
 }
-.cat-menu button:hover:not(:disabled) {
-  background: var(--field);
+.tray .react-flow__node {
+  cursor: grab;
+}
+.tray .react-flow__node * {
+  pointer-events: none;
 }
 .spacer {
   flex: 1;
@@ -314,12 +339,20 @@ button.inline {
   --cat: var(--cat-trigger);
 }
 
-/* blocks: a light title bar, the name field, then rows of ports that sit on the grid (the grid and the rows are 24px) */
+/* blocks: made of grid cells (--grid), less the gap (--gap) that keeps neighbours apart. Rows of ports are one cell high and
+   their points sit on the points of the grid; whatever is added is a whole number of cells high. */
+/* the measures of a block all come from these: the grid cell and the gap are set by the editor (--grid, --gap, --node-width) */
 .node {
-  width: 240px;
+  --radius: 6px;
+  --bar: 18px;
+  --trim: calc(var(--gap) / 2);
+  /* two cells, counted from the cell edge: the block itself starts half a gap inside it */
+  --header: calc(2 * var(--grid) - var(--trim));
+  width: calc(var(--node-width) - var(--gap));
+  margin: calc(var(--gap) / 2);
   background: var(--panel);
   box-shadow: 0 0 0 1px var(--line);
-  border-radius: 6px;
+  border-radius: var(--radius);
 }
 .node.selected {
   outline: 2px solid var(--primary);
@@ -331,42 +364,58 @@ button.inline {
   display: flex;
   flex-direction: column;
 }
+/* the coloured line of the block's top, as before but thick enough to hold the function of the block, written small in it */
 .node header .bar {
-  height: 21px;
-  margin: 3px 3px 0;
-  padding: 0 3px;
+  /* covers the block's thin outline too, so that the colour follows the rounded corners down to the sides */
+  height: calc(var(--bar) + 1px);
+  margin: -1px -1px 0;
+  padding: 1px 11px 0;
+  line-height: 1;
   display: flex;
   align-items: center;
-  border-radius: 4px 4px 5px 5px;
-  background: color-mix(in srgb, var(--cat) 16%, var(--panel));
-}
-.node select.kind {
-  width: 100%;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: color-mix(in srgb, var(--cat) 72%, var(--text));
-  font-size: 11px;
+  border-radius: calc(var(--radius) + 1px) calc(var(--radius) + 1px) 0 0;
+  background: var(--cat);
+  color: var(--on-primary);
+  font-size: 11.5px;
   font-weight: 600;
-  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+/* the name people give the block: the same field as before, plain text until it is hovered or edited */
 .node header .name {
-  height: 24px;
-  padding: 0 8px;
+  height: calc(var(--header) - var(--bar));
+  padding: 3px 10px 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 .node-id {
-  width: 100%;
-  height: 18px;
-  padding: 0 7px;
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  font-size: 12px;
+  width: calc(100% + 8px);
+  margin: 0 -4px;
+  padding: 1px 4px;
+  background: none;
+  border: 1px solid transparent;
+  box-sizing: border-box;
+  height: 20px;
+  font-size: 15px;
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  border-bottom: 1px dashed var(--line);
+  border-radius: 0;
 }
+/* an unnamed block still shows its title place, readable: it is the block's title */
+.node-id::placeholder {
+  color: var(--text);
+  opacity: 1;
+  font-weight: 700;
+}
+.node-id:hover,
 .node-id:focus {
-  border-color: var(--primary);
+  border-color: var(--line);
+  border-radius: 4px;
+  background: var(--field);
   outline: none;
 }
 .ports {
@@ -416,7 +465,7 @@ button.inline {
   min-width: 0;
 }
 .mini.add {
-  margin: 2px 10px;
+  margin: 3px 10px;
   align-self: flex-start;
 }
 /* an empty row, so that the rows of a branch line up (the "if" with its "then") */
@@ -428,45 +477,64 @@ button.inline {
 }
 .adders {
   display: flex;
+  align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+  height: var(--grid);
 }
 .adders .mini.add {
   margin: 0;
 }
 .node .body {
-  padding: 4px 10px;
+  padding: 0 10px;
 }
 .node footer {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 4px 10px 8px;
-  min-height: 28px;
+  padding: 0 10px;
+  /* one cell, less the half gap that the block is inset by at its foot */
+  height: calc(var(--grid) - var(--trim));
 }
-.node footer .full {
-  flex-basis: 100%;
+.node footer .message {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.node footer .off {
+  opacity: 0.45;
 }
 .field {
   display: flex;
   flex-direction: column;
-  gap: 2px;
   font-size: 12px;
 }
 .field > span {
+  display: flex;
+  align-items: center;
+  min-height: var(--grid);
   color: var(--muted);
+}
+.trigger-row {
+  min-height: var(--grid);
+  align-items: center;
 }
 .field input,
 .field select {
   width: 100%;
+  height: calc(var(--grid) - 6px);
+  margin: 3px 0;
   background: var(--field);
   border: 1px solid var(--line);
   border-radius: 4px;
-  padding: 3px 6px;
+  padding: 0 6px;
 }
 .field input[type='range'] {
   padding: 0;
+}
+.check {
+  min-height: var(--grid);
 }
 .check {
   display: flex;
@@ -492,6 +560,9 @@ button.inline {
 }
 .dot.bad {
   background: var(--bad);
+}
+.dot.idle {
+  background: var(--line);
 }
 .lamp {
   padding: 0 8px;
@@ -526,6 +597,12 @@ button.inline {
   width: 12px;
   height: 12px;
   border: 2px solid var(--panel);
+}
+.react-flow__handle.react-flow__handle-left {
+  left: 0;
+}
+.react-flow__handle.react-flow__handle-right {
+  right: 0;
 }
 .react-flow__handle.flow-audio {
   background: var(--flow-audio);

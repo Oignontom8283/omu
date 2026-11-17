@@ -1,7 +1,7 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
-import { useEffect } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useEditor } from '../context.ts';
-import { GRID, KINDS_BY_CATEGORY, MAX_BRANCHES, MAX_ENTRIES, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
+import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { DeviceRef, LogicOp, NodeSpec, NodeType } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
@@ -11,10 +11,10 @@ export type OmuNode = Node<{ spec: NodeSpec; inputs?: number }, 'omu'>;
 
 type Of<T extends NodeType> = Extract<NodeSpec, { type: T }>;
 
-function Meter({ peak }: { peak: number }) {
+function Meter({ peak, off = false }: { peak: number; off?: boolean }) {
   const db = levelDb(peak);
   return (
-    <div className="meter" title={db <= -60 ? '' : `${db.toFixed(0)} dB`}>
+    <div className={`meter${off ? ' off' : ''}`} title={db <= -60 ? '' : `${db.toFixed(0)} dB`}>
       <div className={`meter-fill${peak > 0.97 ? ' hot' : ''}`} style={{ width: `${meterFill(peak) * 100}%` }} />
     </div>
   );
@@ -425,27 +425,60 @@ function Footer({ spec }: { spec: NodeSpec }) {
   const { statusOf } = useEditor();
   const t = useT();
   const status = statusOf(spec.id);
-  if (!status) return <small className="hint">{t('status.notRunning')}</small>;
-  const failed = status.state === 'failed';
+  const failed = status?.state === 'failed';
   const category = categoryOf(spec.type);
+  // always the same elements, in the same place: those of a block that is not running are only switched off, so that the
+  // block never changes size by itself
+  const off = status ? '' : ' off';
   return (
     <>
-      <span className={`dot ${failed ? 'bad' : 'ok'}`} />
-      {category === 'trigger' && <small>{t('status.actions', { count: status.events ?? 0 })}</small>}
-      {category === 'condition' && status.active != null && <span className={`lamp ${status.active ? 'on' : ''}`}>{t(status.active ? 'status.yes' : 'status.no')}</span>}
-      {(category === 'input' || category === 'output' || category === 'processing') && <Meter peak={status.peak} />}
-      {(status.underruns > 0 || status.overruns > 0) && (
+      <span className={`dot ${status ? (failed ? 'bad' : 'ok') : 'idle'}`} title={status ? undefined : t('status.notRunning')} />
+      {category === 'trigger' && <small className={off.trim()}>{t('status.actions', { count: status?.events ?? 0 })}</small>}
+      {category === 'condition' && (
+        <span className={`lamp${status?.active ? ' on' : ''}${off}`}>{status?.active != null ? t(status.active ? 'status.yes' : 'status.no') : '–'}</span>
+      )}
+      {failed ? (
+        <small className="warn message" title={status.message}>
+          {status.message}
+        </small>
+      ) : (
+        (category === 'input' || category === 'output' || category === 'processing') && <Meter peak={status?.peak ?? 0} off={!status} />
+      )}
+      {status && (status.underruns > 0 || status.overruns > 0) && (
         <small className="warn" title={t('status.underruns')}>
           {status.underruns}/{status.overruns}
         </small>
       )}
-      {failed && <small className="warn full">{status.message}</small>}
     </>
   );
 }
 
+/**
+ * The frame of a block. Its height is a whole number of grid cells, less the gap that keeps neighbours apart, whatever
+ * its content needs: a line of text more takes a cell more. The block is inset by half the gap on every side, so that
+ * the node React Flow measures is exactly those cells and sits on the points of the grid.
+ */
+function GridBox({ className, children }: { className: string; children: ReactNode }) {
+  const inner = useRef<HTMLDivElement>(null);
+  const [cells, setCells] = useState(0);
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    const measure = () => setCells(Math.max(2, Math.ceil((el.offsetHeight + GAP - 0.5) / GRID)));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <div className={className} style={cells ? { height: cells * GRID - GAP } : undefined}>
+      <div ref={inner}>{children}</div>
+    </div>
+  );
+}
+
 export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
-  const { statusOf, changeKind } = useEditor();
+  const { statusOf } = useEditor();
   const t = useT();
   const spec = data.spec;
   const category = categoryOf(spec.type);
@@ -461,16 +494,10 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
     return n ? `${t('soundboards.playAction')} ${pad?.name || t('soundboards.unnamedPad')}` : undefined;
   };
   return (
-    <div className={`node cat-${category}${selected ? ' selected' : ''}${failed ? ' failed' : ''}`}>
+    <GridBox className={`node cat-${category}${selected ? ' selected' : ''}${failed ? ' failed' : ''}`}>
       <header>
-        <div className="bar">
-          <select className="kind nodrag" value={spec.type} title={t(`category.${category}.hint`)} onChange={(e) => changeKind(spec.id, e.target.value as NodeType)}>
-            {KINDS_BY_CATEGORY[category].map((k) => (
-              <option key={k} value={k}>
-                {t(`category.${category}`)} · {t(`kind.${k}`)}
-              </option>
-            ))}
-          </select>
+        <div className="bar" title={t(`kind.${spec.type}.hint`)}>
+          {t(`kind.${spec.type}`)}
         </div>
         <div className="name">
           <NameField spec={spec} />
@@ -489,6 +516,6 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
       <footer>
         <Footer spec={spec} />
       </footer>
-    </div>
+    </GridBox>
   );
 }

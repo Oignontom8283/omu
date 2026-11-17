@@ -6,6 +6,10 @@ import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKi
 
 /** The gap of the editor's grid, in pixels: blocks snap to it and the rows of their ports are as high. */
 export const GRID = 24;
+/** The gap between two blocks side by side, the size of a dot of the grid: a block is its cells less this gap. */
+export const GAP = 4;
+/** A block is ten cells wide. */
+export const NODE_WIDTH = 10 * GRID;
 
 /**
  * A port of a block. `label` is the translation key of its name and `n` the number it shows (`else if 2`); a port

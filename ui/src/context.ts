@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { AppInfo, DeviceInfo, NodeKind, NodeStatus, NodeType, SoundLibrary } from './types.ts';
+import type { AppInfo, DeviceInfo, NodeKind, NodeStatus, SoundLibrary } from './types.ts';
 
 /** What every block card needs from the editor. */
 export type EditorContext = {
@@ -15,7 +15,6 @@ export type EditorContext = {
   /** Changes the settings of a block (its kind stays). */
   update: (id: string, kind: NodeKind) => void;
   /** Makes a block another kind of its family (the drop-down): settings reset, links follow where they still fit. */
-  changeKind: (id: string, type: NodeType) => void;
   /** Gives a block the name people see (free text; empty text means no name). Its identifier never changes. */
   setDisplay: (id: string, text: string) => void;
   /** Shows `count` input points on a block that sums its inputs (never fewer than it has links on). */
