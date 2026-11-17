@@ -7,14 +7,13 @@ import type { ModuleInfo } from '../types.ts';
 
 type Props = {
   daemon: ReturnType<typeof api>;
-  onClose: () => void;
   notify: (text: string) => void;
 };
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** The panel of the optional modules: components that are not part of the program and that people switch on. */
-export function Modules({ daemon, onClose, notify }: Props) {
+export function Modules({ daemon, notify }: Props) {
   const t = useT();
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [busy, setBusy] = useState(false);
@@ -54,10 +53,6 @@ export function Modules({ daemon, onClose, notify }: Props) {
     <aside className="boards modules" aria-label={t('modules.title')}>
       <header>
         <h2>{t('modules.title')}</h2>
-        <span className="spacer" />
-        <button className="plain" aria-label={t('app.close')} onClick={onClose}>
-          ×
-        </button>
       </header>
       <p className="muted">{t('modules.intro')}</p>
       {modules.map((m) => {

@@ -27,8 +27,8 @@
   "app.changedElsewhere": "The graph was changed elsewhere. Apply to overwrite it, or Revert to load it.",
   "app.noProvider": "This system has no virtual audio devices yet: a “Virtual microphone” or “Virtual speakers” block stays silent{error}. Send to a playback device instead, or install the USB/IP client.",
   "app.emptyTitle": "No block yet.",
-  "app.emptyHint": "Add an Input and an Output from the left, link them, then press Apply.",
-  "app.add": "Add a block",
+  "app.emptyHint": "Add an Input and an Output from the bar above, link them, then press Apply.",
+  "app.tabNodes": "Nodes",
   "app.close": "Close",
 
   "category.input": "Input",

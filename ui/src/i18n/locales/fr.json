@@ -27,8 +27,8 @@
   "app.changedElsewhere": "Le graphe a été modifié ailleurs. Appliquez pour l’écraser, ou Annulez pour le recharger.",
   "app.noProvider": "Ce système n’a pas encore de périphériques audio virtuels : un bloc « Micro virtuel » ou « Haut-parleurs virtuels » reste muet{error}. Envoyez plutôt vers un périphérique de lecture, ou installez le client USB/IP.",
   "app.emptyTitle": "Aucun bloc pour l’instant.",
-  "app.emptyHint": "Ajoutez une Entrée et une Sortie depuis la gauche, reliez-les, puis cliquez sur Appliquer.",
-  "app.add": "Ajouter un bloc",
+  "app.emptyHint": "Ajoutez une Entrée et une Sortie depuis la barre du dessus, reliez-les, puis cliquez sur Appliquer.",
+  "app.tabNodes": "Nœuds",
   "app.close": "Fermer",
 
   "category.input": "Entrée",

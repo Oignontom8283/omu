@@ -5,12 +5,11 @@ import type { Settings } from '../types.ts';
 
 type Props = {
   daemon: ReturnType<typeof api>;
-  onClose: () => void;
   notify: (text: string) => void;
 };
 
 /** The settings of the program itself (not of one block): for now, whether its icon is in the notification area. */
-export function SettingsPanel({ daemon, onClose, notify }: Props) {
+export function SettingsPanel({ daemon, notify }: Props) {
   const t = useT();
   const [settings, setSettings] = useState<Settings | null>(null);
 
@@ -34,10 +33,6 @@ export function SettingsPanel({ daemon, onClose, notify }: Props) {
     <aside className="boards settings" aria-label={t('settings.title')}>
       <header>
         <h2>{t('settings.title')}</h2>
-        <span className="spacer" />
-        <button className="plain" aria-label={t('app.close')} onClick={onClose}>
-          ×
-        </button>
       </header>
       {settings && (
         <label className="check" title={t('settings.trayHint')}>
