@@ -4,6 +4,13 @@
 
 import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKind, NodeLayout, NodeSpec, NodeType } from './types.ts';
 
+/** The gap of the editor's grid, in pixels: blocks snap to it and the rows of their ports are as high. */
+export const GRID = 24;
+/** The gap between two blocks side by side, the size of a dot of the grid: a block is its cells less this gap. */
+export const GAP = 4;
+/** A block is ten cells wide. */
+export const NODE_WIDTH = 10 * GRID;
+
 /**
  * A port of a block. `label` is the translation key of its name and `n` the number it shows (`else if 2`); a port
  * with `gapBefore` is drawn one row lower, so that the rows of a branch line up (`if` with `then`).
@@ -38,6 +45,24 @@ const range = (n: number): number[] => Array.from({ length: n }, (_, i) => i + 1
 export function branchCount(kind: KindLike): number {
   const n = kind.branches;
   return Number.isInteger(n) ? Math.max(1, Math.min(MAX_BRANCHES, n as number)) : 1;
+}
+
+/**
+ * The groups of rows a block draws on an orange zone: what belongs together logically. Rows are counted from the first
+ * row of the port columns (a `gapBefore` port takes the row of its gap). A branch groups its conditions with the sounds
+ * they send (and the `else`); a select groups each sound with its condition, and the `else` stands alone.
+ */
+export function zonesOf(kind: KindLike): { start: number; rows: number }[] {
+  switch (kind.type) {
+    case 'branch':
+      return [{ start: 1, rows: branchCount(kind) + 1 }];
+    case 'select': {
+      const n = branchCount(kind);
+      return [...range(n).map((k) => ({ start: (k - 1) * 2, rows: 2 })), { start: n * 2, rows: 1 }];
+    }
+    default:
+      return [];
+  }
 }
 
 /** The `if` / `else if` condition inputs `when1`.. of a branching block: the first one is the `if`. */
@@ -321,10 +346,11 @@ export function depths(graph: GraphSpec): Map<string, number> {
   return depth;
 }
 
-export const COLUMN_WIDTH = 300;
+// whole numbers of grid cells, so that a block placed here has its rows of ports on the grid
+export const COLUMN_WIDTH = 12 * GRID;
 /** Room left for the palette that floats over the top left of the canvas. */
-export const LEFT_MARGIN = 250;
-export const ROW_HEIGHT = 230;
+export const LEFT_MARGIN = 10 * GRID;
+export const ROW_HEIGHT = 10 * GRID;
 
 /** Places the nodes that have no saved position; saved positions are kept. */
 export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; edges: FlowEdge[] } {
@@ -336,7 +362,7 @@ export function toFlow(graph: GraphSpec, layout: Layout): { nodes: FlowNode[]; e
       const col = depth.get(spec.id) ?? 0;
       const row = rowsInColumn.get(col) ?? 0;
       rowsInColumn.set(col, row + 1);
-      position = { x: LEFT_MARGIN + col * COLUMN_WIDTH, y: 40 + row * ROW_HEIGHT };
+      position = { x: LEFT_MARGIN + col * COLUMN_WIDTH, y: 2 * GRID + row * ROW_HEIGHT };
     }
     return { id: spec.id, position: { x: position.x, y: position.y }, spec };
   });

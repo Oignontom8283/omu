@@ -34,7 +34,6 @@ type Props = {
   shown: GraphSpec;
   /** The board to show first. */
   initialBoard?: string;
-  onClose: () => void;
   /** Adds a soundboard block for this board to the editor. */
   onAddBlock: (board: string) => void;
   notify: (text: string) => void;
@@ -45,7 +44,7 @@ type Props = {
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** The panel of the soundboards: boards, their pads, the sounds, and the memory they may use. */
-export function Soundboards({ daemon, token, library, setLibrary, applied, shown, initialBoard, onClose, onAddBlock, notify, onOpenModules }: Props) {
+export function Soundboards({ daemon, token, library, setLibrary, applied, shown, initialBoard, onAddBlock, notify, onOpenModules }: Props) {
   const t = useT();
   const [boardId, setBoardId] = useState<string | undefined>(initialBoard ?? library.boards[0]?.id);
   const [playing, setPlaying] = useState<string[]>([]);
@@ -317,10 +316,6 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
     >
       <header>
         <h2>{t('soundboards.title')}</h2>
-        <span className="spacer" />
-        <button className="plain" aria-label={t('app.close')} onClick={onClose}>
-          ×
-        </button>
       </header>
 
       <div className="row">

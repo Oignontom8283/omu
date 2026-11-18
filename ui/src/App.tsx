@@ -11,23 +11,25 @@ import {
   type Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findToken, startDaemon, type Connection } from './api.ts';
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
-import { Palette } from './components/Palette.tsx';
+import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { Modules } from './components/Modules.tsx';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { Soundboards } from './components/Soundboards.tsx';
 import {
+  GAP,
+  GRID,
   KINDS_BY_CATEGORY,
+  NODE_WIDTH,
   canConnect,
   canonical,
   categoryOf,
   defaultKind,
   baseHandle,
   edgeId,
-  edgesAfterKindChange,
   flowOfEdge,
   fromFlow,
   newId,
@@ -42,6 +44,19 @@ import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, No
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
+
+const snapToGrid = (v: number) => Math.round(v / GRID) * GRID;
+/** The top left corner of a block that is centred, as far as the grid allows, on point `p` of the graph. */
+const cornerFor = (p: { x: number; y: number }) => ({ x: snapToGrid(p.x - NODE_WIDTH / 2), y: snapToGrid(p.y - GRID) });
+
+/** The tabs of the top bar: the graph, then the places that were panels over it. */
+type Tab = 'nodes' | 'soundboards' | 'modules' | 'settings';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'nodes', label: 'app.tabNodes' },
+  { id: 'soundboards', label: 'soundboards.title' },
+  { id: 'modules', label: 'modules.title' },
+  { id: 'settings', label: 'settings.title' },
+];
 
 function message(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -74,12 +89,11 @@ export function App() {
   const [cleaning, setCleaning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showJson, setShowJson] = useState(false);
-  // the soundboards the daemon keeps, and the panel that edits them (`first`: the board it opens on)
+  // the soundboards the daemon keeps; `boardsFirst` is the board the soundboards tab opens on
   const [library, setLibrary] = useState<SoundLibrary>({ sounds: [], boards: [] });
-  const [boardsPanel, setBoardsPanel] = useState<{ first?: string } | null>(null);
-  // the panel of the optional modules (FFmpeg); it and the soundboards panel share the right side, one at a time
-  const [modulesPanel, setModulesPanel] = useState(false);
-  const [settingsPanel, setSettingsPanel] = useState(false);
+  const [boardsFirst, setBoardsFirst] = useState<string | undefined>(undefined);
+  // the tab shown: the graph, the soundboards, the optional modules (FFmpeg) or the settings
+  const [tab, setTab] = useState<Tab>('nodes');
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
@@ -254,20 +268,31 @@ export function App() {
     }
   };
 
-  const addNode = (category: Category, kind?: NodeKind) => {
+  /** Adds a block of `category` (its first kind unless `kind` is given), at `at` (a point of the graph) or in the middle of the view. Returns its identifier. */
+  const addNode = (category: Category, kind?: NodeKind, at?: { x: number; y: number }): string => {
     const type = KINDS_BY_CATEGORY[category][0];
     // a random identifier: the name people give a block is a separate thing (its display name)
     const id = newId();
-    // start at the middle of the view and slide away from the blocks already there
-    const p = flow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-    const position = { x: p.x - 115, y: p.y - 70 };
-    while (nodesRef.current.some((n) => Math.abs(n.position.x - position.x) < 40 && Math.abs(n.position.y - position.y) < 40)) {
-      position.x += 40;
-      position.y += 40;
+    const position = cornerFor(at ?? flow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 }));
+    // from the middle of the view: slide away from the blocks already there
+    while (!at && nodesRef.current.some((n) => Math.abs(n.position.x - position.x) < 2 * GRID && Math.abs(n.position.y - position.y) < 2 * GRID)) {
+      position.x += 2 * GRID;
+      position.y += 2 * GRID;
     }
     const node: OmuNode = { id, type: 'omu', position, data: { spec: { id, ...(kind ?? defaultKind(type)) } } };
     setNodes((list) => [...list, node]);
     saveLayout([...nodesRef.current, node]);
+    return id;
+  };
+
+  // a block dragged out of the tray: made where the pointer is, then moved with it
+  const dragIn: DragIn = {
+    begin: (type, x, y) => addNode(categoryOf(type), defaultKind(type), flow.screenToFlowPosition({ x, y })),
+    move: (id, x, y) => {
+      const position = cornerFor(flow.screenToFlowPosition({ x, y }));
+      setNodes((list) => list.map((n) => (n.id === id && (n.position.x !== position.x || n.position.y !== position.y) ? { ...n, position } : n)));
+    },
+    end: () => saveLayout(),
   };
 
   const autoLayout = () => {
@@ -302,25 +327,13 @@ export function App() {
       apps,
       devices,
       library,
-      openModules: () => {
-        setBoardsPanel(null);
-        setSettingsPanel(false);
-        setModulesPanel(true);
-      },
+      openModules: () => setTab('modules'),
       openSoundboards: (first?: string) => {
-        setModulesPanel(false);
-        setSettingsPanel(false);
-        setBoardsPanel({ first });
+        setBoardsFirst(first);
+        setTab('soundboards');
       },
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
       update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...named(n.data.spec), ...kind } } } : n))),
-      changeKind: (id: string, type: NodeType) => {
-        const plain = nodesRef.current.map((n) => ({ id: n.id, spec: n.data.spec }));
-        setEdges(edgesAfterKindChange(plain, edgesRef.current.map(asEdge), id, type));
-        // a soundboard block starts on the first soundboard there is
-        const fresh = type === 'soundboard' ? { type, board: library.boards[0]?.id ?? '' } : defaultKind(type);
-        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { spec: { id, ...named(n.data.spec), ...fresh } } } : n)));
-      },
       setInputs: (id: string, count: number) => {
         setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, inputs: Math.max(1, Math.min(MAX_ENTRIES, count)) } } : n)));
       },
@@ -349,9 +362,16 @@ export function App() {
 
   return (
     <Editor.Provider value={context}>
-      <div className="app">
+      <div className="app" style={{ '--grid': `${GRID}px`, '--gap': `${GAP}px`, '--node-width': `${NODE_WIDTH}px` } as CSSProperties}>
         <header className="topbar">
           <strong>{PRODUCT_NAME}</strong>
+          <nav className="tabs">
+            {TABS.map((x) => (
+              <button key={x.id} className={`${tab === x.id ? 'on' : ''}${x.id === 'nodes' && dirty ? ' dirty' : ''}`} aria-current={tab === x.id ? 'page' : undefined} onClick={() => setTab(x.id)}>
+                {t(x.label)}
+              </button>
+            ))}
+          </nav>
           <span className={`pill ${conn}`}>{t(connLabel)}</span>
           {info && (
             <span className="muted" title={`protocol ${info.protocol_version}`}>
@@ -372,42 +392,6 @@ export function App() {
             <option value="light">{t('app.themeLight')}</option>
             <option value="dark">{t('app.themeDark')}</option>
           </select>
-          <button
-            onClick={() => {
-              setModulesPanel(false);
-              setSettingsPanel(false);
-              setBoardsPanel((p) => (p ? null : {}));
-            }}
-            className={boardsPanel ? 'on' : ''}
-          >
-            {t('soundboards.title')}
-          </button>
-          <button
-            onClick={() => {
-              setBoardsPanel(null);
-              setSettingsPanel(false);
-              setModulesPanel((v) => !v);
-            }}
-            className={modulesPanel ? 'on' : ''}
-          >
-            {t('modules.title')}
-          </button>
-          <button
-            onClick={() => {
-              setBoardsPanel(null);
-              setModulesPanel(false);
-              setSettingsPanel((v) => !v);
-            }}
-            className={settingsPanel ? 'on' : ''}
-          >
-            {t('settings.title')}
-          </button>
-          <button onClick={autoLayout} disabled={nodes.length === 0}>
-            {t('app.tidy')}
-          </button>
-          <button onClick={() => setShowJson((v) => !v)} className={showJson ? 'on' : ''}>
-            {t('app.json')}
-          </button>
           {status?.running ? (
             <button onClick={stopEngine} disabled={conn !== 'open'}>
               {t('app.stopEngine')}
@@ -425,13 +409,24 @@ export function App() {
           <button className={confirmShutdown ? 'danger' : ''} onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
             {confirmShutdown ? t('app.stopDaemonConfirm') : t('app.stopDaemon')}
           </button>
-          <button onClick={revert} disabled={conn !== 'open' || !dirty}>
-            {t('app.revert')}
-          </button>
-          <button className="primary" onClick={apply} disabled={conn !== 'open' || busy || !dirty}>
-            {busy ? t('app.applying') : dirty ? t('app.apply') : t('app.applied')}
-          </button>
         </header>
+
+        {tab === 'nodes' && (
+          <BlocksBar drag={dragIn}>
+            <button onClick={autoLayout} disabled={nodes.length === 0}>
+              {t('app.tidy')}
+            </button>
+            <button onClick={() => setShowJson((v) => !v)} className={showJson ? 'on' : ''}>
+              {t('app.json')}
+            </button>
+            <button onClick={revert} disabled={conn !== 'open' || !dirty}>
+              {t('app.revert')}
+            </button>
+            <button className="primary" onClick={apply} disabled={conn !== 'open' || busy || !dirty}>
+              {busy ? t('app.applying') : dirty ? t('app.apply') : t('app.applied')}
+            </button>
+          </BlocksBar>
+        )}
 
         {(problems.length > 0 || notice || noProvider || (IN_DESKTOP_WINDOW && conn === 'closed')) && (
           <div className="banners">
@@ -474,7 +469,6 @@ export function App() {
         )}
 
         <div className="canvas">
-          <Palette onAdd={addNode} />
           <ReactFlow
             nodes={nodes}
             edges={shownEdges}
@@ -485,38 +479,39 @@ export function App() {
             isValidConnection={isValidConnection}
             onNodeDragStop={() => saveLayout()}
             deleteKeyCode={['Backspace', 'Delete']}
+            snapToGrid
+            snapGrid={[GRID, GRID]}
             fitView
             fitViewOptions={{ padding: 0.3, maxZoom: 1 }}
             minZoom={0.2}
             colorMode={resolved}
             proOptions={{ hideAttribution: true }}
           >
-            <Background gap={24} />
+            {/* the dots are drawn half a cell off the blocks' origin by default: bring their centres back on the multiples of the cell, where the blocks' sides and the ports are */}
+            <Background gap={GRID} size={GAP} offset={GAP / 2 - GRID / 2} color="var(--line)" />
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable nodeColor={(n) => `var(--cat-${categoryOf((n.data as { spec: { type: NodeType } }).spec.type)})`} />
           </ReactFlow>
-          {boardsPanel && (
+          {tab === 'soundboards' && (
             <Soundboards
-              key={boardsPanel.first ?? ''}
+              key={boardsFirst ?? ''}
               daemon={daemon}
               token={rpc.token}
               library={library}
               setLibrary={setLibrary}
               applied={applied}
               shown={graph}
-              initialBoard={boardsPanel.first}
-              onClose={() => setBoardsPanel(null)}
-              onAddBlock={(board) => addNode('input', { type: 'soundboard', board })}
-              notify={setNotice}
-              onOpenModules={() => {
-                setBoardsPanel(null);
-                setSettingsPanel(false);
-                setModulesPanel(true);
+              initialBoard={boardsFirst}
+              onAddBlock={(board) => {
+                addNode('input', { type: 'soundboard', board });
+                setTab('nodes');
               }}
+              notify={setNotice}
+              onOpenModules={() => setTab('modules')}
             />
           )}
-          {modulesPanel && <Modules daemon={daemon} onClose={() => setModulesPanel(false)} notify={setNotice} />}
-          {settingsPanel && <SettingsPanel daemon={daemon} onClose={() => setSettingsPanel(false)} notify={setNotice} />}
+          {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}
+          {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} />}
           {showJson && <textarea className="json" readOnly value={JSON.stringify(graph, null, 2)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">
