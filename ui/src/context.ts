@@ -15,6 +15,10 @@ export type EditorContext = {
   /** Changes the settings of a block (its kind stays). */
   update: (id: string, kind: NodeKind) => void;
   /** Makes a block another kind of its family (the drop-down): settings reset, links follow where they still fit. */
+  /** Opens the information window of a block, next to the point `anchor` of the screen. */
+  openHelp: (id: string, anchor: { x: number; y: number }) => void;
+  /** Takes a block out of the graph, with its links. */
+  removeNode: (id: string) => void;
   /** Gives a block the name people see (free text; empty text means no name). Its identifier never changes. */
   setDisplay: (id: string, text: string) => void;
   /** Shows `count` input points on a block that sums its inputs (never fewer than it has links on). */

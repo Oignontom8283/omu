@@ -103,7 +103,11 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
           ))}
         </select>
       </label>
-      {!known && spec.board !== '' && <small className="warn">{t('field.soundboardMissing')}</small>}
+      {!known && spec.board !== '' && (
+        <small className="warn" title={t('field.soundboardMissing')}>
+          {t('field.notFound')}
+        </small>
+      )}
       {triggers.map((pad, i) => {
         const linked = edges.some((e) => e.target === spec.id && e.targetHandle === `play${i + 1}`);
         const last = i === triggers.length - 1;
@@ -131,7 +135,6 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
       <button className="mini wide nodrag" onClick={() => openSoundboards(known ? spec.board : undefined)}>
         {t('soundboards.open')}
       </button>
-      <small className="hint">{t('kind.soundboard.hint')}</small>
     </>
   );
 }
@@ -174,7 +177,6 @@ function DeepFilterEditor({ spec }: { spec: Of<'deep_filter'> }) {
       <button className="mini wide nodrag" onClick={openModules}>
         {t('modules.open')}
       </button>
-      <small className="hint">{t('kind.deep_filter.hint')}</small>
     </>
   );
 }
@@ -205,7 +207,6 @@ function Params({ spec }: { spec: NodeSpec }) {
           <PortField label="field.listenPort" value={spec.port} onChange={(port) => update(spec.id, { ...spec, port })} />
           <TextField label="field.streamName" value={spec.stream ?? ''} placeholder={t('field.anyStream')} onChange={(stream) => update(spec.id, { ...spec, stream })} />
           <TextField label="field.fromComputer" value={spec.from ?? ''} placeholder={t('field.anyComputer')} onChange={(from) => update(spec.id, { ...spec, from })} />
-          <small className="hint">{t('kind.network_in.hint')}</small>
         </>
       );
     case 'network_out':
@@ -214,7 +215,6 @@ function Params({ spec }: { spec: NodeSpec }) {
           <TextField label="field.sendTo" value={spec.host} placeholder="192.168.1.20" onChange={(host) => update(spec.id, { ...spec, host })} />
           <PortField label="field.sendPort" value={spec.port} onChange={(port) => update(spec.id, { ...spec, port })} />
           <TextField label="field.streamName" value={spec.stream ?? ''} placeholder="Stream1" onChange={(stream) => update(spec.id, { ...spec, stream })} />
-          <small className="hint">{t('kind.network_out.hint')}</small>
         </>
       );
     case 'virtual_mic':
@@ -285,12 +285,7 @@ function Params({ spec }: { spec: NodeSpec }) {
       return <MsField label="field.after" value={spec.ms} max={60000} onChange={(ms) => update(spec.id, { type: 'after', ms })} />;
     case 'branch':
     case 'select':
-      return (
-        <>
-          <Branches spec={spec} />
-          <small className="hint">{t(`kind.${spec.type}.hint`)}</small>
-        </>
-      );
+      return <Branches spec={spec} />;
     case 'mixer':
     case 'gate':
     case 'noise_reduction':
@@ -298,7 +293,7 @@ function Params({ spec }: { spec: NodeSpec }) {
     case 'all':
     case 'any':
     case 'change':
-      return <small className="hint">{t(`kind.${spec.type}.hint`)}</small>;
+      return null;
   }
 }
 
@@ -439,7 +434,7 @@ function Footer({ spec }: { spec: NodeSpec }) {
       )}
       {failed ? (
         <small className="warn message" title={status.message}>
-          {status.message}
+          {t('status.failed')}
         </small>
       ) : (
         (category === 'input' || category === 'output' || category === 'processing') && <Meter peak={status?.peak ?? 0} off={!status} />
@@ -482,7 +477,7 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
   const t = useT();
   const spec = data.spec;
   const category = categoryOf(spec.type);
-  const { library } = useEditor();
+  const { library, openHelp, removeNode } = useEditor();
   const ports = portsOf(spec);
   const failed = statusOf(spec.id)?.state === 'failed';
   // the action inputs of a soundboard block are named after the pads they play
@@ -496,8 +491,31 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
   return (
     <GridBox className={`node cat-${category}${selected ? ' selected' : ''}${failed ? ' failed' : ''}`}>
       <header>
-        <div className="bar" title={t(`kind.${spec.type}.hint`)}>
-          {t(`kind.${spec.type}`)}
+        <div className="bar">
+          <span className="bar-label">{t(`kind.${spec.type}`)}</span>
+          <span className="bar-actions nodrag">
+            <button
+              className="bar-btn"
+              title={t('block.help')}
+              aria-label={t('block.help')}
+              onClick={(e) => {
+                // next to the block, not over it
+                const r = (e.currentTarget.closest('.node') ?? e.currentTarget).getBoundingClientRect();
+                openHelp(spec.id, { x: r.right + 12, y: r.top });
+              }}
+            >
+              <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
+                <circle cx="6" cy="6" r="4.9" fill="none" stroke="currentColor" strokeWidth="1" />
+                <circle cx="6" cy="3.5" r="0.75" fill="currentColor" />
+                <path d="M6 5.4v3.3" stroke="currentColor" strokeWidth="1.1" fill="none" />
+              </svg>
+            </button>
+            <button className="bar-btn close" title={t('block.remove')} aria-label={t('block.remove')} onClick={() => removeNode(spec.id)}>
+              <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
+                <path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" strokeWidth="1.1" fill="none" />
+              </svg>
+            </button>
+          </span>
         </div>
         <div className="name">
           <NameField spec={spec} />
