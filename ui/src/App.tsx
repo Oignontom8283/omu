@@ -15,7 +15,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findToken, startDaemon, type Connection } from './api.ts';
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
+import { Doc, docKey, type DocRef } from './components/BlockHelp.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
+import { FloatingWindow } from './components/FloatingWindow.tsx';
 import { Modules } from './components/Modules.tsx';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { Soundboards } from './components/Soundboards.tsx';
@@ -94,6 +96,8 @@ export function App() {
   const [boardsFirst, setBoardsFirst] = useState<string | undefined>(undefined);
   // the tab shown: the graph, the soundboards, the optional modules (FFmpeg) or the settings
   const [tab, setTab] = useState<Tab>('nodes');
+  // the information windows that are open, the last one in front
+  const [helps, setHelps] = useState<{ key: string; doc: DocRef; x: number; y: number }[]>([]);
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
@@ -322,6 +326,16 @@ export function App() {
     [],
   );
 
+  // opens the documentation window of an object (or brings it to the front when it is open), near a point of the screen
+  const openDoc = useCallback((doc: DocRef, anchor: { x: number; y: number }) => {
+    const key = docKey(doc);
+    setHelps((list) => {
+      const open = list.find((h) => h.key === key);
+      const at = { x: Math.max(4, Math.min(window.innerWidth - 500, anchor.x)), y: Math.max(4, Math.min(window.innerHeight - 220, anchor.y)) };
+      return [...list.filter((h) => h.key !== key), open ?? { key, doc, ...at }];
+    });
+  }, []);
+
   const context: EditorContext = useMemo(
     () => ({
       apps,
@@ -333,6 +347,8 @@ export function App() {
         setTab('soundboards');
       },
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
+      openHelp: (id: string, anchor: { x: number; y: number }) => openDoc({ kind: 'node', node: id }, anchor),
+      removeNode: (id: string) => void flow.deleteElements({ nodes: [{ id }] }),
       update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...named(n.data.spec), ...kind } } } : n))),
       setInputs: (id: string, count: number) => {
         setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, inputs: Math.max(1, Math.min(MAX_ENTRIES, count)) } } : n)));
@@ -347,8 +363,14 @@ export function App() {
           }),
         ),
     }),
-    [apps, devices, library, status, setNodes, setEdges],
+    [apps, devices, library, status, flow, openDoc, setNodes, setEdges],
   );
+
+  // the window of a block that is gone goes with it
+  useEffect(() => {
+    const gone = (h: { doc: DocRef }) => h.doc.kind === 'node' && !nodes.some((n) => n.id === (h.doc as { node: string }).node);
+    setHelps((list) => (list.some(gone) ? list.filter((h) => !gone(h)) : list));
+  }, [nodes]);
 
   // each edge is drawn in the colour of the flow it carries
   const plainNodes = useMemo(() => nodes.map((n) => ({ id: n.id, spec: n.data.spec })), [nodes]);
@@ -492,6 +514,27 @@ export function App() {
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable nodeColor={(n) => `var(--cat-${categoryOf((n.data as { spec: { type: NodeType } }).spec.type)})`} />
           </ReactFlow>
+          {tab === 'nodes' &&
+            helps.map((h, order) => {
+              const spec = h.doc.kind === 'node' ? nodes.find((n) => n.id === (h.doc as { node: string }).node)?.data.spec : undefined;
+              if (h.doc.kind === 'node' && !spec) return null;
+              const category = h.doc.kind === 'type' ? undefined : categoryOf(h.doc.kind === 'node' ? spec!.type : h.doc.type);
+              return (
+                <FloatingWindow
+                  key={h.key}
+                  className={category ? `cat-${category}` : ''}
+                  title={t('help.title')}
+                  x={h.x}
+                  y={h.y}
+                  order={order}
+                  onMove={(x, y) => setHelps((list) => list.map((w) => (w.key === h.key ? { ...w, x, y } : w)))}
+                  onFocus={() => setHelps((list) => (list[list.length - 1]?.key === h.key ? list : [...list.filter((w) => w.key !== h.key), list.find((w) => w.key === h.key)!]))}
+                  onClose={() => setHelps((list) => list.filter((w) => w.key !== h.key))}
+                >
+                  <Doc doc={h.doc} spec={spec} onOpen={(ref) => openDoc(ref, { x: h.x + 28, y: h.y + 28 })} />
+                </FloatingWindow>
+              );
+            })}
           {tab === 'soundboards' && (
             <Soundboards
               key={boardsFirst ?? ''}
