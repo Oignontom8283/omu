@@ -16,6 +16,8 @@ import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findT
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Doc, docKey, type DocRef } from './components/BlockHelp.tsx';
+import { CommandPalette, type PaletteItem } from './components/CommandPalette.tsx';
+import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
 import { Modules } from './components/Modules.tsx';
@@ -25,6 +27,7 @@ import {
   GAP,
   GRID,
   KINDS_BY_CATEGORY,
+  NODE_TYPES,
   NODE_WIDTH,
   canConnect,
   canonical,
@@ -40,8 +43,9 @@ import {
   MAX_ENTRIES,
   toFlow,
 } from './graph.ts';
-import { LANGUAGES, languageName, useI18n } from './i18n/index.tsx';
-import { useTheme, type ThemeChoice } from './theme.tsx';
+import { useI18n } from './i18n/index.tsx';
+import { SETTING_DECLS } from './settingsRegistry.ts';
+import { useTheme } from './theme.tsx';
 import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
@@ -73,8 +77,8 @@ export function App() {
   const rpc = useMemo(() => new Rpc(findToken()), []);
   const daemon = useMemo(() => api(rpc), [rpc]);
   const flow = useReactFlow();
-  const { t, language, setLanguage } = useI18n();
-  const { choice, setChoice, resolved } = useTheme();
+  const { t } = useI18n();
+  const { resolved } = useTheme();
 
   const [conn, setConn] = useState<Connection>('connecting');
   const [info, setInfo] = useState<SystemInfo | null>(null);
@@ -98,6 +102,11 @@ export function App() {
   const [tab, setTab] = useState<Tab>('nodes');
   // the information windows that are open, the last one in front
   const [helps, setHelps] = useState<{ key: string; doc: DocRef; x: number; y: number }[]>([]);
+  // the search bar (everything, or only the blocks to add, at a point of the graph), the setting it sent us to, the menu of a right click
+  const [palette, setPalette] = useState<{ mode: 'all' | 'block'; at?: { x: number; y: number } } | null>(null);
+  const [settingFocus, setSettingFocus] = useState<{ id: string; nonce: number } | undefined>(undefined);
+  const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  const pointer = useRef<{ x: number; y: number } | null>(null);
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
@@ -326,6 +335,31 @@ export function App() {
     [],
   );
 
+  // opens the search bar; to add blocks it remembers where the pointer is over the graph, to put them there
+  const openPalette = (mode: 'all' | 'block', at?: { x: number; y: number }) => {
+    const p = pointer.current;
+    const canvas = document.querySelector('.canvas')?.getBoundingClientRect();
+    const inside = p && canvas && p.x >= canvas.left && p.x <= canvas.right && p.y >= canvas.top && p.y <= canvas.bottom;
+    setPalette({ mode, at: at ?? (inside && tab === 'nodes' ? flow.screenToFlowPosition(p) : undefined) });
+  };
+
+  // F1 and Ctrl+Shift+P open the search bar; R, when no text is being typed, opens it to add a block
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
+      if (e.key === 'F1' || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p')) {
+        e.preventDefault();
+        openPalette('all');
+      } else if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'r' && tab === 'nodes') {
+        e.preventDefault();
+        openPalette('block');
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   // opens the documentation window of an object (or brings it to the front when it is open), near a point of the screen
   const openDoc = useCallback((doc: DocRef, anchor: { x: number; y: number }) => {
     const key = docKey(doc);
@@ -372,6 +406,42 @@ export function App() {
     setHelps((list) => (list.some(gone) ? list.filter((h) => !gone(h)) : list));
   }, [nodes]);
 
+  // what the search bar offers: the commands, the settings (declared in `settingsRegistry.ts`) and every kind of block
+  const paletteItems: PaletteItem[] = palette
+    ? [
+        ...TABS.map((x): PaletteItem => ({ id: `go-${x.id}`, kind: 'command', label: t('palette.goTo', { name: t(x.label) }), icon: 'arrow', run: () => setTab(x.id) })),
+        ...(dirty ? [{ id: 'apply', kind: 'command' as const, label: t('app.apply'), icon: 'check' as const, run: () => void apply() }, { id: 'revert', kind: 'command' as const, label: t('app.revert'), icon: 'undo' as const, run: revert }] : []),
+        { id: 'tidy', kind: 'command', label: t('app.tidy'), icon: 'grid', run: autoLayout },
+        { id: 'json', kind: 'command', label: t('app.json'), icon: 'braces', run: () => setShowJson((v) => !v) },
+        status?.running
+          ? { id: 'engine', kind: 'command', label: t('app.stopEngine'), icon: 'stop', run: () => void stopEngine() }
+          : { id: 'engine', kind: 'command', label: t('app.startEngine'), icon: 'play', run: () => void startEngine() },
+        ...SETTING_DECLS.map((d): PaletteItem => ({
+          id: `setting-${d.id}`,
+          kind: 'setting',
+          icon: 'gear',
+          label: t(d.label),
+          keywords: d.hint ? t(d.hint) : undefined,
+          run: () => {
+            setTab('settings');
+            setSettingFocus({ id: d.id, nonce: Date.now() });
+          },
+        })),
+        ...NODE_TYPES.map((type): PaletteItem => ({
+          id: `block-${type}`,
+          kind: 'block',
+          label: t(`kind.${type}`),
+          family: categoryOf(type),
+          // the words of its explanation find it too, without the marks of the links
+          keywords: t(`kind.${type}.hint`).replace(/\[([^\]]+)\]\([^)]*\)/g, '$1'),
+          run: () => {
+            setTab('nodes');
+            addNode(categoryOf(type), defaultKind(type), palette.at);
+          },
+        })),
+      ]
+    : [];
+
   // each edge is drawn in the colour of the flow it carries
   const plainNodes = useMemo(() => nodes.map((n) => ({ id: n.id, spec: n.data.spec })), [nodes]);
   const shownEdges = useMemo(
@@ -402,18 +472,9 @@ export function App() {
           )}
           {status && <span className={`pill ${status.running ? 'open' : 'closed'}`}>{t(status.running ? 'app.engineRunning' : 'app.engineStopped')}</span>}
           <span className="spacer" />
-          <select aria-label={t('app.language')} value={language} onChange={(e) => setLanguage(e.target.value)}>
-            {LANGUAGES.map((code) => (
-              <option key={code} value={code}>
-                {languageName(code)}
-              </option>
-            ))}
-          </select>
-          <select aria-label={t('app.theme')} value={choice} onChange={(e) => setChoice(e.target.value as ThemeChoice)}>
-            <option value="system">{t('app.themeSystem')}</option>
-            <option value="light">{t('app.themeLight')}</option>
-            <option value="dark">{t('app.themeDark')}</option>
-          </select>
+          <button className="search-button" onClick={() => openPalette('all')} title={t('palette.title')}>
+            {t('palette.open')} <kbd>F1</kbd>
+          </button>
           {status?.running ? (
             <button onClick={stopEngine} disabled={conn !== 'open'}>
               {t('app.stopEngine')}
@@ -490,7 +551,7 @@ export function App() {
           </div>
         )}
 
-        <div className="canvas">
+        <div className="canvas" onPointerMove={(e) => (pointer.current = { x: e.clientX, y: e.clientY })}>
           <ReactFlow
             nodes={nodes}
             edges={shownEdges}
@@ -500,6 +561,22 @@ export function App() {
             onConnect={onConnect}
             isValidConnection={isValidConnection}
             onNodeDragStop={() => saveLayout()}
+            onPaneContextMenu={(e) => {
+              e.preventDefault();
+              const at = flow.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+              setMenu({ x: e.clientX, y: e.clientY, items: [{ label: t('palette.addBlockMenu'), run: () => setPalette({ mode: 'block', at }) }, { label: t('app.tidy'), run: autoLayout }] });
+            }}
+            onNodeContextMenu={(e, node) => {
+              e.preventDefault();
+              setMenu({
+                x: e.clientX,
+                y: e.clientY,
+                items: [
+                  { label: t('block.help'), run: () => openDoc({ kind: 'node', node: node.id }, { x: e.clientX + 12, y: e.clientY }) },
+                  { label: t('block.remove'), danger: true, run: () => void flow.deleteElements({ nodes: [{ id: node.id }] }) },
+                ],
+              });
+            }}
             deleteKeyCode={['Backspace', 'Delete']}
             snapToGrid
             snapGrid={[GRID, GRID]}
@@ -554,7 +631,7 @@ export function App() {
             />
           )}
           {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}
-          {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} />}
+          {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} focus={settingFocus} />}
           {showJson && <textarea className="json" readOnly value={JSON.stringify(graph, null, 2)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">
@@ -563,6 +640,8 @@ export function App() {
             </div>
           )}
         </div>
+        {palette && <CommandPalette key={palette.mode} items={paletteItems} mode={palette.mode} onClose={() => setPalette(null)} />}
+        {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       </div>
     </Editor.Provider>
   );
