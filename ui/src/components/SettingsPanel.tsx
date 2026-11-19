@@ -1,17 +1,26 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { api } from '../api.ts';
-import { useT } from '../i18n/index.tsx';
+import { LANGUAGES, languageName, useI18n } from '../i18n/index.tsx';
+import { SETTING_DECLS, SETTING_SECTIONS, type SettingDecl } from '../settingsRegistry.ts';
+import { useTheme, type ThemeChoice } from '../theme.tsx';
 import type { Settings } from '../types.ts';
 
 type Props = {
   daemon: ReturnType<typeof api>;
   notify: (text: string) => void;
+  /** A setting to show: the page scrolls to it and makes it stand out for a moment. */
+  focus?: { id: string; nonce: number };
 };
 
-/** The settings of the program itself (not of one block): for now, whether its icon is in the notification area. */
-export function SettingsPanel({ daemon, notify }: Props) {
-  const t = useT();
+/** What a setting is worth now, and how it is changed: the page's side of a declaration. */
+type Binding = { value: string | boolean; options?: { value: string; label: string }[]; set: (value: string | boolean) => void; disabled?: boolean };
+
+/** The settings of the program itself (not of one block), drawn from the declarations of `settingsRegistry.ts`. */
+export function SettingsPanel({ daemon, notify, focus }: Props) {
+  const { t, language, setLanguage } = useI18n();
+  const { choice, setChoice } = useTheme();
   const [settings, setSettings] = useState<Settings | null>(null);
+  const page = useRef<HTMLElement>(null);
 
   useEffect(() => {
     daemon.settings().then(setSettings).catch((e) => notify(e instanceof Error ? e.message : String(e)));
@@ -29,25 +38,71 @@ export function SettingsPanel({ daemon, notify }: Props) {
     }
   };
 
+  // the page goes to the setting that was asked for
+  useEffect(() => {
+    if (!focus) return;
+    const el = page.current?.querySelector<HTMLElement>(`[data-setting="${CSS.escape(focus.id)}"]`);
+    if (!el) return;
+    el.scrollIntoView({ block: 'center' });
+    el.classList.remove('flash');
+    void el.offsetWidth;
+    el.classList.add('flash');
+    const timer = window.setTimeout(() => el.classList.remove('flash'), 1800);
+    return () => window.clearTimeout(timer);
+  }, [focus]);
+
+  const bindings: Record<string, Binding> = {
+    language: { value: language, options: LANGUAGES.map((code) => ({ value: code, label: languageName(code) })), set: (v) => setLanguage(String(v)) },
+    theme: {
+      value: choice,
+      options: (['system', 'light', 'dark'] as const).map((c) => ({ value: c, label: t(c === 'system' ? 'app.themeSystem' : c === 'light' ? 'app.themeLight' : 'app.themeDark') })),
+      set: (v) => setChoice(v as ThemeChoice),
+    },
+    tray: { value: settings?.show_tray_icon ?? false, set: (v) => void change({ show_tray_icon: Boolean(v) }), disabled: !settings },
+    logon: { value: settings?.start_at_logon ?? false, set: (v) => void change({ start_at_logon: Boolean(v) }), disabled: !settings },
+  };
+
+  const control = (decl: SettingDecl) => {
+    const b = bindings[decl.id];
+    if (!b) return null;
+    if (decl.type === 'toggle') {
+      return (
+        <label className="check" title={decl.hint ? t(decl.hint) : undefined}>
+          <input type="checkbox" checked={Boolean(b.value)} disabled={b.disabled} onChange={(e) => b.set(e.target.checked)} />
+          {t(decl.label)}
+        </label>
+      );
+    }
+    return (
+      <label className="choice">
+        <span>{t(decl.label)}</span>
+        <select value={String(b.value)} disabled={b.disabled} onChange={(e) => b.set(e.target.value)}>
+          {b.options?.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    );
+  };
+
   return (
-    <aside className="boards settings" aria-label={t('settings.title')}>
+    <aside ref={page} className="boards settings" aria-label={t('settings.title')}>
       <header>
         <h2>{t('settings.title')}</h2>
       </header>
-      {settings && (
-        <label className="check" title={t('settings.trayHint')}>
-          <input type="checkbox" checked={settings.show_tray_icon} onChange={(e) => void change({ show_tray_icon: e.target.checked })} />
-          {t('settings.tray')}
-        </label>
-      )}
-      <small className="muted">{t('settings.trayHint')}</small>
-      {settings && (
-        <label className="check" title={t('settings.logonHint')}>
-          <input type="checkbox" checked={settings.start_at_logon} onChange={(e) => void change({ start_at_logon: e.target.checked })} />
-          {t('settings.logon')}
-        </label>
-      )}
-      <small className="muted">{t('settings.logonHint')}</small>
+      {SETTING_SECTIONS.map((section) => (
+        <section key={section.id}>
+          <h3>{t(section.label)}</h3>
+          {SETTING_DECLS.filter((d) => d.section === section.id).map((decl) => (
+            <div key={decl.id} className="setting" data-setting={decl.id}>
+              {control(decl)}
+              {decl.hint && <small className="muted">{t(decl.hint)}</small>}
+            </div>
+          ))}
+        </section>
+      ))}
     </aside>
   );
 }
