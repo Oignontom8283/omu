@@ -9,6 +9,7 @@ export const PRODUCT_NAME: string = __PRODUCT_NAME__;
 export type AppTarget = { pid: number } | { process_name: string };
 export type DeviceRef = 'default' | { id: string } | { name: string };
 export type LogicOp = 'and' | 'or' | 'xor' | 'not';
+export type MathOp = 'add' | 'subtract' | 'multiply' | 'divide' | 'min' | 'max';
 
 export type NodeKind =
   | { type: 'app_capture'; target: AppTarget }
@@ -37,13 +38,18 @@ export type NodeKind =
   | { type: 'after'; ms: number }
   | { type: 'hotkey'; keys: string }
   | { type: 'timer'; interval_ms: number }
-  | { type: 'change' };
+  | { type: 'change' }
+  | { type: 'text'; value: string }
+  | { type: 'integer'; value: number }
+  | { type: 'number'; value: number }
+  | { type: 'join'; template: string; args?: number }
+  | { type: 'math'; op: MathOp };
 
 export type NodeType = NodeKind['type'];
-/** The five families of blocks. */
-export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigger';
-/** The three kinds of flow between blocks. */
-export type FlowType = 'audio' | 'condition' | 'action';
+/** The six families of blocks. */
+export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigger' | 'value';
+/** The kinds of flow between blocks. */
+export type FlowType = 'audio' | 'condition' | 'action' | 'text' | 'int' | 'float';
 
 /**
  * A block of the graph. `id` is what the links call it (an editor makes a random one, a graph written by hand can use
@@ -67,6 +73,8 @@ export type NodeStatus = {
   active?: boolean | null;
   /** Actions a block has sent. */
   events?: number;
+  /** For a block that makes a value (text, a number): what it is now, written out. */
+  value?: string | null;
 };
 export type EngineStatus = { running: boolean; cycles: number; late_cycles: number; nodes: NodeStatus[] };
 

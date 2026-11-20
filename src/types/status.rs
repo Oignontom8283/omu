@@ -28,6 +28,9 @@ pub struct NodeStatus {
     /// Actions a block has sent (a trigger) since the graph started.
     #[serde(default)]
     pub events: u64,
+    /// For a block that makes a value (text, a number): what it is now, written out.
+    #[serde(default)]
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -59,6 +62,7 @@ mod tests {
                     frames: 480,
                     active: Some(true),
                     events: 3,
+                    value: None,
                 },
                 NodeStatus {
                     id: "mic".into(),
@@ -70,6 +74,7 @@ mod tests {
                     frames: 0,
                     active: None,
                     events: 0,
+                    value: None,
                 },
             ],
         };
@@ -89,6 +94,7 @@ mod tests {
             frames: 0,
             active: None,
             events: 0,
+            value: None,
         };
         let v = serde_json::to_value(&node).unwrap();
         assert_eq!(v["state"], "failed");

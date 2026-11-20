@@ -5,7 +5,7 @@
 //! does not interrupt the audio of the other nodes.
 
 use super::bridge::{sink_bridge, source_bridge, BridgeStats, SinkProducer, SourceConsumer};
-use super::plan::{Meter, NodeOp, Plan, PlanNode, Port, Wire};
+use super::plan::{Meter, NodeOp, ParamKind, Plan, PlanNode, Port, Value, Wire};
 use super::runtime::{GraphThread, RuntimeStats, ThreadInit};
 use omu_graph::ValidGraph;
 use omu_hal::{Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider};
@@ -236,6 +236,7 @@ impl Engine {
                     frames,
                     active: meter.and_then(|m| m.condition()),
                     events: meter.map_or(0, |m| m.events()),
+                    value: meter.and_then(|m| m.value()),
                 }
             })
             .collect();
@@ -494,6 +495,18 @@ impl Inner {
                         seen: 0,
                     },
                     (NodeKind::Change, _) => NodeOp::Change { prev: None },
+                    (NodeKind::Text { value }, _) => {
+                        NodeOp::Const(Value::Text(value.as_str().into()))
+                    }
+                    (NodeKind::Integer { value }, _) => NodeOp::Const(Value::Int(*value)),
+                    (NodeKind::Number { value }, _) => NodeOp::Const(Value::Float(*value)),
+                    (NodeKind::Join { template, args }, _) => NodeOp::Join {
+                        template: template.clone(),
+                        args: (*args).clamp(1, omu_types::MAX_JOIN_ARGS),
+                        last: Vec::new(),
+                        text: "".into(),
+                    },
+                    (NodeKind::Math { op }, _) => NodeOp::Math(*op),
                     // every other kind has been handled above (streams, triggers and the blocks); what is left is the mixer
                     _ => NodeOp::Mixer,
                 };
@@ -525,11 +538,21 @@ impl Inner {
                 let meter: Arc<Meter> = Arc::default();
                 meters.insert(spec.id.clone(), meter.clone());
                 position[idx] = nodes.len();
+                // the setting a flow can give to this block, when it has one
+                let param = match &spec.kind {
+                    NodeKind::Gain { .. } => Some(ParamKind::GainDb),
+                    NodeKind::Level { .. } => Some(ParamKind::ThresholdDb),
+                    NodeKind::Hold { .. } => Some(ParamKind::HoldMs),
+                    NodeKind::After { .. } => Some(ParamKind::AfterMs),
+                    NodeKind::Timer { .. } => Some(ParamKind::IntervalMs),
+                    _ => None,
+                };
                 nodes.push(PlanNode {
                     id: spec.id.clone(),
                     op,
                     inputs,
                     meter,
+                    param,
                 });
             }
         }
@@ -694,6 +717,7 @@ fn sum_sounds(
                 })
                 .collect(),
             meter: Arc::default(),
+            param: None,
         });
         out.push(Wire {
             from: nodes.len() - 1,

@@ -15,13 +15,23 @@ export const NODE_WIDTH = 10 * GRID;
  * A port of a block. `label` is the translation key of its name and `n` the number it shows (`else if 2`); a port
  * with `gapBefore` is drawn one row lower, so that the rows of a branch line up (`if` with `then`).
  */
-export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean; label: string; n?: number; gapBefore?: boolean; entries?: boolean };
+export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean; label: string; n?: number; gapBefore?: boolean; entries?: boolean; /** Gives a setting of the block from a flow. */ param?: boolean };
 
 /** What decides a block's ports: its kind, and for the blocks that branch, how many conditions they have. */
-export type KindLike = { type: NodeType; branches?: number; triggers?: string[] };
+export type KindLike = { type: NodeType; branches?: number; triggers?: string[]; args?: number };
 
 /** The most conditions a branching block can have (same as the daemon's). */
 export const MAX_BRANCHES = 16;
+/** The most arguments a join block can have (same as the daemon's). */
+export const MAX_JOIN_ARGS = 16;
+
+/** The input of a block that gives one of its settings from a flow (the flow wins over what is typed in the block). */
+const param = (name: string, flow: FlowType): PortMeta => p(name, 'in', flow, false, { param: true });
+
+/** Whether an input of flow `input` takes a flow of type `from` (the same as the daemon's rule). */
+export function accepts(input: FlowType, from: FlowType): boolean {
+  return input === from || (input === 'float' && from === 'int') || (input === 'text' && (from === 'int' || from === 'float' || from === 'condition'));
+}
 
 /** The translation key of a port's name: `port.set`, but `port.in.condition` for the input of a condition block. */
 function labelKey(name: string, flow: FlowType): string {
@@ -87,6 +97,7 @@ export function portsOf(kind: KindLike): PortMeta[] {
     case 'virtual_mic':
       return [p('in', 'in', 'audio')];
     case 'gain':
+      return [p('in', 'in', 'audio'), param('db', 'float'), p('out', 'out', 'audio')];
     case 'delay':
     case 'noise_reduction':
     case 'deep_filter':
@@ -113,26 +124,39 @@ export function portsOf(kind: KindLike): PortMeta[] {
     case 'variable':
       return [p('set', 'in', 'action', true), p('clear', 'in', 'action', true), p('toggle', 'in', 'action', true), p('value', 'out', 'condition')];
     case 'level':
-      return [p('in', 'in', 'audio'), p('active', 'out', 'condition')];
+      return [p('in', 'in', 'audio'), param('threshold_db', 'float'), p('active', 'out', 'condition')];
     case 'logic':
       return [p('a', 'in', 'condition'), p('b', 'in', 'condition'), p('out', 'out', 'condition')];
     case 'not':
+      return [p('in', 'in', 'condition'), p('out', 'out', 'condition')];
     case 'hold':
     case 'after':
-      return [p('in', 'in', 'condition'), p('out', 'out', 'condition')];
+      return [p('in', 'in', 'condition'), param('ms', 'int'), p('out', 'out', 'condition')];
     case 'all':
     case 'any':
       return [p('in', 'in', 'condition', true, { entries: true }), p('out', 'out', 'condition')];
     case 'hotkey':
       return [p('pressed', 'out', 'action')];
     case 'timer':
-      return [p('tick', 'out', 'action')];
+      return [param('interval_ms', 'int'), p('tick', 'out', 'action')];
     case 'change':
       return [p('in', 'in', 'condition'), p('rise', 'out', 'action'), p('fall', 'out', 'action')];
+    case 'text':
+      return [p('out', 'out', 'text')];
+    case 'integer':
+      return [p('out', 'out', 'int')];
+    case 'number':
+      return [p('out', 'out', 'float')];
+    case 'join': {
+      const n = Number.isInteger(kind.args) ? Math.max(1, Math.min(MAX_JOIN_ARGS, kind.args as number)) : 2;
+      return [...range(n).map((k) => p(`arg${k}`, 'in', 'text', false, { label: 'port.arg', n: k })), p('out', 'out', 'text')];
+    }
+    case 'math':
+      return [p('a', 'in', 'float'), p('b', 'in', 'float'), p('out', 'out', 'float')];
   }
 }
 
-export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger'];
+export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger', 'value'];
 
 /** The kinds of each family, in the order of the drop-down. */
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
@@ -141,6 +165,7 @@ export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction', 'deep_filter'],
   condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after'],
   trigger: ['hotkey', 'timer', 'change'],
+  value: ['text', 'integer', 'number', 'join', 'math'],
 };
 
 export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
@@ -265,6 +290,15 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, keys: '' };
     case 'timer':
       return { type, interval_ms: 1000 };
+    case 'text':
+      return { type, value: '' };
+    case 'integer':
+    case 'number':
+      return { type, value: 0 };
+    case 'join':
+      return { type, template: '$1 $2', args: 2 };
+    case 'math':
+      return { type, op: 'add' };
   }
 }
 
@@ -458,7 +492,7 @@ export function canConnect(
   if (!from || !to) return false;
   const out = portOf(from.spec, c.sourceHandle);
   const input = portOf(to.spec, c.targetHandle);
-  if (!out || !input || out.dir !== 'out' || input.dir !== 'in' || out.flow !== input.flow) return false;
+  if (!out || !input || out.dir !== 'out' || input.dir !== 'in' || !accepts(input.flow, out.flow)) return false;
   if (edges.some((e) => e.source === c.source && e.sourceHandle === c.sourceHandle && e.target === c.target && baseHandle(e.targetHandle) === baseHandle(c.targetHandle as string))) return false;
   if (!input.multi && edges.some((e) => e.target === c.target && e.targetHandle === c.targetHandle)) return false;
   // a path from the target back to the source would close a loop

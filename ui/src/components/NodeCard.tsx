@@ -1,9 +1,9 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useEditor } from '../context.ts';
-import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
+import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_JOIN_ARGS, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
-import type { DeviceRef, LogicOp, NodeSpec, NodeType } from '../types.ts';
+import type { DeviceRef, LogicOp, MathOp, NodeSpec, NodeType } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
 
 /** `inputs`: how many input points the block shows, for a block that sums its inputs (the mixer). */
@@ -181,9 +181,18 @@ function DeepFilterEditor({ spec }: { spec: Of<'deep_filter'> }) {
   );
 }
 
+/** Whether a flow is linked to the setting `port` of block `node`: the flow wins, so the field is then only shown. */
+function useLinked(node: string, port: string | undefined): boolean {
+  const edges = useEdges();
+  return port !== undefined && edges.some((e) => e.target === node && e.targetHandle === port);
+}
+
 function Params({ spec }: { spec: NodeSpec }) {
   const { update } = useEditor();
   const t = useT();
+  // the field of a setting that a flow gives is dimmed and cannot be changed by hand
+  const linked = useLinked(spec.id, portsOf(spec).find((q) => q.param)?.name);
+  const given = linked ? t('node.fromFlow') : undefined;
   switch (spec.type) {
     case 'app_capture':
       return <AppEditor spec={spec} />;
@@ -226,12 +235,12 @@ function Params({ spec }: { spec: NodeSpec }) {
       );
     case 'gain':
       return (
-        <label className="field">
+        <label className="field" title={given}>
           <span>
             {t('field.gain')}: {spec.db > 0 ? '+' : ''}
             {spec.db} dB
           </span>
-          <input className="nodrag" type="range" min={-60} max={24} step={0.5} value={spec.db} onChange={(e) => update(spec.id, { type: 'gain', db: Number(e.target.value) })} />
+          <input className="nodrag" type="range" min={-60} max={24} step={0.5} value={spec.db} disabled={linked} onChange={(e) => update(spec.id, { type: 'gain', db: Number(e.target.value) })} />
         </label>
       );
     case 'variable':
@@ -243,11 +252,11 @@ function Params({ spec }: { spec: NodeSpec }) {
       );
     case 'level':
       return (
-        <label className="field">
+        <label className="field" title={given}>
           <span>
             {t('field.threshold')}: {spec.threshold_db} dB
           </span>
-          <input className="nodrag" type="range" min={-80} max={0} step={1} value={spec.threshold_db} onChange={(e) => update(spec.id, { type: 'level', threshold_db: Number(e.target.value) })} />
+          <input className="nodrag" type="range" min={-80} max={0} step={1} value={spec.threshold_db} disabled={linked} onChange={(e) => update(spec.id, { type: 'level', threshold_db: Number(e.target.value) })} />
         </label>
       );
     case 'logic':
@@ -272,20 +281,41 @@ function Params({ spec }: { spec: NodeSpec }) {
       );
     case 'timer':
       return (
-        <label className="field">
+        <label className="field" title={given}>
           <span>{t('field.interval')}</span>
-          <input className="nodrag" type="number" min={10} step={10} value={spec.interval_ms} onChange={(e) => update(spec.id, { type: 'timer', interval_ms: Math.max(10, Number(e.target.value) || 10) })} />
+          <input className="nodrag" type="number" min={10} step={10} value={spec.interval_ms} disabled={linked} onChange={(e) => update(spec.id, { type: 'timer', interval_ms: Math.max(10, Number(e.target.value) || 10) })} />
         </label>
       );
     case 'delay':
       return <MsField label="field.delay" value={spec.ms} max={5000} onChange={(ms) => update(spec.id, { type: 'delay', ms })} />;
     case 'hold':
-      return <MsField label="field.hold" value={spec.ms} max={60000} onChange={(ms) => update(spec.id, { type: 'hold', ms })} />;
+      return <MsField label="field.hold" value={spec.ms} max={60000} disabled={linked} title={given} onChange={(ms) => update(spec.id, { type: 'hold', ms })} />;
     case 'after':
-      return <MsField label="field.after" value={spec.ms} max={60000} onChange={(ms) => update(spec.id, { type: 'after', ms })} />;
+      return <MsField label="field.after" value={spec.ms} max={60000} disabled={linked} title={given} onChange={(ms) => update(spec.id, { type: 'after', ms })} />;
     case 'branch':
     case 'select':
       return <Branches spec={spec} />;
+    case 'text':
+      return <TextField label="field.text" value={spec.value} placeholder="" onChange={(value) => update(spec.id, { type: 'text', value })} />;
+    case 'integer':
+      return <NumberField label="field.integer" value={spec.value} whole onChange={(value) => update(spec.id, { type: 'integer', value })} />;
+    case 'number':
+      return <NumberField label="field.number" value={spec.value} onChange={(value) => update(spec.id, { type: 'number', value })} />;
+    case 'join':
+      return <JoinEditor spec={spec} />;
+    case 'math':
+      return (
+        <label className="field">
+          <span>{t('field.operation')}</span>
+          <select className="nodrag" value={spec.op} onChange={(e) => update(spec.id, { type: 'math', op: e.target.value as MathOp })}>
+            {(['add', 'subtract', 'multiply', 'divide', 'min', 'max'] as const).map((op) => (
+              <option key={op} value={op}>
+                {t(`math.${op}`)}
+              </option>
+            ))}
+          </select>
+        </label>
+      );
     case 'mixer':
     case 'gate':
     case 'noise_reduction':
@@ -297,13 +327,63 @@ function Params({ spec }: { spec: NodeSpec }) {
   }
 }
 
-/** A number of milliseconds. */
-function MsField({ label, value, max, onChange }: { label: string; value: number; max: number; onChange: (ms: number) => void }) {
+/** A number typed in the block: whole, or with a decimal part. The field keeps what is being typed until it is a number. */
+function NumberField({ label, value, whole = false, onChange }: { label: string; value: number; whole?: boolean; onChange: (value: number) => void }) {
   const t = useT();
+  const [typed, setTyped] = useState(String(value));
+  useEffect(() => setTyped((now) => (Number(now) === value ? now : String(value))), [value]);
   return (
     <label className="field">
       <span>{t(label)}</span>
-      <input className="nodrag" type="number" min={0} max={max} step={10} value={value} onChange={(e) => onChange(Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))))} />
+      <input
+        className="nodrag"
+        inputMode={whole ? 'numeric' : 'decimal'}
+        value={typed}
+        onChange={(e) => {
+          setTyped(e.target.value);
+          const n = whole ? Math.trunc(Number(e.target.value)) : Number(e.target.value);
+          if (e.target.value.trim() !== '' && Number.isFinite(n)) onChange(n);
+        }}
+      />
+    </label>
+  );
+}
+
+/**
+ * The text of a join block, with `$1`, `$2`... where its arguments go, and the "+" that adds an argument (or the "×" that
+ * takes the last one away when nothing is linked to it).
+ */
+function JoinEditor({ spec }: { spec: Of<'join'> }) {
+  const { update } = useEditor();
+  const t = useT();
+  const edges = useEdges();
+  const count = portsOf(spec).filter((q) => q.dir === 'in').length;
+  const used = edges.some((e) => e.target === spec.id && e.targetHandle === `arg${count}`);
+  const set = (args: number) => update(spec.id, { ...spec, args });
+  return (
+    <>
+      <TextField label="field.template" value={spec.template} placeholder="$1 $2" onChange={(template) => update(spec.id, { ...spec, template })} />
+      <div className="adders">
+        <button className="mini add nodrag" title={t('node.addArgument')} aria-label={t('node.addArgument')} disabled={count >= MAX_JOIN_ARGS} onClick={() => set(count + 1)}>
+          +
+        </button>
+        {count > 1 && !used && (
+          <button className="mini nodrag" title={t('node.removeArgument')} aria-label={t('node.removeArgument')} onClick={() => set(count - 1)}>
+            ×
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** A number of milliseconds. */
+function MsField({ label, value, max, disabled, title, onChange }: { label: string; value: number; max: number; disabled?: boolean; title?: string; onChange: (ms: number) => void }) {
+  const t = useT();
+  return (
+    <label className="field" title={title}>
+      <span>{t(label)}</span>
+      <input className="nodrag" type="number" min={0} max={max} step={10} value={value} disabled={disabled} onChange={(e) => onChange(Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))))} />
     </label>
   );
 }
@@ -429,6 +509,11 @@ function Footer({ spec }: { spec: NodeSpec }) {
     <>
       <span className={`dot ${status ? (failed ? 'bad' : 'ok') : 'idle'}`} title={status ? undefined : t('status.notRunning')} />
       {category === 'trigger' && <small className={off.trim()}>{t('status.actions', { count: status?.events ?? 0 })}</small>}
+      {category === 'value' && (
+        <small className={`value${off}`} title={status?.value ?? undefined}>
+          {status?.value ?? '–'}
+        </small>
+      )}
       {category === 'condition' && (
         <span className={`lamp${status?.active ? ' on' : ''}${off}`}>{status?.active != null ? t(status.active ? 'status.yes' : 'status.no') : '–'}</span>
       )}

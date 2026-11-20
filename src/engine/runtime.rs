@@ -160,6 +160,7 @@ mod tests {
                 op,
                 inputs: vec![],
                 meter: Arc::<Meter>::default(),
+                param: None,
             }],
             480,
         ))

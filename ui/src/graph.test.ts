@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CATEGORIES,
+  accepts,
   KINDS_BY_CATEGORY,
   NODE_TYPES,
   PORTS,
@@ -104,8 +105,8 @@ test('canonical ignores the order of the lists', () => {
   assert.notEqual(canonical(chain), canonical(changed));
 });
 
-test('the five families hold every kind exactly once, and each kind has ports', () => {
-  assert.deepEqual(CATEGORIES, ['input', 'output', 'processing', 'condition', 'trigger']);
+test('the six families hold every kind exactly once, and each kind has ports', () => {
+  assert.deepEqual(CATEGORIES, ['input', 'output', 'processing', 'condition', 'trigger', 'value']);
   assert.equal(new Set(NODE_TYPES).size, NODE_TYPES.length);
   assert.equal(NODE_TYPES.length, Object.keys(PORTS).length);
   for (const t of NODE_TYPES) {
@@ -117,7 +118,8 @@ test('the five families hold every kind exactly once, and each kind has ports', 
 
 test('the families send and receive the flows they should', () => {
   const sends = (t: (typeof NODE_TYPES)[number]) => PORTS[t].filter((q) => q.dir === 'out').map((q) => q.flow);
-  const receives = (t: (typeof NODE_TYPES)[number]) => PORTS[t].filter((q) => q.dir === 'in').map((q) => q.flow);
+  // the input that gives a setting of a block from a flow is not part of what a family receives
+  const receives = (t: (typeof NODE_TYPES)[number]) => PORTS[t].filter((q) => q.dir === 'in' && !q.param).map((q) => q.flow);
   for (const t of KINDS_BY_CATEGORY.input) assert.deepEqual([sends(t), receives(t)], [['audio'], []]);
   for (const t of KINDS_BY_CATEGORY.output) assert.deepEqual([sends(t), receives(t)], [[], ['audio']]);
   const only = (flows: string[], flow: string) => flows.length > 0 && flows.every((f) => f === flow);
@@ -127,6 +129,25 @@ test('the families send and receive the flows they should', () => {
   }
   for (const t of KINDS_BY_CATEGORY.condition) assert.ok(only(sends(t), 'condition'), t);
   for (const t of KINDS_BY_CATEGORY.processing) assert.ok(only(sends(t), 'audio'), t);
+  for (const t of KINDS_BY_CATEGORY.value) assert.ok(sends(t).length > 0 && sends(t).every((f) => ['text', 'int', 'float'].includes(f)), `${t}: a value block sends values`);
+});
+
+test('an input takes its own flow, a whole number where a decimal one is wanted, and numbers or yes/no where text is wanted', () => {
+  const all = ['audio', 'condition', 'action', 'text', 'int', 'float'] as const;
+  for (const f of all) assert.ok(accepts(f, f));
+  assert.ok(accepts('float', 'int'));
+  assert.ok(!accepts('int', 'float'));
+  for (const f of ['int', 'float', 'condition'] as const) assert.ok(accepts('text', f), f);
+  assert.ok(!accepts('text', 'audio') && !accepts('text', 'action') && !accepts('audio', 'text') && !accepts('condition', 'text'));
+});
+
+test('a setting that a flow can give has an input of its own, and a join has as many value inputs as it asks', () => {
+  const params = Object.fromEntries(NODE_TYPES.map((t) => [t, PORTS[t].filter((q) => q.param).map((q) => `${q.name}:${q.flow}`)]).filter(([, v]) => (v as string[]).length > 0));
+  assert.deepEqual(params, { gain: ['db:float'], level: ['threshold_db:float'], hold: ['ms:int'], after: ['ms:int'], timer: ['interval_ms:int'] });
+  const names = (args?: number) => portsOf({ type: 'join', args }).filter((q) => q.dir === 'in').map((q) => q.name);
+  assert.deepEqual(names(3), ['arg1', 'arg2', 'arg3']);
+  assert.deepEqual(names(0), ['arg1']);
+  assert.equal(names(99).length, 16);
 });
 
 test('a branch draws one orange zone over its conditions and the else; a select one per sound and its condition', () => {
