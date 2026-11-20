@@ -507,6 +507,14 @@ impl Inner {
                         text: "".into(),
                     },
                     (NodeKind::Math { op }, _) => NodeOp::Math(*op),
+                    (NodeKind::Compare { op }, _) => NodeOp::Compare(*op),
+                    (NodeKind::TextCompare { op }, _) => NodeOp::TextCompare(*op),
+                    (NodeKind::Choose, _) => NodeOp::Choose,
+                    (NodeKind::Counter { initial }, _) => NodeOp::Counter {
+                        count: *initial,
+                        initial: *initial,
+                    },
+                    (NodeKind::Volume, _) => NodeOp::Volume,
                     // every other kind has been handled above (streams, triggers and the blocks); what is left is the mixer
                     _ => NodeOp::Mixer,
                 };
