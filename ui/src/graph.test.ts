@@ -143,7 +143,15 @@ test('an input takes its own flow, a whole number where a decimal one is wanted,
 
 test('a setting that a flow can give has an input of its own, and a join has as many value inputs as it asks', () => {
   const params = Object.fromEntries(NODE_TYPES.map((t) => [t, PORTS[t].filter((q) => q.param).map((q) => `${q.name}:${q.flow}`)]).filter(([, v]) => (v as string[]).length > 0));
-  assert.deepEqual(params, { gain: ['db:float'], level: ['threshold_db:float'], hold: ['ms:int'], after: ['ms:int'], timer: ['interval_ms:int'] });
+  assert.deepEqual(params, {
+    gain: ['db:float'],
+    level: ['threshold_db:float'],
+    hold: ['ms:int'],
+    after: ['ms:int'],
+    timer: ['interval_ms:int'],
+    network_in: ['port:int', 'stream:text', 'from:text'],
+    network_out: ['host:text', 'port:int', 'stream:text'],
+  });
   const names = (args?: number) => portsOf({ type: 'join', args }).filter((q) => q.dir === 'in').map((q) => q.name);
   assert.deepEqual(names(3), ['arg1', 'arg2', 'arg3']);
   assert.deepEqual(names(0), ['arg1']);

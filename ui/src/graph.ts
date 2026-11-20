@@ -83,9 +83,10 @@ export function portsOf(kind: KindLike): PortMeta[] {
   switch (kind.type) {
     case 'app_capture':
     case 'device_capture':
-    case 'network_in':
     case 'virtual_speaker':
       return [p('out', 'out', 'audio')];
+    case 'network_in':
+      return [param('port', 'int'), param('stream', 'text'), param('from', 'text'), p('out', 'out', 'audio')];
     case 'soundboard': {
       // the sound, then an action input for each pad the graph can play, and one that stops the whole soundboard
       const n = Math.min(kind.triggers?.length ?? 0, MAX_BRANCHES);
@@ -93,9 +94,10 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [...range(n).map((k) => p(`play${k}`, 'in', 'action', true, { label: 'port.play', n: k })), p('stop', 'in', 'action', true), p('out', 'out', 'audio')];
     }
     case 'device_render':
-    case 'network_out':
     case 'virtual_mic':
       return [p('in', 'in', 'audio')];
+    case 'network_out':
+      return [p('in', 'in', 'audio'), param('host', 'text'), param('port', 'int'), param('stream', 'text')];
     case 'gain':
       return [p('in', 'in', 'audio'), param('db', 'float'), p('out', 'out', 'audio')];
     case 'delay':
