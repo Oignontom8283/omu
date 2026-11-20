@@ -12,8 +12,8 @@ use super::bridge::{SinkProducer, SourceConsumer};
 use omu_dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
 use omu_soundboard::voices::BoardRuntime;
 use omu_types::{
-    port_number, CompareOp, LogicOp, MathOp, NodeId, TextOp, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE,
-    MAX_BRANCHES, MAX_DELAY_MS, MAX_WAIT_MS,
+    port_number, CompareOp, LogicOp, MathOp, NodeId, PortLimits, RoundMode, TextOp,
+    ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES, MAX_DELAY_MS,
 };
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -60,43 +60,6 @@ impl Value {
             Value::Text(t) => t.to_string(),
         }
     }
-}
-
-/// Makes the text of a `join` block: `$1`, `$2`... (or `${1}`) are replaced by the arguments written out; `$$` is a
-/// dollar sign. An argument that does not exist is left as it is typed.
-pub fn render_template(template: &str, args: &[Value]) -> String {
-    let chars: Vec<char> = template.chars().collect();
-    let mut out = String::with_capacity(template.len());
-    let mut i = 0;
-    while i < chars.len() {
-        if chars[i] != '$' {
-            out.push(chars[i]);
-            i += 1;
-        } else if chars.get(i + 1) == Some(&'$') {
-            out.push('$');
-            i += 2;
-        } else {
-            let braced = chars.get(i + 1) == Some(&'{');
-            let start = i + 1 + braced as usize;
-            let mut end = start;
-            while end < chars.len() && chars[end].is_ascii_digit() {
-                end += 1;
-            }
-            let closed = !braced || chars.get(end) == Some(&'}');
-            let n: Option<usize> = chars[start..end].iter().collect::<String>().parse().ok();
-            match n {
-                Some(n) if closed && (1..=args.len()).contains(&n) => {
-                    out.push_str(&args[n - 1].written());
-                    i = end + braced as usize;
-                }
-                _ => {
-                    out.push('$');
-                    i += 1;
-                }
-            }
-        }
-    }
-    out
 }
 
 /// What a node shows to the status API: the loudest sample since the last reading, the node's yes/no when it has
@@ -220,6 +183,8 @@ pub enum Port {
     Param,
     /// An argument of a `join` block (`arg1`, `arg2`...), counted from 0.
     Arg(u8),
+    /// The template of a `join` block, when a flow gives it.
+    Template,
     /// The number a `choose` block sends while its condition is true.
     Then,
     /// The flows that give the settings of a network block: `host` (0), `port` (1), `stream` (2), `from` (3).
@@ -250,6 +215,7 @@ impl Port {
             "port" => Port::Net(1),
             "stream" => Port::Net(2),
             "from" => Port::Net(3),
+            "template" => Port::Template,
             "when" => Port::When(0),
             "then" => Port::Then,
             "up" => Port::Up,
@@ -351,11 +317,12 @@ pub enum NodeOp {
     },
     /// A value that never changes (a text, a number).
     Const(Value),
-    /// Text made from a template and its arguments; written again only when an argument changes.
+    /// Text made from a template and its arguments; written again only when the template or an argument changes.
     Join {
         template: String,
         args: u32,
         last: Vec<Value>,
+        last_template: String,
         text: Arc<str>,
     },
     /// Two numbers combined.
@@ -365,6 +332,13 @@ pub enum NodeOp {
     TextCompare(TextOp),
     /// One of two numbers, by a condition.
     Choose,
+    /// A number from the text that says it (nothing when the text is not a number).
+    ToNumber,
+    /// A whole number from a decimal one.
+    Round(RoundMode),
+    /// 1 or 0 from a yes/no, a yes/no from a number.
+    FromCondition,
+    ToCondition,
     /// A whole number that actions change; `initial` is where `reset` goes back to.
     Counter {
         count: i64,
@@ -416,6 +390,7 @@ impl NodeOp {
                 | NodeOp::After { .. }
                 | NodeOp::Compare(_)
                 | NodeOp::TextCompare(_)
+                | NodeOp::ToCondition
         )
     }
 }
@@ -641,14 +616,16 @@ impl Plan {
 
     /// Puts into a block the setting that its parameter input gives (the number is limited to what the block accepts).
     fn apply_param(op: &mut NodeOp, kind: ParamKind, v: f64, cycle_frames: usize) {
+        // a number that comes in by a flow is cropped to what the setting allows: it never goes past
+        let crop = |name: &str| PortLimits::of(name).map_or(v, |l| l.crop(v));
         match (op, kind) {
-            (NodeOp::Gain(g), ParamKind::GainDb) => g.set_db(v.clamp(-120.0, 40.0) as f32),
+            (NodeOp::Gain(g), ParamKind::GainDb) => g.set_db(crop("db") as f32),
             (NodeOp::Level { threshold, .. }, ParamKind::ThresholdDb) => {
-                *threshold = Plan::level_threshold(v.clamp(-120.0, 0.0) as f32)
+                *threshold = Plan::level_threshold(crop("threshold_db") as f32)
             }
             (NodeOp::Hold { cycles, .. }, ParamKind::HoldMs)
             | (NodeOp::After { cycles, .. }, ParamKind::AfterMs) => {
-                *cycles = Plan::cycles(v.clamp(0.0, MAX_WAIT_MS as f64) as u32, cycle_frames)
+                *cycles = Plan::cycles(crop("ms") as u32, cycle_frames)
             }
             (
                 NodeOp::Timer {
@@ -656,7 +633,7 @@ impl Plan {
                 },
                 ParamKind::IntervalMs,
             ) => {
-                let ms = v.clamp(10.0, 3_600_000.0) as u64;
+                let ms = crop("interval_ms") as u64;
                 *interval_frames = (ms * ENGINE_SAMPLE_RATE as u64 / 1000).max(cycle_frames as u64);
             }
             _ => {}
@@ -862,22 +839,77 @@ impl Plan {
                     }
                     *prev = Some(on);
                 }
-                NodeOp::Const(v) => value = v.clone(),
+                NodeOp::Const(v) => {
+                    value = v.clone();
+                    // a yes/no typed in a block is a condition too
+                    if let Value::Bool(b) = v {
+                        cond = *b;
+                    }
+                }
                 NodeOp::Join {
                     template,
                     args,
                     last,
+                    last_template,
                     text,
                 } => {
                     let now: Vec<Value> = (0..*args as u8)
                         .map(|k| value_of(outs, &node.inputs, Port::Arg(k)))
                         .collect();
-                    // written again only when an argument changed (writing makes text, which is not free)
-                    if now != *last {
-                        *text = render_template(template, &now).into();
+                    // a flow on the template wins over the one typed in the block
+                    let flowed = value_of(outs, &node.inputs, Port::Template);
+                    let written;
+                    let wanted: &str = match &flowed {
+                        Value::None => template,
+                        Value::Text(t) => t,
+                        other => {
+                            written = other.written();
+                            &written
+                        }
+                    };
+                    // written again only when the template or an argument changed (writing makes text, which is not free)
+                    if now != *last || wanted != last_template {
+                        let values: Vec<String> = now.iter().map(Value::written).collect();
+                        *text = omu_types::template::render(wanted, &values)
+                            .unwrap_or_default()
+                            .into();
+                        *last_template = wanted.to_owned();
                         *last = now;
                     }
                     value = Value::Text(text.clone());
+                }
+                NodeOp::ToNumber => {
+                    let said = value_of(outs, &node.inputs, Port::In);
+                    value = match said {
+                        Value::None => Value::None,
+                        other => other
+                            .written()
+                            .trim()
+                            .parse::<f64>()
+                            .ok()
+                            .filter(|n| n.is_finite())
+                            .map_or(Value::None, Value::Float),
+                    };
+                }
+                NodeOp::Round(mode) => {
+                    value = match value_of(outs, &node.inputs, Port::In).number() {
+                        None => Value::None,
+                        Some(n) => Value::Int(match mode {
+                            RoundMode::Nearest => n.round(),
+                            RoundMode::Down => n.floor(),
+                            RoundMode::Up => n.ceil(),
+                        } as i64),
+                    };
+                }
+                NodeOp::FromCondition => {
+                    value = Value::Int(i64::from(
+                        cond_of(outs, &node.inputs, Port::In).unwrap_or(false),
+                    ));
+                }
+                NodeOp::ToCondition => {
+                    cond = value_of(outs, &node.inputs, Port::In)
+                        .number()
+                        .is_some_and(|n| n != 0.0);
                 }
                 NodeOp::Math(op) => {
                     let num =
@@ -975,6 +1007,9 @@ impl Plan {
                     | NodeOp::Choose
                     | NodeOp::Counter { .. }
                     | NodeOp::Volume
+                    | NodeOp::ToNumber
+                    | NodeOp::Round(_)
+                    | NodeOp::FromCondition
             );
             if makes_value && out.value != value {
                 node.meter.set_value(&value);
@@ -1717,31 +1752,12 @@ mod tests {
     }
 
     #[test]
-    fn a_template_puts_the_arguments_where_the_dollar_signs_are() {
-        let args = [
-            Value::Text("Bob".into()),
-            Value::Int(3),
-            Value::Float(1.5),
-            Value::Bool(true),
-        ];
-        let said = |t: &str| render_template(t, &args);
-        assert_eq!(said("hi $1"), "hi Bob");
-        assert_eq!(said("${1} has ${2} items"), "Bob has 3 items");
-        assert_eq!(said("$1$2"), "Bob3");
-        assert_eq!(said("$3 / $4"), "1.5 / true");
-        // a dollar sign of its own, an argument that does not exist, a brace that is not closed: left as typed
-        assert_eq!(said("cost $$5"), "cost $5");
-        assert_eq!(said("$9 and $0 and ${2"), "$9 and $0 and ${2");
-        assert_eq!(said("no arguments"), "no arguments");
-        assert_eq!(said("price: $"), "price: $");
-    }
-
-    #[test]
     fn a_join_writes_text_numbers_and_yes_no_together_and_follows_its_arguments() {
         let join = NodeOp::Join {
-            template: "$1 has $2 items".into(),
+            template: "$arg1 has $arg2 items".into(),
             args: 2,
             last: vec![],
+            last_template: String::new(),
             text: "".into(),
         };
         let mut plan = Plan::new(
@@ -1760,9 +1776,10 @@ mod tests {
         assert_eq!(plan.value(2), &Value::Text("Bob has 3 items".into()));
         // a join with nothing linked writes its template with empty arguments
         let empty = NodeOp::Join {
-            template: "[$1]".into(),
+            template: "[$arg1]".into(),
             args: 1,
             last: vec![],
+            last_template: String::new(),
             text: "".into(),
         };
         let mut plan = Plan::new(vec![node("j", empty, vec![])], 480);
@@ -1883,9 +1900,10 @@ mod tests {
     #[test]
     fn a_yes_no_can_be_written_into_a_text() {
         let join = NodeOp::Join {
-            template: "mic: $1".into(),
+            template: "mic: $arg1".into(),
             args: 1,
             last: vec![],
+            last_template: String::new(),
             text: "".into(),
         };
         let mut plan = Plan::new(
@@ -2105,5 +2123,111 @@ mod tests {
         assert_eq!(values[0], Value::None);
         assert_eq!(Port::from_name("port"), Some(Port::Net(1)));
         assert_eq!(Port::from_name("host"), Some(Port::Net(0)));
+    }
+
+    #[test]
+    fn conversions_turn_one_flow_into_another() {
+        let through = |op: NodeOp, input: NodeOp| {
+            let mut plan = Plan::new(
+                vec![
+                    node("i", input, vec![]),
+                    node("c", op, vec![wire_to(0, Port::In)]),
+                ],
+                480,
+            );
+            plan.process();
+            (plan.value(1).clone(), plan.condition(1))
+        };
+        // a text into a number: spaces do not matter, what is not a number gives nothing
+        assert_eq!(
+            through(NodeOp::ToNumber, text(" 12.5 ")).0,
+            Value::Float(12.5)
+        );
+        assert_eq!(through(NodeOp::ToNumber, text("twelve")).0, Value::None);
+        // a decimal number into a whole one, three ways
+        let r = |mode, n: f64| through(NodeOp::Round(mode), NodeOp::Const(Value::Float(n))).0;
+        assert_eq!(r(RoundMode::Nearest, 2.5), Value::Int(3));
+        assert_eq!(r(RoundMode::Down, 2.9), Value::Int(2));
+        assert_eq!(r(RoundMode::Up, 2.1), Value::Int(3));
+        assert_eq!(r(RoundMode::Down, -2.1), Value::Int(-3));
+        // a yes/no into 1 or 0, a number into a yes/no
+        assert_eq!(
+            through(NodeOp::FromCondition, variable(true)).0,
+            Value::Int(1)
+        );
+        assert_eq!(
+            through(NodeOp::FromCondition, variable(false)).0,
+            Value::Int(0)
+        );
+        assert!(through(NodeOp::ToCondition, NodeOp::Const(Value::Float(0.1))).1);
+        assert!(!through(NodeOp::ToCondition, NodeOp::Const(Value::Int(0))).1);
+    }
+
+    #[test]
+    fn a_flow_on_the_template_of_a_join_changes_the_text() {
+        let join = NodeOp::Join {
+            template: "typed $arg1".into(),
+            args: 1,
+            last: vec![],
+            last_template: String::new(),
+            text: "".into(),
+        };
+        let build = |template: Option<&str>| {
+            let mut nodes = vec![
+                node("a", text("x"), vec![]),
+                node("t", text(template.unwrap_or("")), vec![]),
+            ];
+            let mut wires = vec![wire_to(0, Port::Arg(0))];
+            if template.is_some() {
+                wires.push(wire_to(1, Port::Template));
+            }
+            nodes.push(node(
+                "j",
+                NodeOp::Join {
+                    template: "typed $arg1".into(),
+                    args: 1,
+                    last: vec![],
+                    last_template: String::new(),
+                    text: "".into(),
+                },
+                wires,
+            ));
+            let mut plan = Plan::new(nodes, 480);
+            plan.process();
+            plan.value(2).clone()
+        };
+        drop(join);
+        assert_eq!(build(None), Value::Text("typed x".into()));
+        assert_eq!(build(Some("flowed [$1]")), Value::Text("flowed [x]".into()));
+        // a template that cannot be read gives an empty text, never a crash
+        assert_eq!(build(Some("broken ${arg1")), Value::Text("".into()));
+    }
+
+    #[test]
+    fn a_number_flowing_into_a_setting_is_cropped_to_its_limits() {
+        let gain = |db: f64| {
+            let mut g = node(
+                "g",
+                NodeOp::Gain(Plan::gain(0.0)),
+                vec![wire(0), wire_to(1, Port::Param)],
+            );
+            g.param = Some(ParamKind::GainDb);
+            let mut plan = Plan::new(
+                vec![
+                    node("s", NodeOp::Constant(1.0), vec![]),
+                    node("n", NodeOp::Const(Value::Float(db)), vec![]),
+                    g,
+                ],
+                480,
+            );
+            // a gain of +40 dB is a hundred times louder: the smooth gain takes a second to get there
+            run(&mut plan, 150);
+            last_sample(&plan, 2, 0)
+        };
+        // +40 dB is the most: a flow asking for +1000 dB gets +40 dB, not more
+        let most = db_to_linear(40.0);
+        assert!((gain(1000.0) - most).abs() < most * 0.01);
+        // and -120 dB the least: silence, not a negative gain
+        assert!(gain(-1000.0).abs() < 0.001);
     }
 }

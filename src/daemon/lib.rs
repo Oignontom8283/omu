@@ -762,6 +762,7 @@ mod tests {
                 NodeSpec {
                     id: "app".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::AppCapture {
                         target: AppTarget::ProcessName("a.exe".into()),
                     },
@@ -769,6 +770,7 @@ mod tests {
                 NodeSpec {
                     id: "mic".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::VirtualMic { name: "Mic".into() },
                 },
             ],
@@ -863,11 +865,13 @@ mod tests {
                 NodeSpec {
                     id: "a b".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::Mixer,
                 },
                 NodeSpec {
                     id: "a b".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::Mixer,
                 },
             ],
@@ -983,11 +987,13 @@ mod tests {
                 NodeSpec {
                     id: "in".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::VirtualSpeaker { name: "Spk".into() },
                 },
                 NodeSpec {
                     id: "out".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::DeviceRender {
                         device: DeviceRef::Name(target.into()),
                     },
@@ -1030,6 +1036,7 @@ mod tests {
         g.nodes.push(NodeSpec {
             id: "rec".into(),
             display: None,
+            inputs: Default::default(),
             kind: NodeKind::DeviceCapture {
                 device: DeviceRef::Name("Microphone (Mic)".into()),
             },
@@ -1037,6 +1044,7 @@ mod tests {
         g.nodes.push(NodeSpec {
             id: "spk".into(),
             display: None,
+            inputs: Default::default(),
             kind: NodeKind::DeviceRender {
                 device: DeviceRef::Default,
             },
@@ -1058,6 +1066,7 @@ mod tests {
         ok.nodes.push(NodeSpec {
             id: "rec".into(),
             display: None,
+            inputs: Default::default(),
             kind: NodeKind::DeviceCapture {
                 device: DeviceRef::Name("Real".into()),
             },
@@ -1065,6 +1074,7 @@ mod tests {
         ok.nodes.push(NodeSpec {
             id: "spk".into(),
             display: None,
+            inputs: Default::default(),
             kind: NodeKind::DeviceRender {
                 device: DeviceRef::Default,
             },

@@ -95,3 +95,35 @@ The "Deep noise reduction" block runs the DeepFilterNet model with the library `
 MIT or Apache-2.0, whose texts are at https://opensource.org/license/mit and https://www.apache.org/licenses/LICENSE-2.0
 and in each project. The trained model is not part of this program: it is downloaded once, when the user switches the
 DeepFilterNet module on, from the project's repository, and checked against a SHA-256 written in the program.
+
+## subst (text templates)
+
+The blocks that assemble text use the `subst` library (https://github.com/fizyr/subst) to read templates such as
+`Hello $arg1` and to write the values in them. Licence: BSD-2-Clause (it is also offered under Apache-2.0).
+
+```
+Copyright 2022, Fizyr B.V. <info@fizyr.com>
+Copyright 2022, Maarten de Vries <maarten@de-vri.es>
+Copyright 2022, The Contributors
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
