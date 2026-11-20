@@ -12,8 +12,8 @@ use super::bridge::{SinkProducer, SourceConsumer};
 use omu_dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
 use omu_soundboard::voices::BoardRuntime;
 use omu_types::{
-    port_number, LogicOp, MathOp, NodeId, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES,
-    MAX_DELAY_MS, MAX_WAIT_MS,
+    port_number, CompareOp, LogicOp, MathOp, NodeId, TextOp, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE,
+    MAX_BRANCHES, MAX_DELAY_MS, MAX_WAIT_MS,
 };
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -187,6 +187,12 @@ pub enum Port {
     Param,
     /// An argument of a `join` block (`arg1`, `arg2`...), counted from 0.
     Arg(u8),
+    /// The number a `choose` block sends while its condition is true.
+    Then,
+    /// The actions that make a counter go up, go down, go back to its first value.
+    Up,
+    Down,
+    Reset,
 }
 
 impl Port {
@@ -205,6 +211,11 @@ impl Port {
             "a" => Port::A,
             "b" => Port::B,
             "else" => Port::Else,
+            "when" => Port::When(0),
+            "then" => Port::Then,
+            "up" => Port::Up,
+            "down" => Port::Down,
+            "reset" => Port::Reset,
             "stop" => Port::StopAll,
             "db" | "threshold_db" | "ms" | "interval_ms" => Port::Param,
             _ => {
@@ -310,6 +321,18 @@ pub enum NodeOp {
     },
     /// Two numbers combined.
     Math(MathOp),
+    /// A yes/no from two numbers, from two texts.
+    Compare(CompareOp),
+    TextCompare(TextOp),
+    /// One of two numbers, by a condition.
+    Choose,
+    /// A whole number that actions change; `initial` is where `reset` goes back to.
+    Counter {
+        count: i64,
+        initial: i64,
+    },
+    /// How loud the sound is, in decibels (rounded to half a decibel).
+    Volume,
     /// Tests only: audio that never runs dry.
     #[cfg(test)]
     Constant(f32),
@@ -352,6 +375,8 @@ impl NodeOp {
                 | NodeOp::Any
                 | NodeOp::Hold { .. }
                 | NodeOp::After { .. }
+                | NodeOp::Compare(_)
+                | NodeOp::TextCompare(_)
         )
     }
 }
@@ -533,6 +558,7 @@ impl Plan {
                     }
                 }
                 (NodeOp::Variable { state }, NodeOp::Variable { state: o }) => *state = *o,
+                (NodeOp::Counter { count, .. }, NodeOp::Counter { count: o, .. }) => *count = *o,
                 (NodeOp::Level { hold_left, .. }, NodeOp::Level { hold_left: o, .. }) => {
                     *hold_left = *o
                 }
@@ -794,6 +820,56 @@ impl Plan {
                         MathOp::Max => a.max(b),
                     });
                 }
+                NodeOp::Compare(op) => {
+                    let num =
+                        |port: Port| value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
+                    let (a, b) = (num(Port::A), num(Port::B));
+                    cond = match op {
+                        CompareOp::Greater => a > b,
+                        CompareOp::Less => a < b,
+                        CompareOp::GreaterOrEqual => a >= b,
+                        CompareOp::LessOrEqual => a <= b,
+                        CompareOp::Equal => a == b,
+                        CompareOp::NotEqual => a != b,
+                    };
+                }
+                NodeOp::TextCompare(op) => {
+                    let text = |port: Port| value_of(outs, &node.inputs, port).written();
+                    let (a, b) = (text(Port::A), text(Port::B));
+                    cond = match op {
+                        TextOp::Equals => a == b,
+                        TextOp::Contains => a.contains(&b),
+                        TextOp::StartsWith => a.starts_with(&b),
+                        TextOp::EndsWith => a.ends_with(&b),
+                    };
+                }
+                NodeOp::Choose => {
+                    let on = cond_of(outs, &node.inputs, Port::When(0)).unwrap_or(false);
+                    let num =
+                        |port: Port| value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
+                    value = Value::Float(if on { num(Port::Then) } else { num(Port::Else) });
+                }
+                NodeOp::Counter { count, initial } => {
+                    let sum = |port: Port| -> i64 {
+                        node.inputs
+                            .iter()
+                            .filter(|w| w.port == port && w.from < outs.len())
+                            .map(|w| outs[w.from].actions[w.out.min(ACTION_OUTPUTS - 1)] as i64)
+                            .sum()
+                    };
+                    if sum(Port::Reset) > 0 {
+                        *count = *initial;
+                    }
+                    *count = (*count + sum(Port::Up) - sum(Port::Down))
+                        .clamp(-1_000_000_000, 1_000_000_000);
+                    value = Value::Int(*count);
+                }
+                NodeOp::Volume => {
+                    let input = input_audio(Port::In);
+                    node.meter.record(input);
+                    let db = 20.0 * f64::from(peak(input)).max(1e-6).log10();
+                    value = Value::Float(((db * 2.0).round() / 2.0).max(-120.0));
+                }
                 NodeOp::Trigger(events) => actions[0] = events.swap(0, Ordering::AcqRel),
                 NodeOp::Timer {
                     interval_frames,
@@ -818,11 +894,16 @@ impl Plan {
             node.meter.add_events(actions.iter().sum());
             let out = &mut self.outs[i];
             // the status shows the value when it changes
-            if matches!(
+            let makes_value = matches!(
                 node.op,
-                NodeOp::Const(_) | NodeOp::Join { .. } | NodeOp::Math(_)
-            ) && out.value != value
-            {
+                NodeOp::Const(_)
+                    | NodeOp::Join { .. }
+                    | NodeOp::Math(_)
+                    | NodeOp::Choose
+                    | NodeOp::Counter { .. }
+                    | NodeOp::Volume
+            );
+            if makes_value && out.value != value {
                 node.meter.set_value(&value);
             }
             out.audio = audios;
@@ -1742,5 +1823,167 @@ mod tests {
         );
         plan.process();
         assert_eq!(plan.value(1), &Value::Text("mic: true".into()));
+    }
+
+    fn compared(op: CompareOp, a: Value, b: Value) -> bool {
+        let mut plan = Plan::new(
+            vec![
+                node("a", NodeOp::Const(a), vec![]),
+                node("b", NodeOp::Const(b), vec![]),
+                node(
+                    "c",
+                    NodeOp::Compare(op),
+                    vec![wire_to(0, Port::A), wire_to(1, Port::B)],
+                ),
+            ],
+            480,
+        );
+        plan.process();
+        plan.condition(2)
+    }
+
+    #[test]
+    fn a_comparison_of_two_numbers_is_a_condition() {
+        use CompareOp::*;
+        assert!(compared(Greater, Value::Int(3), Value::Float(2.5)));
+        assert!(!compared(Greater, Value::Int(2), Value::Int(2)));
+        assert!(compared(GreaterOrEqual, Value::Int(2), Value::Int(2)));
+        assert!(compared(Less, Value::Float(-1.0), Value::Int(0)));
+        assert!(compared(LessOrEqual, Value::Int(2), Value::Int(2)));
+        assert!(compared(Equal, Value::Int(2), Value::Float(2.0)));
+        assert!(compared(NotEqual, Value::Int(2), Value::Int(3)));
+        // a number that is not linked counts as 0
+        let mut plan = Plan::new(
+            vec![
+                node("a", NodeOp::Const(Value::Int(-2)), vec![]),
+                node("c", NodeOp::Compare(Less), vec![wire_to(0, Port::A)]),
+            ],
+            480,
+        );
+        plan.process();
+        assert!(plan.condition(1));
+    }
+
+    #[test]
+    fn a_text_comparison_is_a_condition_and_the_case_counts() {
+        let said = |op: TextOp, a: &str, b: &str| {
+            let mut plan = Plan::new(
+                vec![
+                    node("a", text(a), vec![]),
+                    node("b", text(b), vec![]),
+                    node(
+                        "c",
+                        NodeOp::TextCompare(op),
+                        vec![wire_to(0, Port::A), wire_to(1, Port::B)],
+                    ),
+                ],
+                480,
+            );
+            plan.process();
+            plan.condition(2)
+        };
+        assert!(said(TextOp::Equals, "Bob", "Bob"));
+        assert!(!said(TextOp::Equals, "Bob", "bob"));
+        assert!(said(TextOp::Contains, "hello Bob!", "Bob"));
+        assert!(said(TextOp::StartsWith, "hello", "he"));
+        assert!(!said(TextOp::StartsWith, "hello", "lo"));
+        assert!(said(TextOp::EndsWith, "hello", "lo"));
+    }
+
+    #[test]
+    fn choose_sends_one_of_two_numbers_by_a_condition() {
+        let chosen = |on: bool| {
+            let mut plan = Plan::new(
+                vec![
+                    node("v", variable(on), vec![]),
+                    node("t", NodeOp::Const(Value::Int(10)), vec![]),
+                    node("e", NodeOp::Const(Value::Float(0.5)), vec![]),
+                    node(
+                        "c",
+                        NodeOp::Choose,
+                        vec![
+                            wire_to(0, Port::When(0)),
+                            wire_to(1, Port::Then),
+                            wire_to(2, Port::Else),
+                        ],
+                    ),
+                ],
+                480,
+            );
+            plan.process();
+            plan.value(3).clone()
+        };
+        assert_eq!(chosen(true), Value::Float(10.0));
+        assert_eq!(chosen(false), Value::Float(0.5));
+    }
+
+    #[test]
+    fn a_counter_goes_up_and_down_and_back_to_where_it_started_and_keeps_its_count_in_a_new_plan() {
+        let (up, down, reset) = (
+            Arc::new(AtomicU32::new(0)),
+            Arc::new(AtomicU32::new(0)),
+            Arc::new(AtomicU32::new(0)),
+        );
+        let build = || {
+            Plan::new(
+                vec![
+                    node("up", NodeOp::Trigger(up.clone()), vec![]),
+                    node("down", NodeOp::Trigger(down.clone()), vec![]),
+                    node("reset", NodeOp::Trigger(reset.clone()), vec![]),
+                    node(
+                        "n",
+                        NodeOp::Counter {
+                            count: 5,
+                            initial: 5,
+                        },
+                        vec![
+                            wire_to(0, Port::Up),
+                            wire_to(1, Port::Down),
+                            wire_to(2, Port::Reset),
+                        ],
+                    ),
+                ],
+                480,
+            )
+        };
+        let mut plan = build();
+        plan.process();
+        assert_eq!(plan.value(3), &Value::Int(5));
+        up.store(3, Ordering::Release);
+        down.store(1, Ordering::Release);
+        plan.process();
+        assert_eq!(plan.value(3), &Value::Int(7));
+        plan.process();
+        assert_eq!(plan.value(3), &Value::Int(7), "an action counts once");
+        let mut next = build();
+        next.inherit(&plan);
+        next.process();
+        assert_eq!(
+            next.value(3),
+            &Value::Int(7),
+            "a new plan goes on from the count"
+        );
+        reset.store(1, Ordering::Release);
+        next.process();
+        assert_eq!(next.value(3), &Value::Int(5));
+    }
+
+    #[test]
+    fn a_volume_block_tells_how_loud_the_sound_is() {
+        let level = |v: f32| {
+            let mut plan = Plan::new(
+                vec![
+                    node("s", NodeOp::Constant(v), vec![]),
+                    node("v", NodeOp::Volume, vec![wire(0)]),
+                ],
+                480,
+            );
+            plan.process();
+            plan.value(1).clone()
+        };
+        assert_eq!(level(1.0), Value::Float(0.0));
+        assert_eq!(level(0.5), Value::Float(-6.0));
+        assert_eq!(level(0.1), Value::Float(-20.0));
+        assert_eq!(level(0.0), Value::Float(-120.0));
     }
 }

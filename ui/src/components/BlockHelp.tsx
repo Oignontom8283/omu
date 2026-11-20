@@ -53,6 +53,9 @@ const SETTINGS: Partial<Record<NodeType, { key: string; type: string }[]>> = {
   number: [{ key: 'field.number', type: 'Decimal' }],
   join: [{ key: 'field.template', type: 'Text' }],
   math: [{ key: 'field.operation', type: 'Operation' }],
+  compare: [{ key: 'field.operation', type: 'Operation' }],
+  text_compare: [{ key: 'field.operation', type: 'Operation' }],
+  counter: [{ key: 'field.counterStart', type: 'Integer' }],
 };
 
 const FLOWS: FlowType[] = ['audio', 'condition', 'action', 'text', 'int', 'float'];

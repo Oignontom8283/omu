@@ -159,6 +159,28 @@ pub enum Category {
     Value,
 }
 
+/// How a [`NodeKind::Compare`] block compares its two numbers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompareOp {
+    Greater,
+    Less,
+    GreaterOrEqual,
+    LessOrEqual,
+    Equal,
+    NotEqual,
+}
+
+/// How a [`NodeKind::TextCompare`] block compares its two texts (the case counts).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TextOp {
+    Equals,
+    Contains,
+    StartsWith,
+    EndsWith,
+}
+
 /// What a [`NodeKind::Math`] block does with its two numbers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -307,6 +329,19 @@ pub enum NodeKind {
     },
     /// Value: two numbers combined (`a` and `b`).
     Math { op: MathOp },
+    /// Condition: true while `a` compares to `b` the way `op` says (a number not linked counts as 0).
+    Compare { op: CompareOp },
+    /// Condition: true while the text `a` compares to the text `b` the way `op` says.
+    TextCompare { op: TextOp },
+    /// Value: the number at `then` while the condition `when` is true, the number at `else` otherwise.
+    Choose,
+    /// Value: a whole number that actions change: `up` adds one, `down` takes one off, `reset` goes back to `initial`.
+    Counter {
+        #[serde(default)]
+        initial: i64,
+    },
+    /// Value: how loud the sound at its input is, in decibels (0 is full scale; silence is -120).
+    Volume,
 }
 
 use PortDirection::{Input, Output};
@@ -434,6 +469,29 @@ impl NodeKind {
                 port("b", Input, Float, false),
                 port("out", Output, Float, false),
             ],
+            NodeKind::Compare { .. } => vec![
+                port("a", Input, Float, false),
+                port("b", Input, Float, false),
+                out_cond(),
+            ],
+            NodeKind::TextCompare { .. } => vec![
+                port("a", Input, TextFlow, false),
+                port("b", Input, TextFlow, false),
+                out_cond(),
+            ],
+            NodeKind::Choose => vec![
+                port("when", Input, Condition, false),
+                port("then", Input, Float, false),
+                port("else", Input, Float, false),
+                port("out", Output, Float, false),
+            ],
+            NodeKind::Counter { .. } => vec![
+                port("up", Input, Action, true),
+                port("down", Input, Action, true),
+                port("reset", Input, Action, true),
+                port("out", Output, Int, false),
+            ],
+            NodeKind::Volume => vec![in_audio(), port("out", Output, Float, false)],
         }
     }
 
@@ -487,7 +545,9 @@ impl NodeKind {
             | NodeKind::All
             | NodeKind::Any
             | NodeKind::Hold { .. }
-            | NodeKind::After { .. } => Category::Condition,
+            | NodeKind::After { .. }
+            | NodeKind::Compare { .. }
+            | NodeKind::TextCompare { .. } => Category::Condition,
             NodeKind::Hotkey { .. } | NodeKind::Timer { .. } | NodeKind::Change => {
                 Category::Trigger
             }
@@ -495,7 +555,10 @@ impl NodeKind {
             | NodeKind::Integer { .. }
             | NodeKind::Number { .. }
             | NodeKind::Join { .. }
-            | NodeKind::Math { .. } => Category::Value,
+            | NodeKind::Math { .. }
+            | NodeKind::Choose
+            | NodeKind::Counter { .. }
+            | NodeKind::Volume => Category::Value,
         }
     }
 
@@ -748,6 +811,15 @@ mod tests {
                 args: 2,
             },
             NodeKind::Math { op: MathOp::Add },
+            NodeKind::Compare {
+                op: CompareOp::Greater,
+            },
+            NodeKind::TextCompare {
+                op: TextOp::Contains,
+            },
+            NodeKind::Choose,
+            NodeKind::Counter { initial: 0 },
+            NodeKind::Volume,
             NodeKind::Soundboard {
                 board: "b".into(),
                 triggers: vec!["p".into()],

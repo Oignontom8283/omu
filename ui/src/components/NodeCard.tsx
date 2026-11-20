@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useEditor } from '../context.ts';
 import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_JOIN_ARGS, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
-import type { DeviceRef, LogicOp, MathOp, NodeSpec, NodeType } from '../types.ts';
+import type { CompareOp, DeviceRef, LogicOp, MathOp, NodeSpec, NodeType, TextOp } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
 
 /** `inputs`: how many input points the block shows, for a block that sums its inputs (the mixer). */
@@ -316,6 +316,12 @@ function Params({ spec }: { spec: NodeSpec }) {
           </select>
         </label>
       );
+    case 'compare':
+      return <OperationField value={spec.op} options={['greater', 'greater_or_equal', 'equal', 'not_equal', 'less_or_equal', 'less']} prefix="compare" onChange={(op) => update(spec.id, { type: 'compare', op: op as CompareOp })} />;
+    case 'text_compare':
+      return <OperationField value={spec.op} options={['equals', 'contains', 'starts_with', 'ends_with']} prefix="textop" onChange={(op) => update(spec.id, { type: 'text_compare', op: op as TextOp })} />;
+    case 'counter':
+      return <NumberField label="field.counterStart" value={spec.initial ?? 0} whole onChange={(initial) => update(spec.id, { type: 'counter', initial })} />;
     case 'mixer':
     case 'gate':
     case 'noise_reduction':
@@ -323,8 +329,27 @@ function Params({ spec }: { spec: NodeSpec }) {
     case 'all':
     case 'any':
     case 'change':
+    case 'choose':
+    case 'volume':
       return null;
   }
+}
+
+/** The drop-down of a block that does one of several things (`prefix.option` is the translation of each). */
+function OperationField({ value, options, prefix, onChange }: { value: string; options: string[]; prefix: string; onChange: (value: string) => void }) {
+  const t = useT();
+  return (
+    <label className="field">
+      <span>{t('field.operation')}</span>
+      <select className="nodrag" value={value} onChange={(e) => onChange(e.target.value)}>
+        {options.map((o) => (
+          <option key={o} value={o}>
+            {t(`${prefix}.${o}`)}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }
 
 /** A number typed in the block: whole, or with a decimal part. The field keeps what is being typed until it is a number. */
