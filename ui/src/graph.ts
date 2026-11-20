@@ -58,6 +58,12 @@ export type PortMeta = {
   unit?: string;
   /** The translation key of what the input is for (its explanation is that key + `.help`). */
   help?: string;
+  /** The control that draws its value: the name of a registered control (see `kit/registry.ts`); by default one is chosen from the sort of value. */
+  control?: string;
+  /** The translation key of what its field shows while empty. */
+  placeholder?: string;
+  /** The size of a step of its number (arrows, dragging). */
+  step?: number;
 };
 
 /** What decides a block's ports: its kind, and for the blocks that branch, how many conditions they have. */

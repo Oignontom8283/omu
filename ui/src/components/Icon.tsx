@@ -9,6 +9,15 @@ const PATHS = {
   play: 'M4.5 3 12.5 8l-8 5z',
   stop: 'M4 4h8v8H4z',
   command: 'M3.5 4.5 7.5 8l-4 3.5M8.5 12h4',
+  chevron: 'M3.5 6 8 10.5 12.5 6',
+  plus: 'M8 3v10M3 8h10',
+  close: 'M3.5 3.5l9 9M12.5 3.5l-9 9',
+  search: 'M7 2.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 0 0 0-9zM10.5 10.5 14 14',
+  warning: 'M8 2 14.5 13.5h-13zM8 6.5v3.2M8 11.6v.4',
+  error: 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4',
+  info: 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 7.2v3.6M8 5.2v.2',
+  panel: 'M2.5 3h11v10h-11zM2.5 6.5h11',
+  list: 'M5 4h8M5 8h8M5 12h8M2.5 4h.5M2.5 8h.5M2.5 12h.5',
 } as const;
 
 export type IconName = keyof typeof PATHS;

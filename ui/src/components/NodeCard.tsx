@@ -1,10 +1,12 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useEditor } from '../context.ts';
-import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_JOIN_ARGS, cropTo, inputValue, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
+import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_JOIN_ARGS, inputValue, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { CompareOp, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, RoundMode, TextOp } from '../types.ts';
-import { HighlightedInput } from './HighlightedInput.tsx';
+import { Button, ComboInput, NumberField, Select, Slider, Switch, TextInput } from '../kit/controls.tsx';
+import { controlNamed, defaultControl } from '../kit/registry.ts';
+import '../kit/fields.tsx';
 import { ShortcutField } from './ShortcutField.tsx';
 
 /** `inputs`: how many input points the block shows, for a block that sums its inputs (the mixer). */
@@ -28,25 +30,16 @@ function AppEditor({ spec }: { spec: Of<'app_capture'> }) {
   const names = [...new Set(apps.map((a) => a.name))];
   const known = apps.some((a) => a.name.toLowerCase() === value.toLowerCase());
   return (
-    <label className="field">
+    <div className="field">
       <span>{t('field.program')}</span>
-      <input
-        className="nodrag"
-        list={`apps-${spec.id}`}
+      <ComboInput
         value={value}
+        options={names}
         placeholder="chrome.exe"
-        onChange={(e) => {
-          const v = e.target.value;
-          update(spec.id, { type: 'app_capture', target: /^\d+$/.test(v.trim()) ? { pid: Number(v.trim()) } : { process_name: v } });
-        }}
+        onChange={(v) => update(spec.id, { type: 'app_capture', target: /^\d+$/.test(v.trim()) ? { pid: Number(v.trim()) } : { process_name: v } })}
       />
-      <datalist id={`apps-${spec.id}`}>
-        {names.map((n) => (
-          <option key={n} value={n} />
-        ))}
-      </datalist>
       {value && !/^\d+$/.test(value) && apps.length > 0 && !known && <small className="warn">{t('field.programNotPlaying')}</small>}
-    </label>
+    </div>
   );
 }
 
@@ -60,23 +53,16 @@ function DeviceEditor({ spec }: { spec: Of<'device_capture'> | Of<'device_render
   const list = devices.filter((d) => d.direction === direction);
   const current = refToOption(spec.device);
   const known = current === 'default' || list.some((d) => `id:${d.id}` === current);
+  const options = [
+    { value: 'default', label: t('field.systemDefault') },
+    ...list.map((d) => ({ value: `id:${d.id}`, label: d.name })),
+    ...(known ? [] : [{ value: current, label: `${t('field.notFound')} ${current.replace(/^(id|name):/, '')}` }]),
+  ];
   return (
-    <label className="field">
+    <div className="field">
       <span>{t(direction === 'capture' ? 'field.recordingDevice' : 'field.playbackDevice')}</span>
-      <select className="nodrag" value={current} onChange={(e) => update(spec.id, { ...spec, device: optionToRef(e.target.value) })}>
-        <option value="default">{t('field.systemDefault')}</option>
-        {list.map((d) => (
-          <option key={d.id} value={`id:${d.id}`}>
-            {d.name}
-          </option>
-        ))}
-        {!known && (
-          <option value={current}>
-            {t('field.notFound')} {current.replace(/^(id|name):/, '')}
-          </option>
-        )}
-      </select>
-    </label>
+      <Select value={current} options={options} onChange={(v) => update(spec.id, { ...spec, device: optionToRef(v) })} />
+    </div>
   );
 }
 
@@ -93,17 +79,14 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
   // the last trigger cannot go while a link is on its input
   return (
     <>
-      <label className="field">
+      <div className="field">
         <span>{t('field.soundboard')}</span>
-        <select className="nodrag" value={spec.board} onChange={(e) => update(spec.id, { type: 'soundboard', board: e.target.value, ...(spec.triggers?.length ? { triggers: [] } : {}) })}>
-          {!known && <option value={spec.board}>{spec.board ? t('field.notFound') : t('field.chooseSoundboard')}</option>}
-          {library.boards.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-      </label>
+        <Select
+          value={spec.board}
+          options={[...(known ? [] : [{ value: spec.board, label: spec.board ? t('field.notFound') : t('field.chooseSoundboard') }]), ...library.boards.map((b) => ({ value: b.id, label: b.name }))]}
+          onChange={(board) => update(spec.id, { type: 'soundboard', board, ...(spec.triggers?.length ? { triggers: [] } : {}) })}
+        />
+      </div>
       {!known && spec.board !== '' && (
         <small className="warn" title={t('field.soundboardMissing')}>
           {t('field.notFound')}
@@ -114,59 +97,59 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
         const last = i === triggers.length - 1;
         return (
           <div key={i} className="trigger-row">
-            <select className="nodrag" aria-label={t('soundboards.trigger', { n: i + 1 })} value={pad} onChange={(e) => set(triggers.map((x, j) => (j === i ? e.target.value : x)))}>
-              {!board?.pads.some((p) => p.id === pad) && <option value={pad}>{t('field.notFound')}</option>}
-              {board?.pads.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name || t('soundboards.unnamedPad')}
-                </option>
-              ))}
-            </select>
+            <Select
+              label={t('soundboards.trigger', { n: i + 1 })}
+              value={pad}
+              options={[...(board?.pads.some((p) => p.id === pad) ? [] : [{ value: pad, label: t('field.notFound') }]), ...(board?.pads.map((p) => ({ value: p.id, label: p.name || t('soundboards.unnamedPad') })) ?? [])]}
+              onChange={(id) => set(triggers.map((x, j) => (j === i ? id : x)))}
+            />
             {last && !linked && (
-              <button className="mini nodrag" title={t('soundboards.removeTrigger')} aria-label={t('soundboards.removeTrigger')} onClick={() => set(triggers.slice(0, -1))}>
+              <Button size="small" title={t('soundboards.removeTrigger')} onClick={() => set(triggers.slice(0, -1))}>
                 ×
-              </button>
+              </Button>
             )}
           </div>
         );
       })}
-      <button className="mini nodrag" disabled={!free || triggers.length >= MAX_BRANCHES} title={t('soundboards.addTriggerHint')} onClick={() => free && set([...triggers, free.id])}>
+      <Button size="small" disabled={!free || triggers.length >= MAX_BRANCHES} title={t('soundboards.addTriggerHint')} onClick={() => free && set([...triggers, free.id])}>
         + {t('soundboards.addTrigger')}
-      </button>
-      <button className="mini wide nodrag" onClick={() => openSoundboards(known ? spec.board : undefined)}>
+      </Button>
+      <Button size="small" wide onClick={() => openSoundboards(known ? spec.board : undefined)}>
         {t('soundboards.open')}
-      </button>
+      </Button>
     </>
   );
 }
 
-/** A line of text (a host, a stream name). */
 function TextField({ label, value, placeholder, disabled, title, onChange }: { label: string; value: string; placeholder?: string; disabled?: boolean; title?: string; onChange: (text: string) => void }) {
   const t = useT();
   return (
-    <label className="field" title={title}>
+    <div className="field" title={title}>
       <span>{t(label)}</span>
-      <input className="nodrag" value={value} placeholder={placeholder} disabled={disabled} spellCheck={false} onChange={(e) => onChange(e.target.value)} />
-    </label>
+      <TextInput value={value} placeholder={placeholder} disabled={disabled} onChange={onChange} />
+    </div>
   );
 }
 
-/** The larger noise reduction: how far the noise may be reduced, and a way to the module it needs. */
 function DeepFilterEditor({ spec }: { spec: Of<'deep_filter'> }) {
   const { update, openModules } = useEditor();
   const t = useT();
   const limit = spec.limit_db ?? 100;
+  const set = (limit_db: number) => update(spec.id, { type: 'deep_filter', limit_db });
   return (
     <>
-      <label className="field">
+      <div className="field">
         <span>
           {t('field.maxReduction')}: {limit >= 100 ? t('field.noLimit') : `${limit} dB`}
         </span>
-        <input className="nodrag" type="range" min={6} max={100} step={1} value={limit} onChange={(e) => update(spec.id, { type: 'deep_filter', limit_db: Number(e.target.value) })} />
-      </label>
-      <button className="mini wide nodrag" onClick={openModules}>
+        <span className="field-pair">
+          <Slider value={limit} min={6} max={100} label={t('field.maxReduction')} onChange={set} />
+          <NumberField value={limit} whole min={6} max={100} unit="dB" onChange={set} />
+        </span>
+      </div>
+      <Button size="small" wide onClick={openModules}>
         {t('modules.open')}
-      </button>
+      </Button>
       <CalibrateButton id={spec.id} />
     </>
   );
@@ -183,10 +166,10 @@ function Params({ spec }: { spec: NodeSpec }) {
       return <DeviceEditor spec={spec} />;
     case 'virtual_speaker':
       return (
-        <label className="field">
+        <div className="field">
           <span>{t('field.speakerName')}</span>
-          <input className="nodrag" value={spec.name} onChange={(e) => update(spec.id, { type: 'virtual_speaker', name: e.target.value })} />
-        </label>
+          <TextInput value={spec.name} onChange={(name) => update(spec.id, { type: 'virtual_speaker', name })} />
+        </div>
       );
     case 'deep_filter':
       return <DeepFilterEditor spec={spec} />;
@@ -194,31 +177,21 @@ function Params({ spec }: { spec: NodeSpec }) {
       return <SoundboardEditor spec={spec} />;
     case 'virtual_mic':
       return (
-        <label className="field">
+        <div className="field">
           <span>{t('field.micName')}</span>
-          <input className="nodrag" value={spec.name} onChange={(e) => update(spec.id, { type: 'virtual_mic', name: e.target.value })} />
-        </label>
+          <TextInput value={spec.name} onChange={(name) => update(spec.id, { type: 'virtual_mic', name })} />
+        </div>
       );
     case 'variable':
       return (
-        <label className="check">
-          <input className="nodrag" type="checkbox" checked={spec.initial} onChange={(e) => update(spec.id, { type: 'variable', initial: e.target.checked })} />
-          {t('field.startsOn')}
-        </label>
+        <div className="check">
+          <Switch checked={spec.initial} onChange={(initial) => update(spec.id, { type: 'variable', initial })}>
+            {t('field.startsOn')}
+          </Switch>
+        </div>
       );
     case 'logic':
-      return (
-        <label className="field">
-          <span>{t('field.operation')}</span>
-          <select className="nodrag" value={spec.op} onChange={(e) => update(spec.id, { type: 'logic', op: e.target.value as LogicOp })}>
-            {(['and', 'or', 'xor', 'not'] as const).map((op) => (
-              <option key={op} value={op}>
-                {t(`logic.${op}`)}
-              </option>
-            ))}
-          </select>
-        </label>
-      );
+      return <OperationField value={spec.op} options={['and', 'or', 'xor', 'not']} prefix="logic" onChange={(op) => update(spec.id, { type: 'logic', op: op as LogicOp })} />;
     case 'hotkey':
       return (
         <div className="field">
@@ -234,24 +207,13 @@ function Params({ spec }: { spec: NodeSpec }) {
     case 'text':
       return <TextField label="field.text" value={spec.value} placeholder="" onChange={(value) => update(spec.id, { type: 'text', value })} />;
     case 'integer':
-      return <NumberField label="field.integer" value={spec.value} whole onChange={(value) => update(spec.id, { type: 'integer', value })} />;
+      return <ValueField label="field.integer" value={spec.value} whole onChange={(value) => update(spec.id, { type: 'integer', value })} />;
     case 'number':
-      return <NumberField label="field.number" value={spec.value} onChange={(value) => update(spec.id, { type: 'number', value })} />;
+      return <ValueField label="field.number" value={spec.value} onChange={(value) => update(spec.id, { type: 'number', value })} />;
     case 'join':
       return <JoinEditor spec={spec} />;
     case 'math':
-      return (
-        <label className="field">
-          <span>{t('field.operation')}</span>
-          <select className="nodrag" value={spec.op} onChange={(e) => update(spec.id, { type: 'math', op: e.target.value as MathOp })}>
-            {(['add', 'subtract', 'multiply', 'divide', 'min', 'max'] as const).map((op) => (
-              <option key={op} value={op}>
-                {t(`math.${op}`)}
-              </option>
-            ))}
-          </select>
-        </label>
-      );
+      return <OperationField value={spec.op} options={['add', 'subtract', 'multiply', 'divide', 'min', 'max']} prefix="math" onChange={(op) => update(spec.id, { type: 'math', op: op as MathOp })} />;
     case 'noise_reduction':
       return <CalibrateButton id={spec.id} />;
     case 'compare':
@@ -259,7 +221,7 @@ function Params({ spec }: { spec: NodeSpec }) {
     case 'text_compare':
       return <OperationField value={spec.op} options={['equals', 'contains', 'starts_with', 'ends_with']} prefix="textop" onChange={(op) => update(spec.id, { type: 'text_compare', op: op as TextOp })} />;
     case 'counter':
-      return <NumberField label="field.counterStart" value={spec.initial ?? 0} whole onChange={(initial) => update(spec.id, { type: 'counter', initial })} />;
+      return <ValueField label="field.counterStart" value={spec.initial ?? 0} whole onChange={(initial) => update(spec.id, { type: 'counter', initial })} />;
     case 'round':
       return <OperationField value={spec.mode} options={['nearest', 'down', 'up']} prefix="round" onChange={(mode) => update(spec.id, { type: 'round', mode: mode as RoundMode })} />;
     case 'mixer':
@@ -301,42 +263,23 @@ function CalibrateButton({ id }: { id: string }) {
   );
 }
 
-/** The drop-down of a block that does one of several things (`prefix.option` is the translation of each). */
 function OperationField({ value, options, prefix, onChange }: { value: string; options: string[]; prefix: string; onChange: (value: string) => void }) {
   const t = useT();
   return (
-    <label className="field">
+    <div className="field">
       <span>{t('field.operation')}</span>
-      <select className="nodrag" value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map((o) => (
-          <option key={o} value={o}>
-            {t(`${prefix}.${o}`)}
-          </option>
-        ))}
-      </select>
-    </label>
+      <Select value={value} options={options.map((o) => ({ value: o, label: t(`${prefix}.${o}`) }))} onChange={onChange} />
+    </div>
   );
 }
 
-/** A number typed in the block: whole, or with a decimal part. The field keeps what is being typed until it is a number. */
-function NumberField({ label, value, whole = false, onChange }: { label: string; value: number; whole?: boolean; onChange: (value: number) => void }) {
+function ValueField({ label, value, whole = false, onChange }: { label: string; value: number; whole?: boolean; onChange: (value: number) => void }) {
   const t = useT();
-  const [typed, setTyped] = useState(String(value));
-  useEffect(() => setTyped((now) => (Number(now) === value ? now : String(value))), [value]);
   return (
-    <label className="field">
+    <div className="field">
       <span>{t(label)}</span>
-      <input
-        className="nodrag"
-        inputMode={whole ? 'numeric' : 'decimal'}
-        value={typed}
-        onChange={(e) => {
-          setTyped(e.target.value);
-          const n = whole ? Math.trunc(Number(e.target.value)) : Number(e.target.value);
-          if (e.target.value.trim() !== '' && Number.isFinite(n)) onChange(n);
-        }}
-      />
-    </label>
+      <NumberField value={value} whole={whole} step={whole ? 1 : 0.5} onChange={onChange} />
+    </div>
   );
 }
 
@@ -354,13 +297,13 @@ function JoinEditor({ spec }: { spec: Of<'join'> }) {
   return (
     <>
       <div className="adders">
-        <button className="mini add nodrag" title={t('node.addArgument')} aria-label={t('node.addArgument')} disabled={count >= MAX_JOIN_ARGS} onClick={() => set(count + 1)}>
+        <Button size="small" title={t('node.addArgument')} disabled={count >= MAX_JOIN_ARGS} onClick={() => set(count + 1)}>
           +
-        </button>
+        </Button>
         {count > 1 && !used && (
-          <button className="mini nodrag" title={t('node.removeArgument')} aria-label={t('node.removeArgument')} onClick={() => set(count - 1)}>
+          <Button size="small" title={t('node.removeArgument')} onClick={() => set(count - 1)}>
             ×
-          </button>
+          </Button>
         )}
       </div>
     </>
@@ -371,10 +314,10 @@ function JoinEditor({ spec }: { spec: Of<'join'> }) {
 function MsField({ label, value, max, disabled, title, onChange }: { label: string; value: number; max: number; disabled?: boolean; title?: string; onChange: (ms: number) => void }) {
   const t = useT();
   return (
-    <label className="field" title={title}>
+    <div className="field" title={title}>
       <span>{t(label)}</span>
       <input className="nodrag" type="number" min={0} max={max} step={10} value={value} disabled={disabled} onChange={(e) => onChange(Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))))} />
-    </label>
+    </div>
   );
 }
 
@@ -392,13 +335,13 @@ function Branches({ spec }: { spec: Of<'branch'> | Of<'select'> }) {
   const set = (branches: number) => update(spec.id, { type: spec.type, branches });
   return (
     <div className="adders">
-      <button className="mini add nodrag" title={t('node.addCondition')} aria-label={t('node.addCondition')} disabled={count >= MAX_BRANCHES} onClick={() => set(count + 1)}>
+      <Button size="small" title={t('node.addCondition')} disabled={count >= MAX_BRANCHES} onClick={() => set(count + 1)}>
         +
-      </button>
+      </Button>
       {count > 1 && !used && (
-        <button className="mini nodrag" title={t('node.removeCondition')} aria-label={t('node.removeCondition')} onClick={() => set(count - 1)}>
+        <Button size="small" title={t('node.removeCondition')} onClick={() => set(count - 1)}>
           ×
-        </button>
+        </Button>
       )}
     </div>
   );
@@ -456,16 +399,16 @@ function EntriesRow({ port, node, asked }: { port: PortMeta; node: string; asked
               </small>
             )}
             {last && count > 1 && !links.has(n) && (
-              <button className="mini nodrag" title={t('node.removeInput')} aria-label={t('node.removeInput')} onClick={() => setInputs(node, count - 1)}>
+              <Button size="small" title={t('node.removeInput')} onClick={() => setInputs(node, count - 1)}>
                 ×
-              </button>
+              </Button>
             )}
           </div>
         );
       })}
-      <button className="mini add nodrag" title={t('node.addInput')} aria-label={t('node.addInput')} disabled={count >= MAX_ENTRIES} onClick={() => setInputs(node, count + 1)}>
+      <Button size="small" title={t('node.addInput')} disabled={count >= MAX_ENTRIES} onClick={() => setInputs(node, count + 1)}>
         +
-      </button>
+      </Button>
     </>
   );
 }
@@ -487,68 +430,19 @@ function PortRow({ port, spec, inputs, text }: { port: PortMeta; spec: NodeSpec;
   );
 }
 
-/** A number typed in a field: what is being typed is kept until it is a number, and the number is cropped to the limits. */
-function TypedNumber({ value, whole, min, max, disabled, onChange }: { value: number; whole: boolean; min: number; max: number; disabled: boolean; onChange: (n: number) => void }) {
-  const [typed, setTyped] = useState(String(value));
-  useEffect(() => setTyped((now) => (Number(now) === value ? now : String(value))), [value]);
-  return (
-    <input
-      className="nodrag inline-number"
-      inputMode={whole ? 'numeric' : 'decimal'}
-      value={typed}
-      disabled={disabled}
-      onChange={(e) => {
-        setTyped(e.target.value);
-        const n = whole ? Math.trunc(Number(e.target.value)) : Number(e.target.value);
-        if (e.target.value.trim() !== '' && Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
-      }}
-      onBlur={() => setTyped(String(value))}
-    />
-  );
-}
-
 /**
- * The value of an input, typed next to its connection point: a text, a number (with a slider over the range that is advised
- * when there is one). A flow linked to the input wins over it, and the field is then only shown.
+ * The value of an input, typed next to its connection point, drawn by the control that the definition of the input names (or
+ * the one that suits its sort of value). A flow linked to the input wins over it, and the field is then only shown.
  */
 function InlineValue({ spec, port }: { spec: NodeSpec; port: PortMeta }) {
   const { update, setInput } = useEditor();
   const t = useT();
   const edges = useEdges();
   const linked = edges.some((e) => e.target === spec.id && e.targetHandle === port.name);
-  const current = inputValue(spec, port);
   const write = (v: InputValue) => (port.field !== undefined ? update(spec.id, { ...spec, [port.field]: v } as NodeKind) : setInput(spec.id, port.name, v));
-  const title = linked ? t('node.fromFlow') : undefined;
-  if (port.flow === 'text') {
-    const text = String(current);
-    return port.name === 'template' ? (
-      <HighlightedInput value={text} disabled={linked} title={title} known={(name) => /^(arg)?\d+$/.test(name) && Number(name.replace('arg', '')) <= portsOf(spec).filter((q) => q.name.startsWith('arg')).length} onChange={write} />
-    ) : (
-      <input className="nodrag inline-text" value={text} disabled={linked} title={title} placeholder={port.help && port.field === 'stream' ? t('field.anyStream') : undefined} spellCheck={false} onChange={(e) => write(e.target.value)} />
-    );
-  }
-  const whole = port.flow === 'int';
-  const n = Number(current) || 0;
-  const l = port.limits;
-  const advised = l && l.softMax > l.softMin && (l.softMin > l.min || l.softMax < l.max);
-  return (
-    <span className="inline-control" title={title}>
-      {advised && (
-        <input
-          className="nodrag inline-slider"
-          type="range"
-          min={l.softMin}
-          max={l.softMax}
-          step={whole ? 1 : l.softMax - l.softMin > 50 ? 1 : 0.5}
-          value={Math.min(l.softMax, Math.max(l.softMin, n))}
-          disabled={linked}
-          onChange={(e) => write(cropTo(l, Number(e.target.value)))}
-        />
-      )}
-      <TypedNumber value={n} whole={whole} min={l?.min ?? -1e9} max={l?.max ?? 1e9} disabled={linked} onChange={write} />
-      {port.unit && <small className="inline-unit">{port.unit}</small>}
-    </span>
-  );
+  const Control = controlNamed(port.control ?? defaultControl(port)) ?? controlNamed('omu.text');
+  if (!Control) return null;
+  return <Control spec={spec} port={port} value={inputValue(spec, port)} disabled={linked} title={linked ? t('node.fromFlow') : undefined} write={write} />;
 }
 
 function Footer({ spec }: { spec: NodeSpec }) {
