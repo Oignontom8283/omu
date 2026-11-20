@@ -1510,11 +1510,11 @@ button.ref:hover:not(:disabled) {
 .kit-button.primary:hover:not(:disabled) {
   background: color-mix(in srgb, var(--primary) 85%, #000);
 }
-.kit-button.ghost {
+.kit-button.flat {
   background: transparent;
   border-color: transparent;
 }
-.kit-button.ghost:hover:not(:disabled) {
+.kit-button.flat:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text) 10%, transparent);
   border-color: transparent;
 }
@@ -1757,4 +1757,221 @@ button.ref:hover:not(:disabled) {
 .kit-menu small {
   margin-left: auto;
   opacity: 0.7;
+}
+
+/* ---------------------------------------------------------------------------------------------------------------
+   The workbench: the graph, a panel beside it and one under it, a bar at the bottom. */
+.workbench {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.work-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.dock-wrap {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+.dock {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  overflow: hidden;
+}
+.dock > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 4px 2px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dock-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+.splitter {
+  flex: none;
+  background: var(--line);
+  z-index: 5;
+}
+.splitter.horizontal {
+  height: 1px;
+  cursor: ns-resize;
+  box-shadow: 0 -3px 0 transparent, 0 3px 0 transparent;
+}
+.splitter.vertical {
+  width: 1px;
+  cursor: ew-resize;
+}
+.splitter:hover,
+.splitter:active {
+  background: var(--primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.statusbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  background: color-mix(in srgb, var(--primary) 10%, var(--panel));
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+}
+.statusbar .spacer {
+  flex: 1;
+}
+.statusbar .kit-button {
+  height: 20px;
+  gap: 4px;
+}
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: 8px;
+  background: var(--muted);
+}
+.status-dot.ok {
+  background: var(--ok);
+}
+.status-dot.bad {
+  background: var(--bad);
+}
+.panel-empty {
+  margin: 0;
+  color: var(--muted);
+}
+.problems {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.problems li {
+  display: flex;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.problems li:hover {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.problems li.error .icon {
+  color: var(--bad);
+}
+.problems li.warning .icon {
+  color: var(--warn);
+}
+.problems li.info .icon {
+  color: var(--primary);
+}
+.problems .icon {
+  flex: none;
+  margin-top: 2px;
+}
+.problems small {
+  display: block;
+  color: var(--muted);
+}
+.problems .where {
+  color: var(--text);
+  font-weight: 600;
+}
+.code-tag {
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--field);
+  color: var(--muted);
+  font: 11px var(--font-code);
+}
+.logs-panel {
+  margin: 0;
+  font: 12px/1.45 var(--font-code);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.monitor-head {
+  margin: 0 0 6px;
+  color: var(--muted);
+}
+.monitor {
+  width: 100%;
+  border-collapse: collapse;
+}
+.monitor th,
+.monitor td {
+  padding: 2px 8px 2px 0;
+  text-align: left;
+  font-weight: 400;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.monitor th {
+  color: var(--muted);
+  font-size: 11px;
+}
+.monitor tr.failed td {
+  color: var(--bad);
+}
+.monitor-bar {
+  display: block;
+  width: 90px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--field);
+  overflow: hidden;
+}
+.monitor-bar span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.inspector h3 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 2px;
+  font-size: 14px;
+}
+.inspector h4 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.inspector p {
+  margin: 0 0 6px;
+}
+.inspector-field {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.inspector-params .field {
+  margin-bottom: 4px;
+}
+.inspector-actions {
+  margin-top: 12px !important;
 }
