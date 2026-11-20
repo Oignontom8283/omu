@@ -48,9 +48,14 @@ const SETTINGS: Partial<Record<NodeType, { key: string; type: string }[]>> = {
     { key: 'field.streamName', type: 'Text' },
   ],
   deep_filter: [{ key: 'field.maxReduction', type: 'dB' }],
+  text: [{ key: 'field.text', type: 'Text' }],
+  integer: [{ key: 'field.integer', type: 'Integer' }],
+  number: [{ key: 'field.number', type: 'Decimal' }],
+  join: [{ key: 'field.template', type: 'Text' }],
+  math: [{ key: 'field.operation', type: 'Operation' }],
 };
 
-const FLOWS: FlowType[] = ['audio', 'condition', 'action'];
+const FLOWS: FlowType[] = ['audio', 'condition', 'action', 'text', 'int', 'float'];
 
 /** The title of the window of a documentation. */
 export function docTitle(t: ReturnType<typeof useT>, ref: DocRef, spec?: NodeSpec): string {

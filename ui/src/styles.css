@@ -21,11 +21,15 @@
   --cat-processing: #8a4ad6;
   --cat-condition: #d4332b;
   --cat-trigger: #c98a00;
+  --cat-value: #4f6b80;
 
   /* the three flows between blocks */
   --flow-audio: #2f9ad6;
   --flow-condition: #d4332b;
   --flow-action: #c98a00;
+  --flow-text: #4f6b80;
+  --flow-int: #7a5cc4;
+  --flow-float: #2f9a7a;
 
   /* a group of rows that belong together logically */
   --zone: #e8830c;
@@ -50,6 +54,7 @@
   --cat-processing: #c08bff;
   --cat-condition: #f87171;
   --cat-trigger: #fbbf24;
+  --cat-value: #8fb3cc;
 
   --flow-audio: #5cc1ff;
   --flow-condition: #f87171;
@@ -337,6 +342,9 @@ button.inline {
 }
 .cat-trigger {
   --cat: var(--cat-trigger);
+}
+.cat-value {
+  --cat: var(--cat-value);
 }
 
 /* blocks: made of grid cells (--grid), less the gap (--gap) that keeps neighbours apart. Rows of ports are one cell high and
@@ -1195,4 +1203,46 @@ button.ref:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/* the flows of values */
+.react-flow__handle.flow-text {
+  background: var(--flow-text);
+}
+.react-flow__handle.flow-int {
+  background: var(--flow-int);
+}
+.react-flow__handle.flow-float {
+  background: var(--flow-float);
+}
+.react-flow__edge.flow-text .react-flow__edge-path {
+  stroke: var(--flow-text);
+}
+.react-flow__edge.flow-int .react-flow__edge-path {
+  stroke: var(--flow-int);
+}
+.react-flow__edge.flow-float .react-flow__edge-path {
+  stroke: var(--flow-float);
+}
+.ref.flow-text {
+  color: var(--flow-text);
+}
+.ref.flow-int {
+  color: var(--flow-int);
+}
+.ref.flow-float {
+  color: var(--flow-float);
+}
+.node footer .value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 12px;
+}
+.field input:disabled,
+.field select:disabled {
+  opacity: 0.5;
 }
