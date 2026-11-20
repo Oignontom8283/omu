@@ -530,7 +530,7 @@ function InlineValue({ spec, port }: { spec: NodeSpec; port: PortMeta }) {
   const whole = port.flow === 'int';
   const n = Number(current) || 0;
   const l = port.limits;
-  const advised = l && l.softMax > l.softMin;
+  const advised = l && l.softMax > l.softMin && (l.softMin > l.min || l.softMax < l.max);
   return (
     <span className="inline-control" title={title}>
       {advised && (
@@ -566,7 +566,7 @@ function Footer({ spec }: { spec: NodeSpec }) {
       {category === 'trigger' && <small className={off.trim()}>{t('status.actions', { count: status?.events ?? 0 })}</small>}
       {(category === 'number' || category === 'text' || category === 'conversion') && (
         <small className={`value${off}`} title={status?.value ?? undefined}>
-          {status?.value ?? '–'}
+          {status?.value === '' ? t('status.empty') : (status?.value ?? '–')}
         </small>
       )}
       {category === 'condition' && (

@@ -78,7 +78,7 @@ export function accepts(input: FlowType, from: FlowType): boolean {
 
 /** The translation key of a port's name: `port.set`, but `port.in.condition` for the input of a condition block. */
 function labelKey(name: string, flow: FlowType): string {
-  return (name === 'in' || name === 'out') && flow !== 'audio' ? `port.${name}.${flow}` : `port.${name}`;
+  return (name === 'in' || name === 'out' || name === 'a' || name === 'b') && flow !== 'audio' ? `port.${name}.${flow}` : `port.${name}`;
 }
 
 // A sound input takes any number of links (the daemon adds the sounds together); the other inputs only when they are

@@ -196,6 +196,7 @@ body {
 .shelf {
   width: 100%;
   max-height: 60vh;
+  overflow-y: auto;
 }
 .shelf .react-flow {
   background: transparent;
@@ -507,6 +508,16 @@ button.inline {
 .adders .mini.add {
   margin: 0;
 }
+/* the buttons of a row are all the same size, their sign in the middle */
+.adders .mini {
+  height: 20px;
+  min-width: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  line-height: 1;
+}
 .node .body {
   padding: 0 10px;
 }
@@ -555,6 +566,13 @@ button.inline {
 }
 .field input[type='range'] {
   padding: 0;
+}
+/* the text of a drop-down is centred in its box (the system draws it a little low) */
+.field select,
+.port select {
+  padding-top: 0;
+  padding-bottom: 2px;
+  line-height: 1;
 }
 .check {
   min-height: var(--grid);
@@ -1323,10 +1341,12 @@ button.ref:hover:not(:disabled) {
 }
 .port-name {
   flex: none;
+  white-space: nowrap;
+}
+.port.inline .port-name {
   max-width: 42%;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .inline-control {
   flex: 1;

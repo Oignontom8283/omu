@@ -19,26 +19,31 @@ export type DragIn = {
   end: (id: string) => void;
 };
 
-/** Reports the height of the tallest block once the blocks are measured. */
-function Tallest({ onHeight }: { onHeight: (height: number) => void }) {
+/** The size blocks of the tray are shown at: readable, whatever their number (the tray wraps instead of shrinking them). */
+const SHELF_ZOOM = 0.85;
+
+/** Reports the height of each block once the blocks are measured. */
+function Heights({ ids, onHeights }: { ids: string[]; onHeights: (heights: number[]) => void }) {
   // the measures are in the editor's own table of blocks, whether or not the blocks are given by the caller
-  const height = useStore((s) => Math.max(0, ...[...s.nodeLookup.values()].map((n) => n.measured.height ?? 0)));
+  const key = useStore((s) => ids.map((id) => Math.round(s.nodeLookup.get(id)?.measured.height ?? 0)).join(','));
   useEffect(() => {
-    if (height) onHeight(height);
-  }, [height, onHeight]);
+    const heights = key.split(',').map(Number);
+    if (heights.every((h) => h > 0)) onHeights(heights);
+  }, [key, onHeights]);
   return null;
 }
 
 /**
- * The blocks of a family, side by side: the very blocks of the graph (the same component, in a small instance of the same
- * editor), shown smaller since the tray is not subject to the graph's zoom. Nothing in them can be changed here.
+ * The blocks of a family: the very blocks of the graph (the same component, in a small instance of the same editor), shown
+ * at a size that stays readable. They are laid out in rows as wide as the tray, one row under the other when the family is
+ * large (the tray scrolls when even that is too tall). Nothing in them can be changed here.
  */
 function Shelf({ category }: { category: Category }) {
   const { resolved } = useTheme();
   const types = KINDS_BY_CATEGORY[category];
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  const [tallest, setTallest] = useState(0);
+  const [heights, setHeights] = useState<number[]>([]);
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -48,41 +53,51 @@ function Shelf({ category }: { category: Category }) {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
-  // as large as the tray allows, so that all the blocks of the family are in view
-  const zoom = Math.min(0.8, Math.max(0.5, (width - 24) / (types.length * COLUMN)));
+  const columns = Math.max(1, Math.floor((width - 24) / (COLUMN * SHELF_ZOOM)));
+  const ids = useMemo(() => types.map((_, i) => trayId(i)), [types]);
+  // each row is as tall as its tallest block
+  const rowHeight = (row: number) => Math.max(120, ...types.slice(row * columns, (row + 1) * columns).map((_, k) => heights[row * columns + k] ?? 240));
+  const rows = Math.ceil(types.length / columns);
+  const tops = Array.from({ length: rows }, (_, r) => Array.from({ length: r }, (_, k) => rowHeight(k) + GRID).reduce((a, b) => a + b, 0));
+  const total = rows ? tops[rows - 1] + rowHeight(rows - 1) : 0;
+  // the same objects until the layout changes, or the editor would measure the blocks again at every turn
+  const layout = tops.join(',');
   const nodes: OmuNode[] = useMemo(
     () =>
       types.map((type, i) => {
-        const id = trayId(i);
-        return { id, type: 'omu', position: { x: i * COLUMN, y: 0 }, data: { spec: { id, ...defaultKind(type) } }, draggable: false, selectable: false, connectable: false };
+        const id = ids[i];
+        return { id, type: 'omu', position: { x: (i % columns) * COLUMN, y: tops[Math.floor(i / columns)] }, data: { spec: { id, ...defaultKind(type) } }, draggable: false, selectable: false, connectable: false };
       }),
-    [types],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [types, ids, columns, layout],
   );
   return (
-    <div className="shelf" ref={box} style={{ height: tallest ? tallest * zoom + 20 : 240 }}>
+    <div className="shelf" ref={box}>
       {width > 0 && (
-        <ReactFlowProvider>
-          <ReactFlow
-            nodes={nodes}
-            edges={[]}
-            nodeTypes={nodeTypes}
-            viewport={{ x: 12, y: 10, zoom }}
-            onViewportChange={noop}
-            panOnDrag={false}
-            zoomOnScroll={false}
-            zoomOnPinch={false}
-            zoomOnDoubleClick={false}
-            preventScrolling={false}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable={false}
-            onNodeClick={noop}
-            colorMode={resolved}
-            proOptions={{ hideAttribution: true }}
-          >
-            <Tallest onHeight={setTallest} />
-          </ReactFlow>
-        </ReactFlowProvider>
+        <div style={{ height: total * SHELF_ZOOM + 20 }}>
+          <ReactFlowProvider>
+            <ReactFlow
+              nodes={nodes}
+              edges={[]}
+              nodeTypes={nodeTypes}
+              viewport={{ x: 12, y: 10, zoom: SHELF_ZOOM }}
+              onViewportChange={noop}
+              panOnDrag={false}
+              zoomOnScroll={false}
+              zoomOnPinch={false}
+              zoomOnDoubleClick={false}
+              preventScrolling={false}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+              onNodeClick={noop}
+              colorMode={resolved}
+              proOptions={{ hideAttribution: true }}
+            >
+              <Heights ids={ids} onHeights={setHeights} />
+            </ReactFlow>
+          </ReactFlowProvider>
+        </div>
       )}
     </div>
   );
