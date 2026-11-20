@@ -21,6 +21,7 @@ import { CommandPalette, type PaletteItem } from './components/CommandPalette.ts
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
+import { JsonWindow, LogsWindow } from './components/ToolWindows.tsx';
 import { Modules } from './components/Modules.tsx';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { Soundboards } from './components/Soundboards.tsx';
@@ -96,6 +97,7 @@ export function App() {
   const [cleaning, setCleaning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showJson, setShowJson] = useState(false);
+  const [showLogs, setShowLogs] = useState(false);
   // the soundboards the daemon keeps; `boardsFirst` is the board the soundboards tab opens on
   const [library, setLibrary] = useState<SoundLibrary>({ sounds: [], boards: [] });
   const [boardsFirst, setBoardsFirst] = useState<string | undefined>(undefined);
@@ -419,6 +421,7 @@ export function App() {
         ...(dirty ? [{ id: 'apply', kind: 'command' as const, label: t('app.apply'), icon: 'check' as const, run: () => void apply() }, { id: 'revert', kind: 'command' as const, label: t('app.revert'), icon: 'undo' as const, run: revert }] : []),
         { id: 'tidy', kind: 'command', label: t('app.tidy'), icon: 'grid', run: autoLayout },
         { id: 'json', kind: 'command', label: t('app.json'), icon: 'braces', run: () => setShowJson((v) => !v) },
+        { id: 'logs', kind: 'command', label: t('app.logs'), icon: 'command', run: () => setShowLogs((v) => !v) },
         status?.running
           ? { id: 'engine', kind: 'command', label: t('app.stopEngine'), icon: 'stop', run: () => void stopEngine() }
           : { id: 'engine', kind: 'command', label: t('app.startEngine'), icon: 'play', run: () => void startEngine() },
@@ -659,7 +662,8 @@ export function App() {
           )}
           {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}
           {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} focus={settingFocus} />}
-          {showJson && <textarea className="json" readOnly value={JSON.stringify(graph, null, 2)} />}
+          {showJson && <JsonWindow graph={graph} onClose={() => setShowJson(false)} />}
+          {showLogs && <LogsWindow daemon={daemon} onClose={() => setShowLogs(false)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">
               <p>{t('app.emptyTitle')}</p>

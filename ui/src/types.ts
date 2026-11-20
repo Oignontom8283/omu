@@ -83,6 +83,8 @@ export type NodeStatus = {
   /** For a block that makes a value (text, a number): what it is now, written out. */
   value?: string | null;
 };
+/** One line of the program's log. */
+export type LogLine = { seq: number; text: string };
 /** How loud the sound at the input of a block has been, cycle after cycle (decibels, the oldest first). */
 export type Levels = { cycle_ms: number; db: number[] };
 export type EngineStatus = { running: boolean; cycles: number; late_cycles: number; nodes: NodeStatus[] };

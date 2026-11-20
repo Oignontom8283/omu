@@ -226,6 +226,8 @@
   "calibration.problem.no_signal": "No sound was heard: check that the microphone is connected and not muted.",
   "calibration.problem.no_voice": "Your voice was not heard clearly: speak a little louder, or closer to the microphone.",
   "calibration.problem.unavailable": "The block cannot be heard: apply the graph and start the engine.",
+  "app.logs": "Activity log",
+  "app.logsEmpty": "Nothing yet.",
   "port.in": "sound in",
   "port.out": "sound out",
   "port.open": "open when",

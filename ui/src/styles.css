@@ -312,20 +312,25 @@ button.inline {
 .empty p {
   margin: 2px 0;
 }
-.json {
-  position: absolute;
-  z-index: 6;
-  right: 12px;
-  top: 12px;
-  width: min(420px, 45%);
-  height: 60%;
+.json-body,
+.logs-body {
+  display: block;
+  width: min(480px, calc(100vw - 48px));
+  height: min(50vh, 360px);
+  box-sizing: border-box;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  resize: both;
   font: 12px/1.4 ui-monospace, Consolas, monospace;
   color: var(--text);
-  background: var(--panel);
+  background: var(--field);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px;
-  resize: none;
+  border-radius: 4px;
+}
+.logs-body {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .cat-input {
