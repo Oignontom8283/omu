@@ -1246,3 +1246,52 @@ button.ref:hover:not(:disabled) {
 .field select:disabled {
   opacity: 0.5;
 }
+
+/* the calibration window */
+.calibration {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 320px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.calibration p {
+  margin: 0;
+}
+.calibration-step {
+  font-weight: 600;
+}
+.calibration-count {
+  font-size: 40px;
+  font-weight: 700;
+  text-align: center;
+}
+.calibration-bar {
+  height: 8px;
+}
+.calibration-advice {
+  padding: 6px 10px;
+  border-left: 4px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-radius: 0 4px 4px 0;
+}
+.calibration-table {
+  border-collapse: collapse;
+}
+.calibration-table th {
+  padding: 2px 16px 2px 0;
+  text-align: left;
+  font-weight: 400;
+  color: var(--muted);
+}
+.quality.excellent,
+.quality.good {
+  color: var(--ok);
+}
+.quality.fair {
+  color: var(--warn);
+}
+.quality.poor {
+  color: var(--bad);
+}

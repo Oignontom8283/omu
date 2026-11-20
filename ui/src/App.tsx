@@ -16,6 +16,7 @@ import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findT
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Doc, docKey, type DocRef } from './components/BlockHelp.tsx';
+import { Calibration } from './components/Calibration.tsx';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette.tsx';
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
@@ -102,6 +103,8 @@ export function App() {
   const [tab, setTab] = useState<Tab>('nodes');
   // the information windows that are open, the last one in front
   const [helps, setHelps] = useState<{ key: string; doc: DocRef; x: number; y: number }[]>([]);
+  // the calibration windows that are open (a block each)
+  const [calibrations, setCalibrations] = useState<{ node: string; x: number; y: number }[]>([]);
   // the search bar (everything, or only the blocks to add, at a point of the graph), the setting it sent us to, the menu of a right click
   const [palette, setPalette] = useState<{ mode: 'all' | 'block'; at?: { x: number; y: number } } | null>(null);
   const [settingFocus, setSettingFocus] = useState<{ id: string; nonce: number } | undefined>(undefined);
@@ -382,6 +385,8 @@ export function App() {
       },
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
       openHelp: (id: string, anchor: { x: number; y: number }) => openDoc({ kind: 'node', node: id }, anchor),
+      openCalibration: (id: string, anchor: { x: number; y: number }) =>
+        setCalibrations((list) => [...list.filter((c) => c.node !== id), list.find((c) => c.node === id) ?? { node: id, x: Math.max(4, Math.min(window.innerWidth - 420, anchor.x)), y: Math.max(4, Math.min(window.innerHeight - 320, anchor.y)) }]),
       removeNode: (id: string) => void flow.deleteElements({ nodes: [{ id }] }),
       update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...named(n.data.spec), ...kind } } } : n))),
       setInputs: (id: string, count: number) => {
@@ -404,6 +409,7 @@ export function App() {
   useEffect(() => {
     const gone = (h: { doc: DocRef }) => h.doc.kind === 'node' && !nodes.some((n) => n.id === (h.doc as { node: string }).node);
     setHelps((list) => (list.some(gone) ? list.filter((h) => !gone(h)) : list));
+    setCalibrations((list) => (list.every((c) => nodes.some((n) => n.id === c.node)) ? list : list.filter((c) => nodes.some((n) => n.id === c.node))));
   }, [nodes]);
 
   // what the search bar offers: the commands, the settings (declared in `settingsRegistry.ts`) and every kind of block
@@ -609,6 +615,27 @@ export function App() {
                   onClose={() => setHelps((list) => list.filter((w) => w.key !== h.key))}
                 >
                   <Doc doc={h.doc} spec={spec} onOpen={(ref) => openDoc(ref, { x: h.x + 28, y: h.y + 28 })} />
+                </FloatingWindow>
+              );
+            })}
+          {tab === 'nodes' &&
+            calibrations.map((c, order) => {
+              const spec = nodes.find((n) => n.id === c.node)?.data.spec;
+              if (!spec) return null;
+              const bring = () => setCalibrations((list) => (list[list.length - 1]?.node === c.node ? list : [...list.filter((w) => w.node !== c.node), list.find((w) => w.node === c.node)!]));
+              return (
+                <FloatingWindow
+                  key={c.node}
+                  className="cat-processing"
+                  title={t('calibration.title')}
+                  x={c.x}
+                  y={c.y}
+                  order={helps.length + order}
+                  onMove={(x, y) => setCalibrations((list) => list.map((w) => (w.node === c.node ? { ...w, x, y } : w)))}
+                  onFocus={bring}
+                  onClose={() => setCalibrations((list) => list.filter((w) => w.node !== c.node))}
+                >
+                  <Calibration spec={spec} daemon={daemon} running={!!status?.nodes.some((n) => n.id === c.node)} />
                 </FloatingWindow>
               );
             })}

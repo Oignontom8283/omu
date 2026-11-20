@@ -177,6 +177,7 @@ function DeepFilterEditor({ spec }: { spec: Of<'deep_filter'> }) {
       <button className="mini wide nodrag" onClick={openModules}>
         {t('modules.open')}
       </button>
+      <CalibrateButton id={spec.id} />
     </>
   );
 }
@@ -316,6 +317,8 @@ function Params({ spec }: { spec: NodeSpec }) {
           </select>
         </label>
       );
+    case 'noise_reduction':
+      return <CalibrateButton id={spec.id} />;
     case 'compare':
       return <OperationField value={spec.op} options={['greater', 'greater_or_equal', 'equal', 'not_equal', 'less_or_equal', 'less']} prefix="compare" onChange={(op) => update(spec.id, { type: 'compare', op: op as CompareOp })} />;
     case 'text_compare':
@@ -324,7 +327,6 @@ function Params({ spec }: { spec: NodeSpec }) {
       return <NumberField label="field.counterStart" value={spec.initial ?? 0} whole onChange={(initial) => update(spec.id, { type: 'counter', initial })} />;
     case 'mixer':
     case 'gate':
-    case 'noise_reduction':
     case 'not':
     case 'all':
     case 'any':
@@ -333,6 +335,23 @@ function Params({ spec }: { spec: NodeSpec }) {
     case 'volume':
       return null;
   }
+}
+
+/** The button that opens the calibration window of a noise reduction block. */
+function CalibrateButton({ id }: { id: string }) {
+  const { openCalibration } = useEditor();
+  const t = useT();
+  return (
+    <button
+      className="mini wide nodrag"
+      onClick={(e) => {
+        const r = (e.currentTarget.closest('.node') ?? e.currentTarget).getBoundingClientRect();
+        openCalibration(id, { x: r.right + 12, y: r.top });
+      }}
+    >
+      {t('calibration.open')}
+    </button>
+  );
 }
 
 /** The drop-down of a block that does one of several things (`prefix.option` is the translation of each). */

@@ -187,6 +187,13 @@ impl Engine {
         self.inner.lock().resources.clear();
     }
 
+    /// How loud the sound at the input of block `id` has been over the last seconds (a block that listens to it: noise
+    /// reduction). `None` when the block is not in the running graph.
+    pub fn levels(&self, id: &NodeId) -> Option<Vec<f32>> {
+        let st = self.inner.lock();
+        st.meters.get(id).map(|m| m.levels())
+    }
+
     pub fn status(&self) -> EngineStatus {
         let st = self.inner.lock();
         let (running, cycles, late) = match &st.graph_thread {

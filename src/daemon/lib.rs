@@ -461,6 +461,16 @@ impl Daemon {
                 result(())
             }
             m::EngineStatusMethod::NAME => result(lock(&self.state).status.clone()),
+            m::EngineLevels::NAME => {
+                let p = params::<m::EngineLevels>(p)?;
+                match self.engine.levels(&omu_types::NodeId(p.node.clone())) {
+                    Some(db) => result(omu_types::Levels { cycle_ms: 10, db }),
+                    None => Err(RpcError::new(
+                        RpcError::UNAVAILABLE,
+                        "this block is not running: apply the graph and start the engine",
+                    )),
+                }
+            }
             m::EngineStart::NAME => {
                 let graph = lock(&self.state).saved.graph.clone();
                 if graph.nodes.is_empty() {

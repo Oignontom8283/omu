@@ -17,6 +17,8 @@ export type EditorContext = {
   /** Makes a block another kind of its family (the drop-down): settings reset, links follow where they still fit. */
   /** Opens the information window of a block, next to the point `anchor` of the screen. */
   openHelp: (id: string, anchor: { x: number; y: number }) => void;
+  /** Opens the calibration window of a noise reduction block, next to the point `anchor` of the screen. */
+  openCalibration: (id: string, anchor: { x: number; y: number }) => void;
   /** Takes a block out of the graph, with its links. */
   removeNode: (id: string) => void;
   /** Gives a block the name people see (free text; empty text means no name). Its identifier never changes. */
