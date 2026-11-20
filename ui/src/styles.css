@@ -1159,7 +1159,14 @@ button.ref:hover:not(:disabled) {
   color: #fff;
 }
 .palette-item.active .icon,
-.palette-item.active .palette-kind {
+.palette-item.active .palette-keys {
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 3px;
+  font: 11px var(--font-code);
+  opacity: 0.75;
+}
+.palette-kind {
   color: inherit;
   opacity: 0.85;
 }
