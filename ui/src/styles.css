@@ -1979,6 +1979,25 @@ button.ref:hover:not(:disabled) {
 .inspector-params .field {
   margin-bottom: 4px;
 }
+.versions {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.versions li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 3px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+.versions .when {
+  flex: none;
+  width: 160px;
+}
+.versions .summary {
+  flex: 1;
+}
 .inspector-actions {
   margin-top: 12px !important;
 }
