@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { AppInfo, DeviceInfo, NodeKind, NodeStatus, SoundLibrary } from './types.ts';
+import type { AppInfo, DeviceInfo, InputValue, NodeKind, NodeStatus, SoundLibrary } from './types.ts';
 
 /** What every block card needs from the editor. */
 export type EditorContext = {
@@ -19,6 +19,8 @@ export type EditorContext = {
   openHelp: (id: string, anchor: { x: number; y: number }) => void;
   /** Opens the calibration window of a noise reduction block, next to the point `anchor` of the screen. */
   openCalibration: (id: string, anchor: { x: number; y: number }) => void;
+  /** Types a value in an input of a block (the one that is used while nothing is linked to it). */
+  setInput: (id: string, port: string, value: InputValue) => void;
   /** Takes a block out of the graph, with its links. */
   removeNode: (id: string) => void;
   /** Gives a block the name people see (free text; empty text means no name). Its identifier never changes. */

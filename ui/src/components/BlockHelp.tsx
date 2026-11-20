@@ -27,35 +27,20 @@ const SETTINGS: Partial<Record<NodeType, { key: string; type: string }[]>> = {
   device_render: [{ key: 'field.playbackDevice', type: 'Device' }],
   virtual_mic: [{ key: 'field.micName', type: 'Text' }],
   virtual_speaker: [{ key: 'field.speakerName', type: 'Text' }],
-  gain: [{ key: 'field.gain', type: 'dB' }],
   variable: [{ key: 'field.startsOn', type: 'Condition' }],
-  level: [{ key: 'field.threshold', type: 'dB' }],
   logic: [{ key: 'field.operation', type: 'Operation' }],
   hotkey: [{ key: 'field.shortcut', type: 'Keys' }],
-  timer: [{ key: 'field.interval', type: 'ms' }],
   delay: [{ key: 'field.delay', type: 'ms' }],
-  hold: [{ key: 'field.hold', type: 'ms' }],
-  after: [{ key: 'field.after', type: 'ms' }],
   soundboard: [{ key: 'field.soundboard', type: 'Soundboard' }],
-  network_in: [
-    { key: 'field.listenPort', type: 'Port' },
-    { key: 'field.streamName', type: 'Text' },
-    { key: 'field.fromComputer', type: 'Text' },
-  ],
-  network_out: [
-    { key: 'field.sendTo', type: 'Text' },
-    { key: 'field.sendPort', type: 'Port' },
-    { key: 'field.streamName', type: 'Text' },
-  ],
   deep_filter: [{ key: 'field.maxReduction', type: 'dB' }],
   text: [{ key: 'field.text', type: 'Text' }],
   integer: [{ key: 'field.integer', type: 'Integer' }],
   number: [{ key: 'field.number', type: 'Decimal' }],
-  join: [{ key: 'field.template', type: 'Text' }],
   math: [{ key: 'field.operation', type: 'Operation' }],
   compare: [{ key: 'field.operation', type: 'Operation' }],
   text_compare: [{ key: 'field.operation', type: 'Operation' }],
   counter: [{ key: 'field.counterStart', type: 'Integer' }],
+  round: [{ key: 'field.rounding', type: 'Mode' }],
 };
 
 const FLOWS: FlowType[] = ['audio', 'condition', 'action', 'text', 'int', 'float'];
@@ -77,7 +62,12 @@ export function Doc({ doc, spec, onOpen }: { doc: DocRef; spec?: NodeSpec; onOpe
   const ports: PortMeta[] = doc.kind === 'node' ? (spec ? portsOf(spec) : []) : doc.kind === 'kind' ? portsOf(defaultKind(doc.type)) : [];
   const flowOf = (port: string) => (ports.find((p) => p.name === port) ?? ports.find((p) => p.name === port.replace(/\d+$/, '')))?.flow ?? 'audio';
   const label = (p: PortMeta) => t(p.label, { n: p.n ?? '' }).trim();
-  const row = (p: PortMeta) => `| [${p.name}](port:${p.name}) | [${t(`type.${p.flow}`)}](type:${p.flow}) | ${label(p)} |`;
+  // what an input is for: what its setting says, with the range it can take; otherwise just its name
+  const about = (p: PortMeta) => {
+    const text = p.help ? t(`${p.help}.help`) : label(p);
+    return p.limits ? `${text} ${t('help.range', { min: p.limits.min, max: p.limits.max })}` : text;
+  };
+  const row = (p: PortMeta) => `| [${p.name}](port:${p.name}) | [${t(`type.${p.flow}`)}](type:${p.flow}) | ${about(p)} |`;
   const head = `| ${t('help.col.name')} | ${t('help.col.type')} | ${t('help.col.description')} |\n|---|---|---|`;
 
   const lines: string[] = [];

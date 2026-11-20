@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CATEGORIES,
+  LIMITS,
   accepts,
+  cropTo,
+  defaultInput,
+  inputValue,
+  prunedInputs,
   KINDS_BY_CATEGORY,
   NODE_TYPES,
   PORTS,
@@ -105,8 +110,8 @@ test('canonical ignores the order of the lists', () => {
   assert.notEqual(canonical(chain), canonical(changed));
 });
 
-test('the six families hold every kind exactly once, and each kind has ports', () => {
-  assert.deepEqual(CATEGORIES, ['input', 'output', 'processing', 'condition', 'trigger', 'value']);
+test('the eight families hold every kind exactly once, and each kind has ports', () => {
+  assert.deepEqual(CATEGORIES, ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion']);
   assert.equal(new Set(NODE_TYPES).size, NODE_TYPES.length);
   assert.equal(NODE_TYPES.length, Object.keys(PORTS).length);
   for (const t of NODE_TYPES) {
@@ -129,7 +134,9 @@ test('the families send and receive the flows they should', () => {
   }
   for (const t of KINDS_BY_CATEGORY.condition) assert.ok(only(sends(t), 'condition'), t);
   for (const t of KINDS_BY_CATEGORY.processing) assert.ok(only(sends(t), 'audio'), t);
-  for (const t of KINDS_BY_CATEGORY.value) assert.ok(sends(t).length > 0 && sends(t).every((f) => ['text', 'int', 'float'].includes(f)), `${t}: a value block sends values`);
+  for (const t of KINDS_BY_CATEGORY.number) assert.ok(sends(t).length > 0 && sends(t).every((f) => f === 'int' || f === 'float'), `${t}: a number block sends numbers`);
+  for (const t of KINDS_BY_CATEGORY.text) assert.ok(only(sends(t), 'text'), `${t}: a text block sends text`);
+  for (const t of KINDS_BY_CATEGORY.conversion) assert.ok(sends(t).length > 0 && sends(t).every((f) => f !== 'audio' && f !== 'action'), `${t}: a conversion sends a value`);
 });
 
 test('an input takes its own flow, a whole number where a decimal one is wanted, and numbers or yes/no where text is wanted', () => {
@@ -149,10 +156,11 @@ test('a setting that a flow can give has an input of its own, and a join has as 
     hold: ['ms:int'],
     after: ['ms:int'],
     timer: ['interval_ms:int'],
+    join: ['template:text'],
     network_in: ['port:int', 'stream:text', 'from:text'],
     network_out: ['host:text', 'port:int', 'stream:text'],
   });
-  const names = (args?: number) => portsOf({ type: 'join', args }).filter((q) => q.dir === 'in').map((q) => q.name);
+  const names = (args?: number) => portsOf({ type: 'join', args }).filter((q) => q.dir === 'in' && !q.param).map((q) => q.name);
   assert.deepEqual(names(3), ['arg1', 'arg2', 'arg3']);
   assert.deepEqual(names(0), ['arg1']);
   assert.equal(names(99).length, 16);
@@ -472,4 +480,47 @@ test('every sound input takes several links; a condition input only when it comb
   // the + for extra input points stays where it was designed: the mixer, `all` and `any`
   for (const type of ['gain', 'virtual_mic', 'gate', 'branch', 'delay'] as const) assert.equal(entryPortOf(defaultKind(type)), undefined, type);
   assert.equal(entryPortOf({ type: 'mixer' })?.name, 'in');
+});
+
+test('every input that is not a sound, an action or a collector carries a value typed next to it', () => {
+  for (const t of NODE_TYPES) {
+    for (const q of PORTS[t]) {
+      const wanted = q.dir === 'in' && ['text', 'int', 'float'].includes(q.flow) && !q.multi && !q.entries;
+      assert.equal(q.inline === true, wanted, `${t}.${q.name}`);
+    }
+  }
+  const math = portsOf(defaultKind('math'));
+  assert.deepEqual(math.filter((q) => q.inline).map((q) => q.name), ['a', 'b']);
+  assert.ok(portsOf(defaultKind('gain')).find((q) => q.name === 'db')?.field === 'db', 'a setting of the kind: its field is named');
+  assert.equal(portsOf(defaultKind('math')).find((q) => q.name === 'a')?.field, undefined, 'a typed value is kept with the block');
+});
+
+test('a number is cropped to the limits of its setting, and the slider stays inside them', () => {
+  const gain = LIMITS.db;
+  assert.equal(cropTo(gain, 1000), 40);
+  assert.equal(cropTo(gain, -1000), -120);
+  assert.equal(cropTo(gain, 3), 3);
+  assert.equal(cropTo(gain, Number.NaN), -120);
+  for (const l of Object.values(LIMITS)) assert.ok(l.softMin >= l.min && l.softMax <= l.max && l.softMax >= l.softMin);
+  // every setting a flow can give that is a number has limits
+  for (const t of NODE_TYPES) for (const q of PORTS[t].filter((x) => x.param && x.flow !== 'text')) assert.ok(q.limits, `${t}.${q.name}`);
+});
+
+test('the value of an input is the setting of the kind, or what was typed for it, or a default', () => {
+  const gain = { id: 'g', type: 'gain', db: -6 } as const;
+  const db = portsOf(gain).find((q) => q.name === 'db')!;
+  assert.equal(inputValue(gain, db), -6);
+  const math = { id: 'm', type: 'math', op: 'add', inputs: { a: 2.5 } } as const;
+  const [a, b] = portsOf(math).filter((q) => q.inline);
+  assert.equal(inputValue(math, a), 2.5);
+  assert.equal(inputValue(math, b), 0, 'nothing typed: zero');
+  assert.equal(defaultInput(portsOf(defaultKind('text_compare'))[0]), '', 'text starts empty');
+});
+
+test('the values typed in a block stay only for the inputs it still has', () => {
+  const join = { id: 'j', type: 'join', template: '$arg1', args: 3, inputs: { arg1: 'a', arg3: 'c', gone: 'x' } } as const;
+  assert.deepEqual(prunedInputs(join).inputs, { arg1: 'a', arg3: 'c' });
+  const fewer = { ...join, args: 2 };
+  assert.deepEqual(prunedInputs(fewer).inputs, { arg1: 'a' });
+  assert.equal(prunedInputs({ id: 'j', type: 'join', template: '', args: 1, inputs: { zzz: 1 } }).inputs, undefined, 'nothing left: nothing kept');
 });
