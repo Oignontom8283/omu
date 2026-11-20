@@ -7,13 +7,16 @@ import { Icon, type IconName } from './Icon.tsx';
 /** One thing the palette can do: run a command, go to a setting, add a block. */
 export type PaletteItem = {
   id: string;
-  kind: 'command' | 'setting' | 'block';
+  /** A command, a setting, a kind of block to add, or a block that is in the graph. */
+  kind: 'command' | 'setting' | 'block' | 'node';
   label: string;
   /** The family of a block: its colour. What is not a block has an icon instead. */
   family?: Category;
   icon?: IconName;
   /** Other words that find it. */
   keywords?: string;
+  /** The keys that do it, shown beside it. */
+  shortcut?: string;
   run: () => void;
 };
 
@@ -56,7 +59,10 @@ const nearest = (value: number, among: number[]): number | null => {
   return best;
 };
 
-const KIND_ORDER: PaletteItem['kind'][] = ['command', 'setting', 'block'];
+const KIND_ORDER: PaletteItem['kind'][] = ['command', 'node', 'setting', 'block'];
+
+/** A first character that narrows the search to one sort of thing, as in a code editor. */
+const PREFIXES: Record<string, PaletteItem['kind']> = { '>': 'command', '@': 'node', '#': 'setting', '+': 'block' };
 
 function Highlighted({ text, indices }: { text: string; indices: number[] }) {
   const on = new Set(indices);
@@ -73,9 +79,9 @@ function Highlighted({ text, indices }: { text: string; indices: number[] }) {
  * family, anything else an icon. It can be moved by its edges, and opens where it was left. With `mode` "block" it only
  * offers the blocks to add.
  */
-export function CommandPalette({ items, mode, onClose }: { items: PaletteItem[]; mode: 'all' | 'block'; onClose: () => void }) {
+export function CommandPalette({ items, mode, initial = '', onClose }: { items: PaletteItem[]; mode: 'all' | 'block'; initial?: string; onClose: () => void }) {
   const t = useT();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initial);
   const [active, setActive] = useState(0);
   const [position, setPosition] = useState(() => lastPosition ?? startPosition());
   // the guides shown while it is moved: a vertical line (x) and a horizontal one (y)
@@ -84,13 +90,15 @@ export function CommandPalette({ items, mode, onClose }: { items: PaletteItem[];
   const list = useRef<HTMLUListElement>(null);
 
   const results = useMemo(() => {
-    const pool = mode === 'block' ? items.filter((i) => i.kind === 'block') : items;
-    const found = rank(query, pool, (i) => `${i.label} ${i.keywords ?? ''}`)
+    const only = mode === 'block' ? 'block' : PREFIXES[query[0] ?? ''];
+    const text = only && query[0] in PREFIXES && mode !== 'block' ? query.slice(1) : query;
+    const pool = only ? items.filter((i) => i.kind === only) : items;
+    const found = rank(text, pool, (i) => `${i.label} ${i.keywords ?? ''}`)
       .slice(0, 60)
       // the letters are shown on the name only: those found in the other words are not marked
-      .map(({ item }) => ({ item, match: fuzzyMatch(query, item.label) }));
+      .map(({ item }) => ({ item, match: fuzzyMatch(text, item.label) }));
     // with nothing typed, the things of a sort stay together
-    return query === '' ? found.sort((a, b) => KIND_ORDER.indexOf(a.item.kind) - KIND_ORDER.indexOf(b.item.kind)) : found;
+    return text === '' ? found.sort((a, b) => KIND_ORDER.indexOf(a.item.kind) - KIND_ORDER.indexOf(b.item.kind)) : found;
   }, [items, mode, query]);
 
   useEffect(() => setActive(0), [query, mode]);
@@ -200,7 +208,7 @@ export function CommandPalette({ items, mode, onClose }: { items: PaletteItem[];
               <span className="palette-label">
                 <Highlighted text={item.label} indices={match?.indices ?? []} />
               </span>
-              {mode === 'all' && <span className="palette-kind">{t(`palette.kind.${item.kind}`)}</span>}
+              {item.shortcut ? <kbd className="palette-keys">{item.shortcut}</kbd> : mode === 'all' && <span className="palette-kind">{t(`palette.kind.${item.kind}`)}</span>}
             </li>
           ))}
         </ul>

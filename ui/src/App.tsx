@@ -18,6 +18,9 @@ import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Doc, docKey, type DocRef } from './components/BlockHelp.tsx';
 import { Calibration } from './components/Calibration.tsx';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette.tsx';
+import { History } from './history.ts';
+import { bindings, commandOf, loadOverrides, type CommandId } from './keybindings.ts';
+import { copyOf, pasteOf, type Clip, type ClipEdge, type ClipNode } from './selection.ts';
 import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Splitter, StatusBar, loadDock, saveDock, type DockState } from './components/Workbench.tsx';
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
@@ -42,6 +45,7 @@ import {
   flowOfEdge,
   fromFlow,
   newId,
+  nameOf,
   namedProblem,
   layoutOf,
   MAX_ENTRIES,
@@ -117,7 +121,14 @@ export function App() {
   // the calibration windows that are open (a block each)
   const [calibrations, setCalibrations] = useState<{ node: string; x: number; y: number }[]>([]);
   // the search bar (everything, or only the blocks to add, at a point of the graph), the setting it sent us to, the menu of a right click
-  const [palette, setPalette] = useState<{ mode: 'all' | 'block'; at?: { x: number; y: number } } | null>(null);
+  const [palette, setPalette] = useState<{ mode: 'all' | 'block'; at?: { x: number; y: number }; initial?: string } | null>(null);
+  // the keyboard shortcuts: the defaults, and what the person changed (kept in this browser)
+  const [overrides] = useState(loadOverrides);
+  const keys = useMemo(() => bindings(overrides), [overrides]);
+  // the steps of the session (undo, redo) and what was copied
+  type Step = { nodes: ClipNode[]; edges: (ClipEdge & { id: string })[] };
+  const history = useRef(new History<Step>((s) => JSON.stringify(s)));
+  const clipboard = useRef<Clip | null>(null);
   const [settingFocus, setSettingFocus] = useState<{ id: string; nonce: number } | undefined>(undefined);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const pointer = useRef<{ x: number; y: number } | null>(null);
@@ -176,6 +187,7 @@ export function App() {
   }, [daemon]);
 
   const load = useCallback(async () => {
+    history.current.reset();
     try {
       const [i, g, layout, a, d, lib] = await Promise.all([daemon.systemInfo(), daemon.graphGet(), daemon.layoutGet(), daemon.apps(), daemon.devices(), daemon.soundboards()]);
       setInfo(i);
@@ -351,25 +363,106 @@ export function App() {
   );
 
   // opens the search bar; to add blocks it remembers where the pointer is over the graph, to put them there
-  const openPalette = (mode: 'all' | 'block', at?: { x: number; y: number }) => {
+  const openPalette = (mode: 'all' | 'block', at?: { x: number; y: number }, initial?: string) => {
     const p = pointer.current;
     const canvas = document.querySelector('.canvas')?.getBoundingClientRect();
     const inside = p && canvas && p.x >= canvas.left && p.x <= canvas.right && p.y >= canvas.top && p.y <= canvas.bottom;
-    setPalette({ mode, at: at ?? (inside && tab === 'nodes' ? flow.screenToFlowPosition(p) : undefined) });
+    setPalette({ mode, at: at ?? (inside && tab === 'nodes' ? flow.screenToFlowPosition(p) : undefined), initial });
   };
 
-  // F1 and Ctrl+Shift+P open the search bar; R, when no text is being typed, opens it to add a block
+  // ---- editing: what the editor holds, as a step of the session
+  const stepNow = (): Step => ({
+    nodes: nodes.map((n) => ({ id: n.id, position: n.position, spec: n.data.spec, ...(n.data.inputs === undefined ? {} : { inputs: n.data.inputs }) })),
+    edges: edges.map((e) => ({ ...asEdge(e) })),
+  });
+  const restore = (step: Step) => {
+    setNodes(step.nodes.map((n) => ({ id: n.id, type: 'omu', position: n.position, data: { spec: n.spec, inputs: n.inputs } })));
+    setEdges(step.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle })));
+  };
+  // each change of the graph is a step, a moment after the last one (typing in a field is one step, not one per letter)
+  useEffect(() => {
+    const timer = window.setTimeout(() => history.current.record(stepNow()), 300);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nodes, edges]);
+  const undo = () => {
+    const step = history.current.undo();
+    if (step) restore(step);
+  };
+  const redo = () => {
+    const step = history.current.redo();
+    if (step) restore(step);
+  };
+  const copy = (): boolean => {
+    const ids = new Set(nodes.filter((n) => n.selected).map((n) => n.id));
+    const clip = copyOf(stepNow().nodes, stepNow().edges, ids);
+    if (!clip) return false;
+    clipboard.current = clip;
+    // other programs can read it too (best effort: the page may not be allowed)
+    void navigator.clipboard?.writeText(JSON.stringify({ omu: 1, ...clip })).catch(() => undefined);
+    return true;
+  };
+  const paste = (at?: { x: number; y: number }) => {
+    const clip = clipboard.current;
+    if (!clip) return;
+    const p = pointer.current;
+    const canvas = document.querySelector('.canvas')?.getBoundingClientRect();
+    const here = at ?? (p && canvas && p.x >= canvas.left && p.x <= canvas.right && p.y >= canvas.top && p.y <= canvas.bottom ? flow.screenToFlowPosition(p) : null);
+    const made = pasteOf(clip, newId, here, 2 * GRID, (q) => ({ x: snapToGrid(q.x), y: snapToGrid(q.y) }));
+    setNodes((list) => [...list.map((n) => ({ ...n, selected: false })), ...made.nodes.map((n): OmuNode => ({ id: n.id, type: 'omu', position: n.position, selected: true, data: { spec: n.spec, inputs: n.inputs } }))]);
+    setEdges((list) => [...list, ...made.edges.map((e) => ({ id: `${e.source}.${e.sourceHandle}->${e.target}.${e.targetHandle}`, ...e }))]);
+  };
+  const duplicate = () => {
+    if (copy()) paste();
+  };
+  const selectAll = () => setNodes((list) => list.map((n) => ({ ...n, selected: true })));
+  const toggleDock = (panel: NonNullable<DockState['bottom']>) => setDock({ ...dock, bottom: dock.bottom === panel ? null : panel });
+
+  // what each command does (the keys, and the search bar, call these)
+  const run = (id: CommandId) => {
+    switch (id) {
+      case 'edit.undo':
+        return undo();
+      case 'edit.redo':
+        return redo();
+      case 'edit.copy':
+        return void copy();
+      case 'edit.paste':
+        return paste();
+      case 'edit.duplicate':
+        return duplicate();
+      case 'edit.selectAll':
+        return selectAll();
+      case 'search.blocks':
+        return openPalette('all', undefined, '@');
+      case 'palette.open':
+      case 'palette.openAlt':
+        return openPalette('all');
+      case 'palette.addBlock':
+        return openPalette('block');
+      case 'dock.problems':
+        return toggleDock('problems');
+      case 'dock.logs':
+        return toggleDock('logs');
+      case 'dock.monitor':
+        return toggleDock('monitor');
+      case 'dock.inspector':
+        return setDock({ ...dock, right: dock.right ? null : 'inspector' });
+    }
+  };
+
+  // the keyboard: the commands that edit the graph only act when no text is being typed (the field keeps its own undo and copy)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
       const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
-      if (e.key === 'F1' || (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p')) {
-        e.preventDefault();
-        openPalette('all');
-      } else if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'r' && tab === 'nodes') {
-        e.preventDefault();
-        openPalette('block');
-      }
+      const id = commandOf(e, keys);
+      if (!id) return;
+      const alwaysOn = id.startsWith('palette.open') || id === 'search.blocks' || id.startsWith('dock.');
+      if (typing && !alwaysOn) return;
+      if (!alwaysOn && tab !== 'nodes') return;
+      e.preventDefault();
+      run(id);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -434,6 +527,13 @@ export function App() {
         ...(dirty ? [{ id: 'apply', kind: 'command' as const, label: t('app.apply'), icon: 'check' as const, run: () => void apply() }, { id: 'revert', kind: 'command' as const, label: t('app.revert'), icon: 'undo' as const, run: revert }] : []),
         { id: 'tidy', kind: 'command', label: t('app.tidy'), icon: 'grid', run: autoLayout },
         { id: 'json', kind: 'command', label: t('app.json'), icon: 'braces', run: () => setShowJson((v) => !v) },
+        { id: 'undo', kind: 'command', label: t('keys.undo'), icon: 'undo', shortcut: keys['edit.undo'], run: undo },
+        { id: 'redo', kind: 'command', label: t('keys.redo'), icon: 'arrow', shortcut: keys['edit.redo'], run: redo },
+        { id: 'copy', kind: 'command', label: t('keys.copy'), icon: 'list', shortcut: keys['edit.copy'], run: () => void copy() },
+        { id: 'paste', kind: 'command', label: t('keys.paste'), icon: 'list', shortcut: keys['edit.paste'], run: () => paste() },
+        { id: 'duplicate', kind: 'command', label: t('keys.duplicate'), icon: 'list', shortcut: keys['edit.duplicate'], run: duplicate },
+        { id: 'selectAll', kind: 'command', label: t('keys.selectAll'), icon: 'grid', shortcut: keys['edit.selectAll'], run: selectAll },
+        ...nodes.map((n): PaletteItem => ({ id: `node-${n.id}`, kind: 'node', label: nameOf(n.data.spec) || t(`kind.${n.data.spec.type}`), family: categoryOf(n.data.spec.type), keywords: `${t(`kind.${n.data.spec.type}`)} ${n.id}`, run: () => goTo({ severity: 'info', code: 'go', message: '', node: n.id }) })),
         { id: 'problems', kind: 'command', label: t('dock.problems'), icon: 'error', run: () => setDock({ ...dock, bottom: dock.bottom === 'problems' ? null : 'problems' }) },
         { id: 'logs', kind: 'command', label: t('app.logs'), icon: 'list', run: () => setDock({ ...dock, bottom: dock.bottom === 'logs' ? null : 'logs' }) },
         { id: 'monitor', kind: 'command', label: t('dock.monitor'), icon: 'panel', run: () => setDock({ ...dock, bottom: dock.bottom === 'monitor' ? null : 'monitor' }) },
@@ -618,7 +718,7 @@ export function App() {
             onPaneContextMenu={(e) => {
               e.preventDefault();
               const at = flow.screenToFlowPosition({ x: e.clientX, y: e.clientY });
-              setMenu({ x: e.clientX, y: e.clientY, items: [{ label: t('palette.addBlockMenu'), run: () => setPalette({ mode: 'block', at }) }, { label: t('app.tidy'), run: autoLayout }] });
+              setMenu({ x: e.clientX, y: e.clientY, items: [{ label: t('palette.addBlockMenu'), run: () => setPalette({ mode: 'block', at }) }, ...(clipboard.current ? [{ label: t('keys.paste'), run: () => paste(at) }] : []), { label: t('keys.selectAll'), run: selectAll }, { label: t('app.tidy'), run: autoLayout }] });
             }}
             onNodeContextMenu={(e, node) => {
               e.preventDefault();
@@ -627,6 +727,8 @@ export function App() {
                 y: e.clientY,
                 items: [
                   { label: t('block.help'), run: () => openDoc({ kind: 'node', node: node.id }, { x: e.clientX + 12, y: e.clientY }) },
+                  { label: t('keys.copy'), run: () => { setNodes((list) => list.map((n) => ({ ...n, selected: n.selected || n.id === node.id }))); window.setTimeout(() => void copy(), 0); } },
+                  { label: t('keys.duplicate'), run: () => { setNodes((list) => list.map((n) => ({ ...n, selected: n.id === node.id }))); window.setTimeout(duplicate, 0); } },
                   { label: t('block.remove'), danger: true, run: () => void flow.deleteElements({ nodes: [{ id: node.id }] }) },
                 ],
               });
@@ -743,7 +845,7 @@ export function App() {
           )}
         </div>
         <StatusBar dock={dock} setDock={setDock} errors={errors} warnings={warnings} status={status} connected={conn === 'open'} blocks={nodes.length} />
-        {palette && <CommandPalette key={palette.mode} items={paletteItems} mode={palette.mode} onClose={() => setPalette(null)} />}
+        {palette && <CommandPalette key={`${palette.mode}${palette.initial ?? ''}`} items={paletteItems} mode={palette.mode} initial={palette.initial} onClose={() => setPalette(null)} />}
         {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       </div>
     </Editor.Provider>
