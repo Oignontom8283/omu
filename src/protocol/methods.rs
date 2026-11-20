@@ -5,8 +5,8 @@
 
 use omu_diagnostics::Line;
 use omu_types::{
-    AppInfo, Board, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, ModuleInfo,
-    Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices,
+    AppInfo, Board, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Levels,
+    ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -147,6 +147,12 @@ pub struct StopSound {
     pub pad: Option<String>,
 }
 
+/// A block of the graph by its id (`engine.levels`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeRef {
+    pub node: String,
+}
+
 /// A soundboard by its id (`soundboard.playing`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardRef {
@@ -260,6 +266,11 @@ method!(
     EngineStatusMethod, "engine.status", () => EngineStatus
 );
 method!(
+    /// How loud the sound at the input of a block of the running graph has been over the last seconds (noise reduction
+    /// blocks): what the calibration listens to.
+    EngineLevels, "engine.levels", NodeRef => Levels
+);
+method!(
     /// Stops the engine and forgets the running graph (the saved graph is kept).
     EngineStop, "engine.stop", () => ()
 );
@@ -317,6 +328,7 @@ pub const ALL_METHODS: &[&str] = &[
     GraphValidate::NAME,
     GraphSet::NAME,
     EngineStatusMethod::NAME,
+    EngineLevels::NAME,
     EngineStop::NAME,
     EngineStart::NAME,
     SystemShutdown::NAME,

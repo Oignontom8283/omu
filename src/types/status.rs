@@ -33,6 +33,15 @@ pub struct NodeStatus {
     pub value: Option<String>,
 }
 
+/// How loud the sound at the input of a block has been, cycle after cycle: what a calibration listens to.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Levels {
+    /// How long one value lasts, in milliseconds.
+    pub cycle_ms: u32,
+    /// The levels in decibels (0 is full scale, -120 silence), the oldest first; the most recent ten seconds at most.
+    pub db: Vec<f32>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct EngineStatus {
     pub running: bool,

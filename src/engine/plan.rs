@@ -24,6 +24,9 @@ const GAIN_RAMP_MS: f32 = 10.0;
 /// How long a level detector stays on after the sound stops, so that speech is not chopped between words.
 const LEVEL_HOLD_MS: u32 = 300;
 
+/// How many cycles of input level a block remembers (ten seconds).
+const LEVEL_HISTORY: usize = 1000;
+
 /// What a block sends on a value flow (text, numbers), or its yes/no for a block that makes one.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub enum Value {
@@ -101,6 +104,9 @@ pub fn render_template(template: &str, args: &[Value]) -> String {
 pub struct Meter {
     /// The value the block makes now, written out (only set when it changes).
     value: Mutex<Option<String>>,
+    /// How loud the sound at the block's input was, cycle after cycle (half decibels above -120), as a ring.
+    levels: Vec<AtomicU8>,
+    levels_at: AtomicU32,
     /// Highest absolute sample (non-negative `f32` bits order like integers).
     peak: AtomicU32,
     /// 0 = no condition, 1 = false, 2 = true.
@@ -112,6 +118,8 @@ impl Default for Meter {
     fn default() -> Self {
         Meter {
             value: Mutex::new(None),
+            levels: (0..LEVEL_HISTORY).map(|_| AtomicU8::new(0)).collect(),
+            levels_at: AtomicU32::new(0),
             peak: AtomicU32::new(0),
             state: AtomicU8::new(0),
             events: AtomicU64::new(0),
@@ -138,6 +146,30 @@ impl Meter {
             0 => None,
             s => Some(s == 2),
         }
+    }
+    /// Writes down how loud the sound at the block's input is this cycle.
+    pub fn record_level(&self, samples: &[f32]) {
+        let db = 20.0 * f64::from(peak(samples)).max(1e-6).log10();
+        let at = self.levels_at.fetch_add(1, Ordering::Relaxed) as usize % LEVEL_HISTORY;
+        self.levels[at].store(
+            ((db + 120.0) * 2.0).clamp(0.0, 240.0).round() as u8,
+            Ordering::Relaxed,
+        );
+    }
+    /// The levels written down, in decibels, the oldest first.
+    pub fn levels(&self) -> Vec<f32> {
+        let written = self.levels_at.load(Ordering::Relaxed) as usize;
+        let (count, first) = if written >= LEVEL_HISTORY {
+            (LEVEL_HISTORY, written % LEVEL_HISTORY)
+        } else {
+            (written, 0)
+        };
+        (0..count)
+            .map(|k| {
+                f32::from(self.levels[(first + k) % LEVEL_HISTORY].load(Ordering::Relaxed)) / 2.0
+                    - 120.0
+            })
+            .collect()
     }
     /// Remembers the value the block makes (called when it changes; the graph thread never waits for the lock).
     pub fn set_value(&self, value: &Value) {
@@ -683,6 +715,7 @@ impl Plan {
                 NodeOp::DeepFilter(filter) => {
                     let input = input_audio(Port::In);
                     node.meter.record(input);
+                    node.meter.record_level(input);
                     match filter.try_lock() {
                         Ok(mut f) => f.process(input, &mut audios[0]),
                         Err(_) => audios[0].copy_from_slice(input),
@@ -690,6 +723,7 @@ impl Plan {
                 }
                 NodeOp::NoiseReduction(denoiser) => {
                     let input = input_audio(Port::In);
+                    node.meter.record_level(input);
                     match denoiser.try_lock() {
                         Ok(mut d) => d.process(input, &mut audios[0]),
                         // nobody else uses it while this plan runs; if it happens, the sound goes through
@@ -1985,5 +2019,27 @@ mod tests {
         assert_eq!(level(0.5), Value::Float(-6.0));
         assert_eq!(level(0.1), Value::Float(-20.0));
         assert_eq!(level(0.0), Value::Float(-120.0));
+    }
+
+    #[test]
+    fn a_meter_remembers_the_levels_of_the_last_ten_seconds_oldest_first() {
+        let meter = Meter::default();
+        assert!(meter.levels().is_empty());
+        meter.record_level(&[0.5, -0.25]);
+        meter.record_level(&[0.0]);
+        let first = meter.levels();
+        assert_eq!(first.len(), 2);
+        assert!(
+            (first[0] + 6.0).abs() < 0.5,
+            "half of full scale is about -6 dB"
+        );
+        assert_eq!(first[1], -120.0, "silence is -120");
+        // past the ten seconds, the oldest are forgotten
+        for _ in 0..LEVEL_HISTORY {
+            meter.record_level(&[1.0]);
+        }
+        let all = meter.levels();
+        assert_eq!(all.len(), LEVEL_HISTORY);
+        assert!(all.iter().all(|db| *db == 0.0));
     }
 }

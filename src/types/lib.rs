@@ -21,4 +21,4 @@ pub use node::{
     MAX_DELAY_MS, MAX_JOIN_ARGS, MAX_STREAM_NAME, MAX_TEXT, MAX_WAIT_MS,
 };
 pub use soundboard::{Board, HotkeyProblem, Pad, Settings, SoundInfo, SoundLibrary, SoundStatus};
-pub use status::{EngineStatus, NodeState, NodeStatus};
+pub use status::{EngineStatus, Levels, NodeState, NodeStatus};
