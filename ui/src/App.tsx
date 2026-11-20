@@ -18,10 +18,12 @@ import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Doc, docKey, type DocRef } from './components/BlockHelp.tsx';
 import { Calibration } from './components/Calibration.tsx';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette.tsx';
+import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Splitter, StatusBar, loadDock, saveDock, type DockState } from './components/Workbench.tsx';
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
-import { JsonWindow, LogsWindow } from './components/ToolWindows.tsx';
+import { JsonWindow } from './components/ToolWindows.tsx';
+import { flashPort } from './components/BlockHelp.tsx';
 import { Modules } from './components/Modules.tsx';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
 import { Soundboards } from './components/Soundboards.tsx';
@@ -49,7 +51,7 @@ import {
 import { useI18n } from './i18n/index.tsx';
 import { SETTING_DECLS } from './settingsRegistry.ts';
 import { useTheme } from './theme.tsx';
-import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
+import type { AppInfo, Category, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
@@ -98,7 +100,13 @@ export function App() {
   const [cleaning, setCleaning] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showJson, setShowJson] = useState(false);
-  const [showLogs, setShowLogs] = useState(false);
+  const [dock, setDockState] = useState<DockState>(loadDock);
+  const setDock = useCallback((d: DockState) => {
+    setDockState(d);
+    saveDock(d);
+  }, []);
+  // what is wrong with the graph, asked of the daemon (the same rules as when it is applied) a moment after each change
+  const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
   // the soundboards the daemon keeps; `boardsFirst` is the board the soundboards tab opens on
   const [library, setLibrary] = useState<SoundLibrary>({ sounds: [], boards: [] });
   const [boardsFirst, setBoardsFirst] = useState<string | undefined>(undefined);
@@ -224,6 +232,7 @@ export function App() {
       refreshStale();
     } catch (e) {
       setProblems(e instanceof RpcError && e.problems.length ? e.problems : [message(e)]);
+      if (e instanceof RpcError && e.diagnostics.length) setDiagnostics(e.diagnostics);
     } finally {
       setBusy(false);
     }
@@ -425,7 +434,10 @@ export function App() {
         ...(dirty ? [{ id: 'apply', kind: 'command' as const, label: t('app.apply'), icon: 'check' as const, run: () => void apply() }, { id: 'revert', kind: 'command' as const, label: t('app.revert'), icon: 'undo' as const, run: revert }] : []),
         { id: 'tidy', kind: 'command', label: t('app.tidy'), icon: 'grid', run: autoLayout },
         { id: 'json', kind: 'command', label: t('app.json'), icon: 'braces', run: () => setShowJson((v) => !v) },
-        { id: 'logs', kind: 'command', label: t('app.logs'), icon: 'command', run: () => setShowLogs((v) => !v) },
+        { id: 'problems', kind: 'command', label: t('dock.problems'), icon: 'error', run: () => setDock({ ...dock, bottom: dock.bottom === 'problems' ? null : 'problems' }) },
+        { id: 'logs', kind: 'command', label: t('app.logs'), icon: 'list', run: () => setDock({ ...dock, bottom: dock.bottom === 'logs' ? null : 'logs' }) },
+        { id: 'monitor', kind: 'command', label: t('dock.monitor'), icon: 'panel', run: () => setDock({ ...dock, bottom: dock.bottom === 'monitor' ? null : 'monitor' }) },
+        { id: 'inspector', kind: 'command', label: t('dock.inspector'), icon: 'panel', run: () => setDock({ ...dock, right: dock.right ? null : 'inspector' }) },
         status?.running
           ? { id: 'engine', kind: 'command', label: t('app.stopEngine'), icon: 'stop', run: () => void stopEngine() }
           : { id: 'engine', kind: 'command', label: t('app.startEngine'), icon: 'play', run: () => void startEngine() },
@@ -454,6 +466,33 @@ export function App() {
         })),
       ]
     : [];
+
+  // the daemon's opinion of the graph (its warnings too), a moment after the last change
+  const graphKey = canonical(graph);
+  useEffect(() => {
+    if (conn !== 'open') return;
+    const timer = window.setTimeout(() => {
+      daemon
+        .graphValidate(graph)
+        .then((r) => setDiagnostics(r.diagnostics ?? []))
+        .catch(() => undefined);
+    }, 400);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphKey, conn, daemon]);
+  const errors = diagnostics.filter((d) => d.severity === 'error').length;
+  const warnings = diagnostics.filter((d) => d.severity === 'warning').length;
+  const selected = nodes.find((n) => n.selected)?.data.spec;
+  // a problem leads to the block it is about
+  const goTo = (d: Diagnostic) => {
+    if (!d.node) return;
+    const id = d.node;
+    setTab('nodes');
+    setNodes((list) => list.map((n) => ({ ...n, selected: n.id === id })));
+    void flow.fitView({ nodes: [{ id }], duration: 300, maxZoom: 1, padding: 0.8 });
+    if (d.port) window.setTimeout(() => flashPort(id, d.port as string), 380);
+  };
+  const clampSize = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
 
   // each edge is drawn in the colour of the flow it carries
   const plainNodes = useMemo(() => nodes.map((n) => ({ id: n.id, spec: n.data.spec })), [nodes]);
@@ -564,6 +603,8 @@ export function App() {
           </div>
         )}
 
+        <div className="workbench">
+          <div className="work-main">
         <div className="canvas" onPointerMove={(e) => (pointer.current = { x: e.clientX, y: e.clientY })}>
           <ReactFlow
             nodes={nodes}
@@ -667,7 +708,6 @@ export function App() {
           {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}
           {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} focus={settingFocus} />}
           {showJson && <JsonWindow graph={graph} onClose={() => setShowJson(false)} />}
-          {showLogs && <LogsWindow daemon={daemon} onClose={() => setShowLogs(false)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">
               <p>{t('app.emptyTitle')}</p>
@@ -675,6 +715,34 @@ export function App() {
             </div>
           )}
         </div>
+            {dock.right === 'inspector' && (
+              <>
+                <Splitter direction="vertical" onResize={(d) => setDock({ ...dock, rightWidth: clampSize(dock.rightWidth - d, 220, 640) })} />
+                <div style={{ width: dock.rightWidth }} className="dock-wrap">
+                  <DockFrame side="right" title={t('dock.inspector')} onClose={() => setDock({ ...dock, right: null })}>
+                    <InspectorPanel spec={selected} />
+                  </DockFrame>
+                </div>
+              </>
+            )}
+          </div>
+          {dock.bottom && (
+            <>
+              <Splitter direction="horizontal" onResize={(d) => setDock({ ...dock, bottomHeight: clampSize(dock.bottomHeight - d, 90, 600) })} />
+              <div style={{ height: dock.bottomHeight }} className="dock-wrap">
+                <DockFrame
+                  title={dock.bottom === 'problems' ? `${t('dock.problems')} (${diagnostics.length})` : dock.bottom === 'logs' ? t('app.logs') : t('dock.monitor')}
+                  onClose={() => setDock({ ...dock, bottom: null })}
+                >
+                  {dock.bottom === 'problems' && <ProblemsPanel diagnostics={diagnostics} nodes={nodes.map((n) => n.data.spec)} onGo={goTo} />}
+                  {dock.bottom === 'logs' && <LogsPanel daemon={daemon} />}
+                  {dock.bottom === 'monitor' && <MonitorPanel status={status} nodes={nodes.map((n) => n.data.spec)} />}
+                </DockFrame>
+              </div>
+            </>
+          )}
+        </div>
+        <StatusBar dock={dock} setDock={setDock} errors={errors} warnings={warnings} status={status} connected={conn === 'open'} blocks={nodes.length} />
         {palette && <CommandPalette key={palette.mode} items={paletteItems} mode={palette.mode} onClose={() => setPalette(null)} />}
         {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       </div>

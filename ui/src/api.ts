@@ -2,7 +2,7 @@
 // The same endpoint serves a daemon on this machine or on another one: the page talks to whoever served it.
 
 import { DEV_TOKEN } from './types.ts';
-import type { AppInfo, Board, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Layout, Levels, LogLine, ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices, SystemInfo, ValidateResult } from './types.ts';
+import type { AppInfo, Board, CleanOutcome, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, Layout, Levels, LogLine, ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices, SystemInfo, ValidateResult } from './types.ts';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -19,9 +19,14 @@ export class RpcError extends Error {
     this.code = code;
     this.data = data;
   }
-  /** The list of problems the daemon attached to a rejected graph. */
+  /** The problems the daemon attached to a rejected graph, as data (an old daemon sent plain text). */
+  get diagnostics(): Diagnostic[] {
+    if (!Array.isArray(this.data)) return [];
+    return this.data.map((d): Diagnostic => (typeof d === 'object' && d !== null ? (d as Diagnostic) : { severity: 'error', code: 'problem', message: String(d) }));
+  }
+  /** Their texts. */
   get problems(): string[] {
-    return Array.isArray(this.data) ? this.data.map(String) : [];
+    return this.diagnostics.map((d) => d.message);
   }
 }
 

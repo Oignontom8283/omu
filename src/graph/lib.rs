@@ -11,8 +11,8 @@
 //! * two sinks may not use the same device, and two virtual microphones may not share a name.
 
 use omu_types::{
-    DeviceRef, EdgeSpec, GraphSpec, KeyCombo, NodeId, NodeKind, PortDirection, MAX_BRANCHES,
-    MAX_DELAY_MS, MAX_JOIN_ARGS, MAX_TEXT, MAX_WAIT_MS,
+    DeviceRef, Diagnostic, EdgeSpec, GraphSpec, KeyCombo, NodeId, NodeKind, PortDirection,
+    MAX_BRANCHES, MAX_DELAY_MS, MAX_JOIN_ARGS, MAX_TEXT, MAX_WAIT_MS,
 };
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -63,6 +63,66 @@ pub enum GraphError {
     SamePort(NodeId, NodeId, u16),
     #[error("block {0:?}: {1}")]
     BadValue(NodeId, String),
+}
+
+impl GraphError {
+    /// The error as data: a stable code, the block and the connection point it is about, what to do.
+    pub fn diagnostic(&self) -> Diagnostic {
+        let node_of = |port: &str| -> (NodeId, String) {
+            // "node.port", as the messages name a connection point
+            match port.rsplit_once('.') {
+                Some((n, p)) => (NodeId::from(n), p.to_owned()),
+                None => (NodeId::from(port), String::new()),
+            }
+        };
+        let d = |code: &str| Diagnostic::error(code, self.to_string());
+        match self {
+            GraphError::BadNodeId(_) => d("bad_node_id"),
+            GraphError::DuplicateNode(n) => d("duplicate_node").at(n),
+            GraphError::UnknownNode(n) => d("unknown_node").at(n),
+            GraphError::UnknownPort { node, port } => d("unknown_port").at_port(node, port),
+            GraphError::FromInput(n, p) => d("link_from_input")
+                .at_port(n, p)
+                .hint("a link starts at an output"),
+            GraphError::ToOutput(n, p) => d("link_to_output")
+                .at_port(n, p)
+                .hint("a link ends at an input"),
+            GraphError::TypeMismatch { to, .. } => {
+                let (n, p) = node_of(to);
+                d("type_mismatch").at_port(&n, &p).hint("a sound goes to a sound, a number to a number; numbers and yes/no can go into a text")
+            }
+            GraphError::FanIn(n, p) => d("fan_in")
+                .at_port(n, p)
+                .hint("add an input to the block, or use a mixer, an 'all' or an 'any' block"),
+            GraphError::DuplicateEdge(_, to) => {
+                let (n, p) = node_of(to);
+                d("duplicate_link").at_port(&n, &p)
+            }
+            GraphError::Cycle(n) => d("cycle")
+                .at(n)
+                .hint("a block cannot feed itself, even through other blocks"),
+            GraphError::SameDevice(a, _) => d("same_device").at(a),
+            GraphError::SameVirtualName(a, _) => d("same_virtual_name").at(a),
+            GraphError::EmptyVirtualName(n) => d("empty_name").at(n),
+            GraphError::BadShortcut(n, _) => d("bad_shortcut").at(n),
+            GraphError::SameShortcut(a, _, _) => d("same_shortcut").at(a),
+            GraphError::TimerTooFast(n, _) => d("timer_too_fast").at(n).hint("use at least 10 ms"),
+            GraphError::BadBranches(n, _) => d("bad_branches").at(n),
+            GraphError::DelayTooLong(n, _) => d("delay_too_long").at(n),
+            GraphError::WaitTooLong(n, _) => d("wait_too_long").at(n),
+            GraphError::BadNetwork(n, _) => d("bad_network").at(n),
+            GraphError::SamePort(a, _, _) => d("same_port").at(a),
+            GraphError::BadValue(n, _) => d("bad_value").at(n),
+        }
+    }
+}
+
+/// Everything wrong with `spec` as data (empty when the graph is valid).
+pub fn diagnose(spec: &GraphSpec) -> Vec<Diagnostic> {
+    match validate(spec) {
+        Ok(_) => vec![],
+        Err(errors) => errors.iter().map(GraphError::diagnostic).collect(),
+    }
 }
 
 /// A validated graph: node indices follow `spec.nodes`, `order` is a valid evaluation order.
@@ -554,6 +614,34 @@ mod tests {
             with("out", InputValue::Number(1.0)).is_err(),
             "an output is not an input"
         );
+    }
+
+    #[test]
+    fn every_problem_is_data_with_a_code_the_block_and_the_connection_point() {
+        // a sound output into a number input, a loop, two links into one input
+        let spec = GraphSpec {
+            nodes: vec![node("a", app()), node("g", gain()), node("h", gain())],
+            edges: vec![
+                edge("a", "out", "g", "db"),
+                edge("g", "out", "h", "in"),
+                edge("h", "out", "g", "in"),
+            ],
+        };
+        let found = diagnose(&spec);
+        let mismatch = found
+            .iter()
+            .find(|d| d.code == "type_mismatch")
+            .expect("a sound does not go into a number");
+        assert_eq!(mismatch.node, Some("g".into()));
+        assert_eq!(mismatch.port.as_deref(), Some("db"));
+        assert!(mismatch.hint.is_some(), "it says what to do");
+        assert!(found.iter().any(|d| d.code == "cycle"));
+        assert!(found
+            .iter()
+            .all(|d| d.severity == omu_types::Severity::Error));
+        // the text is still the error's own
+        assert!(found.iter().all(|d| !d.message.is_empty()));
+        assert!(diagnose(&GraphSpec::default()).is_empty());
     }
 
     #[test]

@@ -125,7 +125,9 @@ export type SystemInfo = {
  */
 export type NodeLayout = { x: number; y: number; inputs?: number; slots?: Record<string, number> };
 export type Layout = Record<string, NodeLayout>;
-export type ValidateResult = { ok: boolean; errors: string[] };
+/** One problem with a graph, as data: a stable code, the block and connection point it is about, what to do. */
+export type Diagnostic = { severity: 'error' | 'warning' | 'info'; code: string; message: string; node?: string; port?: string; hint?: string };
+export type ValidateResult = { ok: boolean; errors: string[]; diagnostics?: Diagnostic[] };
 
 /** An old virtual device the system still remembers (a name a microphone or speaker used to have). */
 export type StaleDevice = { name: string };

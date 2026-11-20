@@ -1,6 +1,7 @@
 //! Plain data types shared by every crate. No OS dependency, no I/O: this crate compiles and tests anywhere.
 
 mod devices;
+mod diagnostic;
 mod format;
 mod keys;
 mod modules;
@@ -13,6 +14,7 @@ pub use devices::{
     AppInfo, Capabilities, CleanOutcome, DeviceInfo, Direction, KeptDevices, StaleDevice,
     StaleDevices,
 };
+pub use diagnostic::{Diagnostic, Severity};
 pub use format::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 pub use keys::{Key, KeyCombo, Modifiers};
 pub use modules::{ModuleInfo, Progress};

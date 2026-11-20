@@ -155,7 +155,7 @@ function DeepFilterEditor({ spec }: { spec: Of<'deep_filter'> }) {
   );
 }
 
-function Params({ spec }: { spec: NodeSpec }) {
+export function Params({ spec }: { spec: NodeSpec }) {
   const { update } = useEditor();
   const t = useT();
   switch (spec.type) {
@@ -434,7 +434,7 @@ function PortRow({ port, spec, inputs, text }: { port: PortMeta; spec: NodeSpec;
  * The value of an input, typed next to its connection point, drawn by the control that the definition of the input names (or
  * the one that suits its sort of value). A flow linked to the input wins over it, and the field is then only shown.
  */
-function InlineValue({ spec, port }: { spec: NodeSpec; port: PortMeta }) {
+export function InlineValue({ spec, port }: { spec: NodeSpec; port: PortMeta }) {
   const { update, setInput } = useEditor();
   const t = useT();
   const edges = useEdges();

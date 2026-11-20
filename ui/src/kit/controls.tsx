@@ -13,7 +13,7 @@ const join = (...names: (string | false | undefined)[]) => names.filter(Boolean)
 export type ButtonProps = {
   children?: ReactNode;
   icon?: IconName;
-  variant?: 'secondary' | 'primary' | 'ghost' | 'danger';
+  variant?: 'secondary' | 'primary' | 'flat' | 'danger';
   size?: 'normal' | 'small';
   disabled?: boolean;
   title?: string;

@@ -1,0 +1,271 @@
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import type { api } from '../api.ts';
+import { nameOf, portsOf, categoryOf } from '../graph.ts';
+import { useEditor } from '../context.ts';
+import { useT } from '../i18n/index.tsx';
+import { Button } from '../kit/controls.tsx';
+import type { Diagnostic, EngineStatus, LogLine, NodeSpec } from '../types.ts';
+import { Icon, type IconName } from './Icon.tsx';
+import { InlineValue, Params } from './NodeCard.tsx';
+
+// The places around the graph, as in a code editor: a panel under it (problems, activity log, monitor), a panel beside it
+// (the inspector of the selected block), a bar at the bottom with the counts and the buttons that open them. Their sizes and
+// what is open are remembered.
+
+export type DockState = { bottom: 'problems' | 'logs' | 'monitor' | null; right: 'inspector' | null; bottomHeight: number; rightWidth: number };
+
+const KEY = 'omu-workbench';
+const DEFAULT: DockState = { bottom: null, right: null, bottomHeight: 220, rightWidth: 300 };
+
+/** What is open and how big, kept in this browser. */
+export function loadDock(): DockState {
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<DockState> | null;
+    return { ...DEFAULT, ...(saved ?? {}) };
+  } catch {
+    return DEFAULT;
+  }
+}
+export function saveDock(dock: DockState): void {
+  try {
+    localStorage.setItem(KEY, JSON.stringify(dock));
+  } catch {
+    /* storage may be blocked */
+  }
+}
+
+/** The bar between two areas: dragged to change the size of the panel on its other side. */
+export function Splitter({ direction, onResize }: { direction: 'horizontal' | 'vertical'; onResize: (delta: number) => void }) {
+  const press = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    let last = direction === 'horizontal' ? e.clientY : e.clientX;
+    const move = (ev: PointerEvent) => {
+      const now = direction === 'horizontal' ? ev.clientY : ev.clientX;
+      onResize(now - last);
+      last = now;
+    };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', stop);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop);
+  };
+  return <div className={`splitter ${direction}`} role="separator" aria-orientation={direction === 'horizontal' ? 'horizontal' : 'vertical'} onPointerDown={press} />;
+}
+
+const SEVERITY_ICON: Record<Diagnostic['severity'], IconName> = { error: 'error', warning: 'warning', info: 'info' };
+
+/** What is wrong with the graph, as the daemon says it: each line leads to the block (and the connection point) it is about. */
+export function ProblemsPanel({ diagnostics, nodes, onGo }: { diagnostics: Diagnostic[]; nodes: NodeSpec[]; onGo: (d: Diagnostic) => void }) {
+  const t = useT();
+  if (diagnostics.length === 0) return <p className="panel-empty">{t('problems.none')}</p>;
+  const nameFor = (id: string) => {
+    const spec = nodes.find((n) => n.id === id);
+    return spec ? nameOf(spec) || t(`kind.${spec.type}`) : id;
+  };
+  return (
+    <ul className="problems">
+      {diagnostics.map((d, i) => (
+        <li key={i} className={d.severity} onClick={() => d.node && onGo(d)} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && d.node && onGo(d)}>
+          <Icon name={SEVERITY_ICON[d.severity]} />
+          <div>
+            <div className="message">
+              {d.message} <code className="code-tag">{d.code}</code>
+            </div>
+            {(d.node || d.hint) && (
+              <small>
+                {d.node && (
+                  <span className="where">
+                    {nameFor(d.node)}
+                    {d.port ? ` · ${d.port}` : ''}
+                  </span>
+                )}
+                {d.hint && <span className="hint-text"> {d.hint}</span>}
+              </small>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** What the program has been doing lately: its latest log lines, following new ones as they come. */
+export function LogsPanel({ daemon }: { daemon: ReturnType<typeof api> }) {
+  const t = useT();
+  const [lines, setLines] = useState<LogLine[]>([]);
+  const last = useRef(0);
+  const box = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    let alive = true;
+    const poll = () =>
+      daemon
+        .logs(last.current || undefined)
+        .then((fresh) => {
+          if (!alive || fresh.length === 0) return;
+          last.current = fresh[fresh.length - 1].seq;
+          setLines((old) => [...old, ...fresh].slice(-500));
+        })
+        .catch(() => undefined);
+    void poll();
+    const timer = window.setInterval(poll, 1500);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [daemon]);
+  useEffect(() => {
+    const el = box.current;
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
+  }, [lines]);
+  return (
+    <pre ref={box} className="logs-panel">
+      {lines.length === 0 ? t('app.logsEmpty') : lines.map((l) => l.text).join('\n')}
+    </pre>
+  );
+}
+
+/** The state of the running graph, block by block: the level each one hears, the glitches, the value it makes. */
+export function MonitorPanel({ status, nodes }: { status: EngineStatus | null; nodes: NodeSpec[] }) {
+  const t = useT();
+  if (!status || !status.running) return <p className="panel-empty">{t('monitor.stopped')}</p>;
+  return (
+    <>
+      <p className="monitor-head">
+        {t('monitor.cycles', { cycles: status.cycles, late: status.late_cycles })}
+      </p>
+      <table className="monitor">
+        <thead>
+          <tr>
+            <th>{t('monitor.block')}</th>
+            <th>{t('monitor.level')}</th>
+            <th>{t('monitor.glitches')}</th>
+            <th>{t('monitor.value')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {status.nodes.map((n) => {
+            const spec = nodes.find((x) => x.id === n.id);
+            const db = n.peak > 0 ? Math.max(-60, 20 * Math.log10(n.peak)) : -60;
+            return (
+              <tr key={n.id} className={n.state === 'failed' ? 'failed' : ''}>
+                <td>{spec ? nameOf(spec) || t(`kind.${spec.type}`) : n.id}</td>
+                <td>
+                  <span className="monitor-bar">
+                    <span style={{ width: `${((db + 60) / 60) * 100}%` }} />
+                  </span>
+                </td>
+                <td>{n.underruns + n.overruns || ''}</td>
+                <td className="code">{n.state === 'failed' ? n.message : (n.value ?? (n.active != null ? t(n.active ? 'status.yes' : 'status.no') : ''))}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+/** All the settings of the selected block in one place, with what it does. */
+export function InspectorPanel({ spec }: { spec: NodeSpec | undefined }) {
+  const t = useT();
+  const { statusOf, openHelp } = useEditor();
+  if (!spec) return <p className="panel-empty">{t('inspector.none')}</p>;
+  const status = statusOf(spec.id);
+  const inputs = portsOf(spec).filter((p) => p.inline);
+  return (
+    <div className="inspector">
+      <h3>
+        <span className={`swatch cat-${categoryOf(spec.type)}`} /> {t(`kind.${spec.type}`)}
+      </h3>
+      <p className="muted">{nameOf(spec) || t('node.unnamed')}</p>
+      <p>{t(`kind.${spec.type}.hint`).replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')}</p>
+      {inputs.length > 0 && (
+        <>
+          <h4>{t('help.inputs')}</h4>
+          <div className="inspector-fields">
+            {inputs.map((port) => (
+              <div key={port.name} className="inspector-field">
+                <span>{t(port.label, { n: port.n ?? '' }).trim()}</span>
+                <InlineValue spec={spec} port={port} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      <h4>{t('help.settings')}</h4>
+      <div className="inspector-params">
+        <Params spec={spec} />
+      </div>
+      {status?.value != null && (
+        <>
+          <h4>{t('monitor.value')}</h4>
+          <code className="code">{status.value === '' ? t('status.empty') : status.value}</code>
+        </>
+      )}
+      <p className="inspector-actions">
+        <Button size="small" onClick={() => openHelp(spec.id, { x: window.innerWidth - 640, y: 120 })}>
+          {t('block.help')}
+        </Button>
+      </p>
+    </div>
+  );
+}
+
+/** A tab of a dock, with its title and its close button. */
+export function DockFrame({ title, onClose, children, side = 'bottom' }: { title: ReactNode; onClose: () => void; children: ReactNode; side?: 'bottom' | 'right' }) {
+  const t = useT();
+  return (
+    <section className={`dock dock-${side}`}>
+      <header>
+        <span className="dock-title">{title}</span>
+        <Button variant="flat" size="small" icon="close" title={t('app.close')} onClick={onClose} />
+      </header>
+      <div className="dock-body">{children}</div>
+    </section>
+  );
+}
+
+/** The bar under everything: how many problems, the buttons that open the panels, and what the engine is doing. */
+export function StatusBar({
+  dock,
+  setDock,
+  errors,
+  warnings,
+  status,
+  connected,
+  blocks,
+}: {
+  dock: DockState;
+  setDock: (d: DockState) => void;
+  errors: number;
+  warnings: number;
+  status: EngineStatus | null;
+  connected: boolean;
+  blocks: number;
+}) {
+  const t = useT();
+  const toggleBottom = (panel: NonNullable<DockState['bottom']>) => setDock({ ...dock, bottom: dock.bottom === panel ? null : panel });
+  return (
+    <footer className="statusbar">
+      <Button variant="flat" size="small" pressed={dock.bottom === 'problems'} onClick={() => toggleBottom('problems')} title={t('dock.problems')}>
+        <Icon name="error" size={12} /> {errors}
+        <Icon name="warning" size={12} /> {warnings}
+      </Button>
+      <Button variant="flat" size="small" pressed={dock.bottom === 'logs'} onClick={() => toggleBottom('logs')}>
+        {t('app.logs')}
+      </Button>
+      <Button variant="flat" size="small" pressed={dock.bottom === 'monitor'} onClick={() => toggleBottom('monitor')}>
+        {t('dock.monitor')}
+      </Button>
+      <Button variant="flat" size="small" pressed={dock.right === 'inspector'} onClick={() => setDock({ ...dock, right: dock.right ? null : 'inspector' })}>
+        {t('dock.inspector')}
+      </Button>
+      <span className="spacer" />
+      <span className="muted">{t('status.blocks', { count: blocks })}</span>
+      <span className={`status-dot ${connected ? (status?.running ? 'ok' : 'idle') : 'bad'}`} />
+      <span>{!connected ? t('app.disconnected') : status?.running ? t('app.engineRunning') : t('app.engineStopped')}</span>
+    </footer>
+  );
+}
