@@ -153,6 +153,16 @@ export function portsOf(kind: KindLike): PortMeta[] {
     }
     case 'math':
       return [p('a', 'in', 'float'), p('b', 'in', 'float'), p('out', 'out', 'float')];
+    case 'compare':
+      return [p('a', 'in', 'float'), p('b', 'in', 'float'), p('out', 'out', 'condition')];
+    case 'text_compare':
+      return [p('a', 'in', 'text'), p('b', 'in', 'text'), p('out', 'out', 'condition')];
+    case 'choose':
+      return [p('when', 'in', 'condition'), p('then', 'in', 'float'), p('else', 'in', 'float'), p('out', 'out', 'float')];
+    case 'counter':
+      return [p('up', 'in', 'action', true), p('down', 'in', 'action', true), p('reset', 'in', 'action', true), p('out', 'out', 'int')];
+    case 'volume':
+      return [p('in', 'in', 'audio'), p('out', 'out', 'float')];
   }
 }
 
@@ -163,9 +173,9 @@ export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   input: ['app_capture', 'device_capture', 'virtual_speaker', 'soundboard', 'network_in'],
   output: ['virtual_mic', 'device_render', 'network_out'],
   processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction', 'deep_filter'],
-  condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after'],
+  condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'compare', 'text_compare'],
   trigger: ['hotkey', 'timer', 'change'],
-  value: ['text', 'integer', 'number', 'join', 'math'],
+  value: ['text', 'integer', 'number', 'join', 'math', 'choose', 'counter', 'volume'],
 };
 
 export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
@@ -299,6 +309,15 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, template: '$1 $2', args: 2 };
     case 'math':
       return { type, op: 'add' };
+    case 'compare':
+      return { type, op: 'greater' };
+    case 'text_compare':
+      return { type, op: 'equals' };
+    case 'choose':
+    case 'volume':
+      return { type };
+    case 'counter':
+      return { type, initial: 0 };
   }
 }
 
