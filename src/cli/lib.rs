@@ -99,6 +99,30 @@ pub enum GraphAction {
     Clear,
 }
 
+#[cfg(test)]
+mod diagnostics_tests {
+    use super::*;
+    use omu_protocol::RpcError;
+
+    #[test]
+    fn a_refused_graph_prints_each_problem_with_its_code_and_what_to_do() {
+        let data = serde_json::json!([
+            { "severity": "error", "code": "type_mismatch", "message": "edge connects ports of different types", "node": "g", "port": "db", "hint": "a sound goes to a sound" },
+            "an old daemon sends plain text"
+        ]);
+        let e = CliError::Client(ClientError::Rpc(
+            RpcError::new(RpcError::VALIDATION, "the graph is invalid").with_data(data),
+        ));
+        let text = e.to_string();
+        assert!(
+            text.contains("error[type_mismatch] edge connects ports of different types"),
+            "{text}"
+        );
+        assert!(text.contains("hint: a sound goes to a sound"), "{text}");
+        assert!(text.contains("- an old daemon sends plain text"), "{text}");
+    }
+}
+
 #[derive(Debug)]
 pub enum CliError {
     Client(ClientError),
@@ -111,8 +135,27 @@ impl std::fmt::Display for CliError {
             CliError::Client(ClientError::Rpc(e)) => {
                 write!(f, "{}", e.message)?;
                 if let Some(list) = e.data.as_ref().and_then(|d| d.as_array()) {
-                    for item in list.iter().filter_map(|i| i.as_str()) {
-                        write!(f, "\n  - {item}")?;
+                    for item in list {
+                        // a problem is data: {severity, code, message, node, port, hint}; an old daemon sends plain text
+                        match serde_json::from_value::<omu_types::Diagnostic>(item.clone()) {
+                            Ok(d) => {
+                                write!(
+                                    f,
+                                    "\n  - {}[{}] {}",
+                                    format!("{:?}", d.severity).to_lowercase(),
+                                    d.code,
+                                    d.message
+                                )?;
+                                if let Some(hint) = &d.hint {
+                                    write!(f, "\n      hint: {hint}")?;
+                                }
+                            }
+                            Err(_) => {
+                                if let Some(text) = item.as_str() {
+                                    write!(f, "\n  - {text}")?;
+                                }
+                            }
+                        }
                     }
                 }
                 Ok(())
@@ -342,13 +385,35 @@ where
                 if cli.json {
                     return print_json(out, &r);
                 }
+                // warnings are shown but do not refuse the graph
+                for d in r
+                    .diagnostics
+                    .iter()
+                    .filter(|d| d.severity != omu_types::Severity::Error)
+                {
+                    writeln!(
+                        out,
+                        "{}[{}] {}",
+                        format!("{:?}", d.severity).to_lowercase(),
+                        d.code,
+                        d.message
+                    )?;
+                }
                 if r.ok {
                     writeln!(out, "the graph is valid")?;
                 } else {
-                    return Err(CliError::Other(format!(
-                        "the graph is invalid:\n  - {}",
-                        r.errors.join("\n  - ")
-                    )));
+                    let mut text = String::from("the graph is invalid:");
+                    for d in r
+                        .diagnostics
+                        .iter()
+                        .filter(|d| d.severity == omu_types::Severity::Error)
+                    {
+                        text.push_str(&format!("\n  - error[{}] {}", d.code, d.message));
+                        if let Some(hint) = &d.hint {
+                            text.push_str(&format!("\n      hint: {hint}"));
+                        }
+                    }
+                    return Err(CliError::Other(text));
                 }
             }
             GraphAction::Set { file } => {

@@ -24,7 +24,7 @@ use omu_protocol::methods::{
 use omu_protocol::{
     Id, Notification, Request, Response, RpcError, JSONRPC_VERSION, PROTOCOL_VERSION,
 };
-use omu_types::{DeviceRef, EngineStatus, GraphSpec, KeptDevices, NodeKind};
+use omu_types::{DeviceRef, Diagnostic, EngineStatus, GraphSpec, KeptDevices, NodeKind, Severity};
 use omu_virtual_devices::clean;
 use serde_json::Value;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -449,10 +449,11 @@ impl Daemon {
             m::GraphGet::NAME => result(lock(&self.state).saved.graph.clone()),
             m::GraphValidate::NAME => {
                 let graph = params::<m::GraphValidate>(p)?;
-                let errors = self.problems(&graph);
+                let diagnostics = self.problems(&graph);
                 result(ValidateResult {
-                    ok: errors.is_empty(),
-                    errors,
+                    ok: diagnostics.iter().all(|d| d.severity != Severity::Error),
+                    errors: diagnostics.iter().map(|d| d.message.clone()).collect(),
+                    diagnostics,
                 })
             }
             m::GraphSet::NAME => {
@@ -554,27 +555,33 @@ impl Daemon {
     /// Everything wrong with `graph`: the structural problems, and the daemon's own rules that need to know the
     /// devices (a graph may not record this product's virtual microphones: the program using one would hear its own
     /// output).
-    fn problems(&self, graph: &GraphSpec) -> Vec<String> {
-        let mut out: Vec<String> = match validate(graph) {
-            Ok(_) => vec![],
-            Err(errors) => errors.iter().map(|e| e.to_string()).collect(),
-        };
+    fn problems(&self, graph: &GraphSpec) -> Vec<Diagnostic> {
+        let mut out = omu_graph::diagnose(graph);
         out.extend(self.feedback_problems(graph));
         // a soundboard block must name a soundboard that exists
         for n in &graph.nodes {
             if let NodeKind::Soundboard { board, .. } = &n.kind {
                 if self.sounds.library().board(board).is_none() {
-                    out.push(format!(
-                        "block {:?} plays the soundboard {board:?}, which does not exist",
-                        n.id.0
-                    ));
+                    out.push(
+                        Diagnostic::error(
+                            "missing_soundboard",
+                            format!(
+                                "block {:?} plays the soundboard {board:?}, which does not exist",
+                                n.id.0
+                            ),
+                        )
+                        .at(&n.id)
+                        .hint(
+                            "choose a soundboard that exists, or make one in the Soundboards page",
+                        ),
+                    );
                 }
             }
         }
         out
     }
 
-    fn feedback_problems(&self, graph: &GraphSpec) -> Vec<String> {
+    fn feedback_problems(&self, graph: &GraphSpec) -> Vec<Diagnostic> {
         let provider = self.virtual_devices.as_ref();
         let mut mics: Vec<String> = graph
             .nodes
@@ -630,7 +637,7 @@ impl Daemon {
         device_of: impl Fn(&'g NodeKind) -> Option<&'g DeviceRef>,
         verb: &str,
         consequence: &str,
-    ) -> Vec<String> {
+    ) -> Vec<Diagnostic> {
         let mut own: Vec<String> = names
             .iter()
             .map(|n| n.trim().to_lowercase())
@@ -674,22 +681,34 @@ impl Daemon {
                 .iter()
                 .find(|m| candidates.iter().any(|c| is_ours(c, m)))
             {
-                problems.push(format!(
-                    "node {:?} {verb} {own:?}: {consequence} (feedback)",
-                    node.id.0
-                ));
+                problems.push(
+                    Diagnostic::error(
+                        "feedback",
+                        format!(
+                            "node {:?} {verb} {own:?}: {consequence} (feedback)",
+                            node.id.0
+                        ),
+                    )
+                    .at(&node.id)
+                    .hint("choose another device: this one is a virtual device of this program"),
+                );
             }
         }
         problems
     }
 
     fn set_graph(&self, graph: GraphSpec) -> Result<(), RpcError> {
-        let errors = self.problems(&graph);
+        let diagnostics = self.problems(&graph);
+        let errors: Vec<&Diagnostic> = diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .collect();
         if !errors.is_empty() {
             tracing::warn!(?errors, "a client sent an invalid graph; refused");
+            let said: Vec<&str> = errors.iter().map(|d| d.message.as_str()).collect();
             return Err(RpcError::new(
                 RpcError::VALIDATION,
-                format!("the graph is invalid: {}", errors.join("; ")),
+                format!("the graph is invalid: {}", said.join("; ")),
             )
             .with_data(serde_json::json!(errors)));
         }

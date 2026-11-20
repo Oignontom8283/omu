@@ -74,6 +74,9 @@ pub struct ValidateResult {
     pub ok: bool,
     /// Human-readable problems, empty when `ok`.
     pub errors: Vec<String>,
+    /// The same problems as data (a stable code, the block and connection point, a hint), and the warnings that do not refuse the graph.
+    #[serde(default)]
+    pub diagnostics: Vec<omu_types::Diagnostic>,
 }
 
 /// How a node is drawn in an editor. Not part of the audio graph: stored by the daemon for the clients.
