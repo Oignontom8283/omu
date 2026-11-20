@@ -12,6 +12,9 @@ export type LogicOp = 'and' | 'or' | 'xor' | 'not';
 export type MathOp = 'add' | 'subtract' | 'multiply' | 'divide' | 'min' | 'max';
 export type CompareOp = 'greater' | 'less' | 'greater_or_equal' | 'less_or_equal' | 'equal' | 'not_equal';
 export type TextOp = 'equals' | 'contains' | 'starts_with' | 'ends_with';
+export type RoundMode = 'nearest' | 'down' | 'up';
+/** What is typed in a block for an input that nothing is linked to. */
+export type InputValue = boolean | number | string;
 
 export type NodeKind =
   | { type: 'app_capture'; target: AppTarget }
@@ -50,11 +53,15 @@ export type NodeKind =
   | { type: 'text_compare'; op: TextOp }
   | { type: 'choose' }
   | { type: 'counter'; initial?: number }
-  | { type: 'volume' };
+  | { type: 'volume' }
+  | { type: 'to_number' }
+  | { type: 'round'; mode: RoundMode }
+  | { type: 'from_condition' }
+  | { type: 'to_condition' };
 
 export type NodeType = NodeKind['type'];
-/** The six families of blocks. */
-export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigger' | 'value';
+/** The eight families of blocks. */
+export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigger' | 'number' | 'text' | 'conversion';
 /** The kinds of flow between blocks. */
 export type FlowType = 'audio' | 'condition' | 'action' | 'text' | 'int' | 'float';
 
@@ -62,7 +69,7 @@ export type FlowType = 'audio' | 'condition' | 'action' | 'text' | 'int' | 'floa
  * A block of the graph. `id` is what the links call it (an editor makes a random one, a graph written by hand can use
  * any text that no other block uses); `display` is the name people give it, free text, missing when there is none.
  */
-export type NodeSpec = { id: string; display?: string } & NodeKind;
+export type NodeSpec = { id: string; display?: string; /** What is typed for the inputs nothing is linked to, by port name. */ inputs?: Record<string, InputValue> } & NodeKind;
 export type PortRef = { node: string; port: string };
 export type EdgeSpec = { from: PortRef; to: PortRef };
 export type GraphSpec = { nodes: NodeSpec[]; edges: EdgeSpec[] };

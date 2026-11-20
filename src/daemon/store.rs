@@ -97,6 +97,7 @@ mod tests {
                 nodes: vec![NodeSpec {
                     id: "m".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::Mixer,
                 }],
                 edges: vec![],

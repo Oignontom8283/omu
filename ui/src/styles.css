@@ -21,7 +21,9 @@
   --cat-processing: #8a4ad6;
   --cat-condition: #d4332b;
   --cat-trigger: #c98a00;
-  --cat-value: #4f6b80;
+  --cat-number: #2a8f9e;
+  --cat-text: #5a7a3a;
+  --cat-conversion: #8a6a4a;
 
   /* the three flows between blocks */
   --flow-audio: #2f9ad6;
@@ -54,7 +56,9 @@
   --cat-processing: #c08bff;
   --cat-condition: #f87171;
   --cat-trigger: #fbbf24;
-  --cat-value: #8fb3cc;
+  --cat-number: #5fc9d8;
+  --cat-text: #a3c47a;
+  --cat-conversion: #d4b08a;
 
   --flow-audio: #5cc1ff;
   --flow-condition: #f87171;
@@ -348,8 +352,14 @@ button.inline {
 .cat-trigger {
   --cat: var(--cat-trigger);
 }
-.cat-value {
-  --cat: var(--cat-value);
+.cat-number {
+  --cat: var(--cat-number);
+}
+.cat-text {
+  --cat: var(--cat-text);
+}
+.cat-conversion {
+  --cat: var(--cat-conversion);
 }
 
 /* blocks: made of grid cells (--grid), less the gap (--gap) that keeps neighbours apart. Rows of ports are one cell high and
@@ -1299,4 +1309,122 @@ button.ref:hover:not(:disabled) {
 }
 .quality.poor {
   color: var(--bad);
+}
+
+/* a block with values typed next to its connection points: its inputs first, then its outputs, one row each */
+.ports.stacked {
+  flex-direction: column;
+}
+.ports.stacked > div:not(.zone) {
+  width: 100%;
+}
+.port.inline {
+  gap: 6px;
+}
+.port-name {
+  flex: none;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inline-control {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.port .inline-text,
+.port .inline-number,
+.port .hl-wrap {
+  height: calc(var(--grid) - 6px);
+  min-width: 0;
+  box-sizing: border-box;
+  background: var(--field);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+.port .inline-text {
+  flex: 1;
+}
+.port .inline-number {
+  flex: 0 0 56px;
+  width: 56px;
+  text-align: right;
+}
+.port .inline-slider {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+}
+.inline-unit {
+  flex: none;
+  color: var(--muted);
+}
+.port .inline-text:disabled,
+.port .inline-number:disabled,
+.port .inline-slider:disabled,
+.port .hl-wrap:has(:disabled) {
+  opacity: 0.5;
+}
+
+/* a template written as code: the field is in transparent ink over its own coloured copy */
+.port .hl-wrap {
+  position: relative;
+  flex: 1;
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+.hl-back,
+.hl-input {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  padding: 0 6px;
+  margin: 0;
+  border: 0;
+  font: inherit;
+  line-height: calc(var(--grid) - 8px);
+  letter-spacing: 0;
+}
+.hl-back {
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+}
+.hl-input {
+  width: 100%;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  outline: none;
+}
+.tok-text {
+  color: var(--text);
+}
+.tok-dollar {
+  color: var(--cat-processing);
+  font-weight: 700;
+}
+.tok-variable {
+  color: var(--flow-audio);
+  font-weight: 600;
+}
+.tok-default {
+  color: var(--cat-trigger);
+}
+.tok-escape {
+  color: var(--cat-input);
+}
+.tok-error {
+  color: var(--bad);
+  text-decoration: underline wavy var(--bad);
 }

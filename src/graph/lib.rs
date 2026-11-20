@@ -180,6 +180,7 @@ pub fn validate(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
         edge_nodes.push((from, to));
     }
 
+    check_typed_inputs(spec, &mut errors);
     check_conflicts(spec, &mut errors);
 
     let order = topological_order(spec, &edge_nodes).unwrap_or_else(|node| {
@@ -195,6 +196,39 @@ pub fn validate(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
         })
     } else {
         Err(errors)
+    }
+}
+
+/// What is typed in a block for an input has to be for an input that takes it, with the right sort of value.
+fn check_typed_inputs(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
+    use omu_types::{InputValue, PortType};
+    for node in &spec.nodes {
+        for (name, value) in &node.inputs {
+            let Some(port) = node
+                .kind
+                .port(name)
+                .filter(|p| p.direction == PortDirection::Input)
+            else {
+                errors.push(GraphError::BadValue(
+                    node.id.clone(),
+                    format!("there is no input {name:?} to type a value in"),
+                ));
+                continue;
+            };
+            let fits = match (port.ty, value) {
+                (PortType::Float | PortType::Int, InputValue::Number(n)) => n.is_finite(),
+                (PortType::Text, InputValue::Text(t)) => t.chars().count() <= MAX_TEXT,
+                (PortType::Text, InputValue::Number(n)) => n.is_finite(),
+                (PortType::Condition, InputValue::Bool(_)) => true,
+                _ => false,
+            };
+            if !fits {
+                errors.push(GraphError::BadValue(
+                    node.id.clone(),
+                    format!("the value typed for {name:?} does not fit this input"),
+                ));
+            }
+        }
     }
 }
 
@@ -257,6 +291,15 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
                         node.id.clone(),
                         format!("the template is longer than {MAX_TEXT} characters"),
                     ));
+                } else {
+                    // the template has to be written the way the substitution library reads it, and name values that exist
+                    let values = vec![String::new(); (*args).clamp(1, MAX_JOIN_ARGS) as usize];
+                    if let Err(e) = omu_types::template::render(template, &values) {
+                        errors.push(GraphError::BadValue(
+                            node.id.clone(),
+                            format!("the text template is not valid: {e}"),
+                        ));
+                    }
                 }
             }
             NodeKind::Delay { ms } if *ms > MAX_DELAY_MS => {
@@ -374,6 +417,7 @@ mod tests {
         NodeSpec {
             id: id.into(),
             display: None,
+            inputs: Default::default(),
             kind,
         }
     }
@@ -456,6 +500,60 @@ mod tests {
             .unwrap_err()
             .iter()
             .any(|e| matches!(e, GraphError::FanIn(..))));
+    }
+
+    #[test]
+    fn a_text_template_has_to_be_readable_and_name_values_that_exist() {
+        let errors = |template: &str| {
+            validate(&GraphSpec {
+                nodes: vec![node(
+                    "j",
+                    NodeKind::Join {
+                        template: template.into(),
+                        args: 2,
+                    },
+                )],
+                edges: vec![],
+            })
+            .err()
+            .unwrap_or_default()
+        };
+        assert!(errors("$arg1 and ${arg2:none} cost \\$5").is_empty());
+        for bad in ["$arg3", "${arg1", "price: $", "\\q"] {
+            assert!(
+                errors(bad)
+                    .iter()
+                    .any(|e| matches!(e, GraphError::BadValue(..))),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn what_is_typed_in_a_block_has_to_fit_an_input_of_that_block() {
+        use omu_types::{InputValue, MathOp};
+        let with = |name: &str, value: InputValue| {
+            let mut m = node("m", NodeKind::Math { op: MathOp::Add });
+            m.inputs.insert(name.into(), value);
+            validate(&GraphSpec {
+                nodes: vec![m],
+                edges: vec![],
+            })
+        };
+        assert!(with("a", InputValue::Number(2.5)).is_ok());
+        assert!(
+            with("a", InputValue::Text("x".into())).is_err(),
+            "text where a number goes"
+        );
+        assert!(with("a", InputValue::Number(f64::INFINITY)).is_err());
+        assert!(
+            with("nope", InputValue::Number(1.0)).is_err(),
+            "an input that does not exist"
+        );
+        assert!(
+            with("out", InputValue::Number(1.0)).is_err(),
+            "an output is not an input"
+        );
     }
 
     #[test]

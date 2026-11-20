@@ -43,12 +43,13 @@ import {
   namedProblem,
   layoutOf,
   MAX_ENTRIES,
+  prunedInputs,
   toFlow,
 } from './graph.ts';
 import { useI18n } from './i18n/index.tsx';
 import { SETTING_DECLS } from './settingsRegistry.ts';
 import { useTheme } from './theme.tsx';
-import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
+import type { AppInfo, Category, DeviceInfo, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
@@ -71,7 +72,7 @@ function message(e: unknown): string {
 }
 
 /** The display name of a block, to be kept when its settings change. */
-const named = (spec: NodeSpec): { display?: string } => (spec.display === undefined ? {} : { display: spec.display });
+const named = (spec: NodeSpec): { display?: string; inputs?: NodeSpec['inputs'] } => ({ ...(spec.display === undefined ? {} : { display: spec.display }), ...(spec.inputs === undefined ? {} : { inputs: spec.inputs }) });
 
 const asEdge = (e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? '', targetHandle: e.targetHandle ?? '' });
 
@@ -390,7 +391,10 @@ export function App() {
       openCalibration: (id: string, anchor: { x: number; y: number }) =>
         setCalibrations((list) => [...list.filter((c) => c.node !== id), list.find((c) => c.node === id) ?? { node: id, x: Math.max(4, Math.min(window.innerWidth - 420, anchor.x)), y: Math.max(4, Math.min(window.innerHeight - 320, anchor.y)) }]),
       removeNode: (id: string) => void flow.deleteElements({ nodes: [{ id }] }),
-      update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { id, ...named(n.data.spec), ...kind } } } : n))),
+      // the values typed in a block go with it, but only for the inputs it still has
+      update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: prunedInputs({ id, ...named(n.data.spec), ...kind } as NodeSpec) } } : n))),
+      setInput: (id: string, port: string, value: InputValue) =>
+        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { ...n.data.spec, inputs: { ...n.data.spec.inputs, [port]: value } } as NodeSpec } } : n))),
       setInputs: (id: string, count: number) => {
         setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, inputs: Math.max(1, Math.min(MAX_ENTRIES, count)) } } : n)));
       },

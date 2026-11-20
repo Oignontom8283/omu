@@ -12,6 +12,7 @@ use omu_hal::{Backend, CaptureStream, RenderStream, Running, StreamHealth, Virtu
 use omu_types::{
     EngineStatus, KeyCombo, NodeId, NodeKind, NodeState, NodeStatus, PortType, ENGINE_SAMPLE_RATE,
 };
+use omu_types::{InputValue, PortType as Flow};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -85,6 +86,18 @@ struct State {
 
 /// How long the flows on a network block's settings stay the same before the stream is opened again with them.
 const NET_SETTLE: Duration = Duration::from_millis(500);
+
+/// What is typed in a block for an input of type `ty`, as the value it sends (nothing when it does not fit).
+fn typed_value(ty: Flow, typed: &InputValue) -> Option<Value> {
+    Some(match (ty, typed) {
+        (Flow::Float, InputValue::Number(n)) if n.is_finite() => Value::Float(*n),
+        (Flow::Int, InputValue::Number(n)) if n.is_finite() => Value::Int(n.round() as i64),
+        (Flow::Text, InputValue::Text(t)) => Value::Text(t.as_str().into()),
+        (Flow::Text, InputValue::Number(n)) if n.is_finite() => Value::Text(n.to_string().into()),
+        (Flow::Condition, InputValue::Bool(b)) => Value::Bool(*b),
+        _ => return None,
+    })
+}
 
 /// The text a flow gives to a setting, when it is usable (not empty, not longer than `longest`).
 fn flow_text(v: &Value, longest: usize) -> Option<String> {
@@ -585,6 +598,7 @@ impl Inner {
                         template: template.clone(),
                         args: (*args).clamp(1, omu_types::MAX_JOIN_ARGS),
                         last: Vec::new(),
+                        last_template: String::new(),
                         text: "".into(),
                     },
                     (NodeKind::Math { op }, _) => NodeOp::Math(*op),
@@ -596,6 +610,10 @@ impl Inner {
                         initial: *initial,
                     },
                     (NodeKind::Volume, _) => NodeOp::Volume,
+                    (NodeKind::ToNumber, _) => NodeOp::ToNumber,
+                    (NodeKind::Round { mode }, _) => NodeOp::Round(*mode),
+                    (NodeKind::FromCondition, _) => NodeOp::FromCondition,
+                    (NodeKind::ToCondition, _) => NodeOp::ToCondition,
                     // every other kind has been handled above (streams, triggers and the blocks); what is left is the mixer
                     _ => NodeOp::Mixer,
                 };
@@ -623,7 +641,37 @@ impl Inner {
                         })
                     })
                     .collect();
-                let inputs = sum_sounds(&mut nodes, &spec.id, matches!(op, NodeOp::Mixer), &wires);
+                let mut inputs =
+                    sum_sounds(&mut nodes, &spec.id, matches!(op, NodeOp::Mixer), &wires);
+                // what is typed in the block for an input that nothing is linked to is a value node in front of it
+                for (name, typed) in &spec.inputs {
+                    let linked = graph
+                        .spec
+                        .edges
+                        .iter()
+                        .any(|e| e.to.node == spec.id && e.to.port == *name);
+                    let (Some(port_spec), Some(port)) =
+                        (spec.kind.port(name), Port::from_name(name))
+                    else {
+                        continue;
+                    };
+                    let Some(value) = typed_value(port_spec.ty, typed).filter(|_| !linked) else {
+                        continue;
+                    };
+                    inputs.push(Wire {
+                        from: nodes.len(),
+                        out: 0,
+                        port,
+                    });
+                    nodes.push(PlanNode {
+                        id: NodeId(format!("{}~{name}", spec.id.0)),
+                        op: NodeOp::Const(value),
+                        inputs: vec![],
+                        meter: Arc::default(),
+                        param: None,
+                        net: None,
+                    });
+                }
                 let meter: Arc<Meter> = Arc::default();
                 meters.insert(spec.id.clone(), meter.clone());
                 position[idx] = nodes.len();

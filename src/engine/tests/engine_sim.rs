@@ -14,6 +14,7 @@ fn node(id: &str, kind: NodeKind) -> NodeSpec {
     NodeSpec {
         id: id.into(),
         display: None,
+        inputs: Default::default(),
         kind,
     }
 }
@@ -740,4 +741,28 @@ fn the_noise_reduction_block_runs_in_the_real_engine() {
         rms(tail)
     );
     assert!(longest_silence_ms(tail) < 2.0, "no gap once running");
+}
+
+#[test]
+fn what_is_typed_in_a_block_feeds_its_unlinked_inputs() {
+    use omu_types::{InputValue, MathOp};
+    let sim = SimBackend::new();
+    let engine = engine(&sim);
+    let mut math = node("m", NodeKind::Math { op: MathOp::Add });
+    math.inputs.insert("a".into(), InputValue::Number(2.0));
+    math.inputs.insert("b".into(), InputValue::Number(0.5));
+    let graph = validate(&GraphSpec {
+        nodes: vec![math],
+        edges: vec![],
+    })
+    .unwrap();
+    engine.apply(graph);
+    assert!(
+        wait_for(Duration::from_secs(5), || engine
+            .status()
+            .nodes
+            .iter()
+            .any(|n| n.id.0 == "m" && n.value.as_deref() == Some("2.5"))),
+        "the block adds the two numbers typed in it"
+    );
 }

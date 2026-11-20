@@ -65,11 +65,13 @@ fn what_a_program_plays_into_a_virtual_speaker_comes_out_of_the_graph() {
             NodeSpec {
                 id: "spk".into(),
                 display: None,
+                inputs: Default::default(),
                 kind: NodeKind::VirtualSpeaker { name: NAME.into() },
             },
             NodeSpec {
                 id: "out".into(),
                 display: None,
+                inputs: Default::default(),
                 kind: NodeKind::DeviceRender {
                     device: DeviceRef::Name("Sink".into()),
                 },

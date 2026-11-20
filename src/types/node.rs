@@ -96,6 +96,10 @@ fn two() -> u32 {
     2
 }
 
+fn nearest() -> RoundMode {
+    RoundMode::Nearest
+}
+
 /// One end of an edge: `{"node": "app", "port": "out"}`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PortRef {
@@ -155,8 +159,70 @@ pub enum Category {
     Condition,
     /// Produces actions when something happens (a key is pressed, a timer fires).
     Trigger,
-    /// Makes or combines values: text, whole numbers, decimal numbers.
-    Value,
+    /// Makes and combines numbers (whole or decimal).
+    Number,
+    /// Makes and combines text.
+    Text,
+    /// Changes one kind of flow into another (a sound into a number, a text into a number, a number into a yes/no...).
+    Conversion,
+}
+
+/// How a [`NodeKind::Round`] block makes a whole number from a decimal one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoundMode {
+    /// To the nearest whole number.
+    Nearest,
+    Down,
+    Up,
+}
+
+/// A number, a yes/no or a text typed in a block for an input that nothing is linked to.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum InputValue {
+    Bool(bool),
+    Number(f64),
+    Text(String),
+}
+
+/// How far a number input can go: `min` and `max` are never passed (a number that comes in by a flow is cropped to
+/// them), `soft_min` and `soft_max` are the range a slider offers.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PortLimits {
+    pub min: f64,
+    pub max: f64,
+    pub soft_min: f64,
+    pub soft_max: f64,
+}
+
+impl PortLimits {
+    /// `value` brought back into `min..=max` (a number that is not a number becomes `min`).
+    pub fn crop(&self, value: f64) -> f64 {
+        if value.is_nan() {
+            self.min
+        } else {
+            value.clamp(self.min, self.max)
+        }
+    }
+
+    /// The limits of the setting `name`, for the settings of the blocks that have some.
+    pub fn of(name: &str) -> Option<PortLimits> {
+        let l = |min, max, soft_min, soft_max| PortLimits {
+            min,
+            max,
+            soft_min,
+            soft_max,
+        };
+        Some(match name {
+            "db" => l(-120.0, 40.0, -60.0, 24.0),
+            "threshold_db" => l(-120.0, 0.0, -80.0, 0.0),
+            "ms" => l(0.0, 60_000.0, 0.0, 5_000.0),
+            "interval_ms" => l(10.0, 3_600_000.0, 10.0, 5_000.0),
+            "port" => l(1.0, 65_535.0, 1.0, 65_535.0),
+            _ => return None,
+        })
+    }
 }
 
 /// How a [`NodeKind::Compare`] block compares its two numbers.
@@ -340,8 +406,19 @@ pub enum NodeKind {
         #[serde(default)]
         initial: i64,
     },
-    /// Value: how loud the sound at its input is, in decibels (0 is full scale; silence is -120).
+    /// Conversion: how loud the sound at its input is, in decibels (0 is full scale; silence is -120).
     Volume,
+    /// Conversion: the number written in a text (nothing when it is not a number).
+    ToNumber,
+    /// Conversion: a whole number from a decimal one.
+    Round {
+        #[serde(default = "nearest")]
+        mode: RoundMode,
+    },
+    /// Conversion: 1 while a condition is true, 0 while it is not.
+    FromCondition,
+    /// Conversion: true while a number is not 0.
+    ToCondition,
 }
 
 use PortDirection::{Input, Output};
@@ -469,8 +546,12 @@ impl NodeKind {
             NodeKind::Text { .. } => vec![port("out", Output, TextFlow, false)],
             NodeKind::Integer { .. } => vec![port("out", Output, Int, false)],
             NodeKind::Number { .. } => vec![port("out", Output, Float, false)],
-            NodeKind::Join { args, .. } => (1..=(*args).clamp(1, MAX_JOIN_ARGS))
-                .map(|n| port(format!("arg{n}"), Input, TextFlow, false))
+            NodeKind::Join { args, .. } => [port("template", Input, TextFlow, false)]
+                .into_iter()
+                .chain(
+                    (1..=(*args).clamp(1, MAX_JOIN_ARGS))
+                        .map(|n| port(format!("arg{n}"), Input, TextFlow, false)),
+                )
                 .chain([port("out", Output, TextFlow, false)])
                 .collect(),
             NodeKind::Math { .. } => vec![
@@ -501,12 +582,23 @@ impl NodeKind {
                 port("out", Output, Int, false),
             ],
             NodeKind::Volume => vec![in_audio(), port("out", Output, Float, false)],
+            NodeKind::ToNumber => vec![
+                port("in", Input, TextFlow, false),
+                port("out", Output, Float, false),
+            ],
+            NodeKind::Round { .. } => vec![
+                port("in", Input, Float, false),
+                port("out", Output, Int, false),
+            ],
+            NodeKind::FromCondition => vec![in_cond(false), port("out", Output, Int, false)],
+            NodeKind::ToCondition => vec![port("in", Input, Float, false), out_cond()],
         }
     }
 
     /// The inputs that give a setting of this block from a flow (each is named after its setting).
     pub fn param_ports(&self) -> &'static [&'static str] {
         match self {
+            NodeKind::Join { .. } => &["template"],
             NodeKind::Gain { .. } => &["db"],
             NodeKind::Level { .. } => &["threshold_db"],
             NodeKind::Hold { .. } | NodeKind::After { .. } => &["ms"],
@@ -558,18 +650,21 @@ impl NodeKind {
             | NodeKind::Hold { .. }
             | NodeKind::After { .. }
             | NodeKind::Compare { .. }
-            | NodeKind::TextCompare { .. } => Category::Condition,
+            | NodeKind::TextCompare { .. }
+            | NodeKind::ToCondition => Category::Condition,
             NodeKind::Hotkey { .. } | NodeKind::Timer { .. } | NodeKind::Change => {
                 Category::Trigger
             }
-            NodeKind::Text { .. }
-            | NodeKind::Integer { .. }
+            NodeKind::Integer { .. }
             | NodeKind::Number { .. }
-            | NodeKind::Join { .. }
             | NodeKind::Math { .. }
             | NodeKind::Choose
-            | NodeKind::Counter { .. }
-            | NodeKind::Volume => Category::Value,
+            | NodeKind::Counter { .. } => Category::Number,
+            NodeKind::Text { .. } | NodeKind::Join { .. } => Category::Text,
+            NodeKind::Volume
+            | NodeKind::ToNumber
+            | NodeKind::Round { .. }
+            | NodeKind::FromCondition => Category::Conversion,
         }
     }
 
@@ -610,6 +705,10 @@ pub struct NodeSpec {
     /// every editor shows the same names. Missing means no name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display: Option<String>,
+    /// What is typed in the block for its inputs that nothing is linked to (by port name): a number, a text. A flow linked
+    /// to the input wins over it. The settings that belong to the block's kind (a gain, a wait) are kept in the kind.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub inputs: std::collections::BTreeMap<String, InputValue>,
     #[serde(flatten)]
     pub kind: NodeKind,
 }
@@ -620,6 +719,7 @@ impl NodeSpec {
         NodeSpec {
             id: NodeId::from(id),
             display: None,
+            inputs: Default::default(),
             kind,
         }
     }
@@ -645,6 +745,7 @@ mod tests {
                 NodeSpec {
                     id: "app".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::AppCapture {
                         target: AppTarget::ProcessName("chrome.exe".into()),
                     },
@@ -652,11 +753,13 @@ mod tests {
                 NodeSpec {
                     id: "vol".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::Gain { db: -6.0 },
                 },
                 NodeSpec {
                     id: "mic".into(),
                     display: None,
+                    inputs: Default::default(),
                     kind: NodeKind::VirtualMic {
                         name: "Stream".into(),
                     },
@@ -683,6 +786,7 @@ mod tests {
         let node = NodeSpec {
             id: "g".into(),
             display: None,
+            inputs: Default::default(),
             kind: NodeKind::Gain { db: 3.5 },
         };
         let v: serde_json::Value = serde_json::to_value(&node).unwrap();
@@ -831,6 +935,12 @@ mod tests {
             NodeKind::Choose,
             NodeKind::Counter { initial: 0 },
             NodeKind::Volume,
+            NodeKind::ToNumber,
+            NodeKind::Round {
+                mode: RoundMode::Nearest,
+            },
+            NodeKind::FromCondition,
+            NodeKind::ToCondition,
             NodeKind::Soundboard {
                 board: "b".into(),
                 triggers: vec!["p".into()],
@@ -844,6 +954,7 @@ mod tests {
             let spec = NodeSpec {
                 id: "x".into(),
                 display: None,
+                inputs: Default::default(),
                 kind: k.clone(),
             };
             let back: NodeSpec =
@@ -891,11 +1002,20 @@ mod tests {
                 Category::Processing => {
                     assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Audio))
                 }
-                Category::Value => assert!(
+                Category::Number => assert!(
                     !outputs.is_empty()
                         && outputs
                             .iter()
-                            .all(|t| matches!(t, PortType::Text | PortType::Int | PortType::Float))
+                            .all(|t| matches!(t, PortType::Int | PortType::Float))
+                ),
+                Category::Text => {
+                    assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Text))
+                }
+                Category::Conversion => assert!(
+                    !outputs.is_empty()
+                        && outputs
+                            .iter()
+                            .all(|t| !matches!(t, PortType::Audio | PortType::Action))
                 ),
             }
         }
@@ -1033,6 +1153,7 @@ mod tests {
         let mic = NodeSpec {
             id: "m".into(),
             display: Some("Display".into()),
+            inputs: Default::default(),
             kind: NodeKind::VirtualMic {
                 name: "Device".into(),
             },
@@ -1040,5 +1161,85 @@ mod tests {
         let v = serde_json::to_value(&mic).unwrap();
         assert_eq!(v["display"], "Display");
         assert_eq!(v["name"], "Device");
+    }
+}
+
+#[cfg(test)]
+mod inline_tests {
+    use super::*;
+
+    #[test]
+    fn a_number_is_cropped_to_the_limits_of_its_setting() {
+        let gain = PortLimits::of("db").unwrap();
+        assert_eq!(gain.crop(1000.0), 40.0);
+        assert_eq!(gain.crop(-1000.0), -120.0);
+        assert_eq!(gain.crop(3.0), 3.0);
+        assert_eq!(gain.crop(f64::NAN), -120.0);
+        assert!(
+            gain.soft_min >= gain.min && gain.soft_max <= gain.max,
+            "the slider stays inside the limits"
+        );
+        assert_eq!(PortLimits::of("port").unwrap().max, 65_535.0);
+        assert_eq!(PortLimits::of("template"), None);
+        // every setting that a flow can give and that is a number has limits
+        for kind in [
+            NodeKind::Gain { db: 0.0 },
+            NodeKind::Level {
+                threshold_db: -40.0,
+            },
+            NodeKind::Hold { ms: 1 },
+            NodeKind::After { ms: 1 },
+            NodeKind::Timer { interval_ms: 20 },
+        ] {
+            for name in kind.param_ports() {
+                assert!(PortLimits::of(name).is_some(), "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn values_typed_in_a_block_are_a_flat_map_that_keeps_its_types() {
+        let json = r#"{"id":"m","type":"math","op":"add","inputs":{"a":2,"b":0.5}}"#;
+        let spec: NodeSpec = serde_json::from_str(json).unwrap();
+        assert_eq!(spec.inputs["a"], InputValue::Number(2.0));
+        let spec: NodeSpec = serde_json::from_str(r#"{"id":"t","type":"join","template":"$arg1","args":1,"inputs":{"arg1":"hi","x":true}}"#).unwrap();
+        assert_eq!(spec.inputs["arg1"], InputValue::Text("hi".into()));
+        assert_eq!(spec.inputs["x"], InputValue::Bool(true));
+        // nothing typed: nothing written
+        let plain = NodeSpec::new("g", NodeKind::Mixer);
+        assert!(!serde_json::to_string(&plain).unwrap().contains("inputs"));
+        assert_eq!(
+            serde_json::from_str::<NodeSpec>(&serde_json::to_string(&spec).unwrap()).unwrap(),
+            spec
+        );
+    }
+
+    #[test]
+    fn the_new_families_hold_what_their_names_say() {
+        assert_eq!(
+            NodeKind::Math { op: MathOp::Add }.category(),
+            Category::Number
+        );
+        assert_eq!(
+            NodeKind::Join {
+                template: String::new(),
+                args: 1
+            }
+            .category(),
+            Category::Text
+        );
+        assert_eq!(NodeKind::Volume.category(), Category::Conversion);
+        assert_eq!(NodeKind::ToNumber.category(), Category::Conversion);
+        assert_eq!(NodeKind::ToCondition.category(), Category::Condition);
+        // a join has the template as its first input, then one per argument
+        let names: Vec<String> = NodeKind::Join {
+            template: String::new(),
+            args: 2,
+        }
+        .ports()
+        .into_iter()
+        .map(|p| p.name)
+        .collect();
+        assert_eq!(names, ["template", "arg1", "arg2", "out"]);
     }
 }

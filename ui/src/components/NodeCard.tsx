@@ -1,9 +1,10 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useEditor } from '../context.ts';
-import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_JOIN_ARGS, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
+import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_JOIN_ARGS, cropTo, inputValue, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
-import type { CompareOp, DeviceRef, LogicOp, MathOp, NodeSpec, NodeType, TextOp } from '../types.ts';
+import type { CompareOp, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, RoundMode, TextOp } from '../types.ts';
+import { HighlightedInput } from './HighlightedInput.tsx';
 import { ShortcutField } from './ShortcutField.tsx';
 
 /** `inputs`: how many input points the block shows, for a block that sums its inputs (the mixer). */
@@ -139,17 +140,6 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
   );
 }
 
-/** A port number: a whole number from 1 to 65535. */
-function PortField({ label, value, disabled, title, onChange }: { label: string; value: number; disabled?: boolean; title?: string; onChange: (port: number) => void }) {
-  const t = useT();
-  return (
-    <label className="field" title={title}>
-      <span>{t(label)}</span>
-      <input className="nodrag" type="number" min={1} max={65535} value={value} disabled={disabled} onChange={(e) => onChange(Math.max(1, Math.min(65535, Math.round(Number(e.target.value) || 1))))} />
-    </label>
-  );
-}
-
 /** A line of text (a host, a stream name). */
 function TextField({ label, value, placeholder, disabled, title, onChange }: { label: string; value: string; placeholder?: string; disabled?: boolean; title?: string; onChange: (text: string) => void }) {
   const t = useT();
@@ -182,22 +172,9 @@ function DeepFilterEditor({ spec }: { spec: Of<'deep_filter'> }) {
   );
 }
 
-/** Whether a flow is linked to the setting `port` of block `node`: the flow wins, so the field is then only shown. */
-function useLinked(node: string, port: string | undefined): boolean {
-  const edges = useEdges();
-  return port !== undefined && edges.some((e) => e.target === node && e.targetHandle === port);
-}
-
 function Params({ spec }: { spec: NodeSpec }) {
   const { update } = useEditor();
   const t = useT();
-  // the field of a setting that a flow gives is dimmed and cannot be changed by hand
-  const linked = useLinked(spec.id, portsOf(spec).find((q) => q.param)?.name);
-  const given = linked ? t('node.fromFlow') : undefined;
-  // the settings of the network blocks: each can be given by its own flow
-  const edges = useEdges();
-  const from = (port: string) => edges.some((e) => e.target === spec.id && e.targetHandle === port);
-  const flowOf = (port: string) => (from(port) ? { disabled: true, title: t('node.fromFlow') } : {});
   switch (spec.type) {
     case 'app_capture':
       return <AppEditor spec={spec} />;
@@ -215,22 +192,6 @@ function Params({ spec }: { spec: NodeSpec }) {
       return <DeepFilterEditor spec={spec} />;
     case 'soundboard':
       return <SoundboardEditor spec={spec} />;
-    case 'network_in':
-      return (
-        <>
-          <PortField label="field.listenPort" value={spec.port} {...flowOf('port')} onChange={(port) => update(spec.id, { ...spec, port })} />
-          <TextField label="field.streamName" value={spec.stream ?? ''} placeholder={t('field.anyStream')} {...flowOf('stream')} onChange={(stream) => update(spec.id, { ...spec, stream })} />
-          <TextField label="field.fromComputer" value={spec.from ?? ''} placeholder={t('field.anyComputer')} {...flowOf('from')} onChange={(from) => update(spec.id, { ...spec, from })} />
-        </>
-      );
-    case 'network_out':
-      return (
-        <>
-          <TextField label="field.sendTo" value={spec.host} placeholder="192.168.1.20" {...flowOf('host')} onChange={(host) => update(spec.id, { ...spec, host })} />
-          <PortField label="field.sendPort" value={spec.port} {...flowOf('port')} onChange={(port) => update(spec.id, { ...spec, port })} />
-          <TextField label="field.streamName" value={spec.stream ?? ''} placeholder="Stream1" {...flowOf('stream')} onChange={(stream) => update(spec.id, { ...spec, stream })} />
-        </>
-      );
     case 'virtual_mic':
       return (
         <label className="field">
@@ -238,30 +199,11 @@ function Params({ spec }: { spec: NodeSpec }) {
           <input className="nodrag" value={spec.name} onChange={(e) => update(spec.id, { type: 'virtual_mic', name: e.target.value })} />
         </label>
       );
-    case 'gain':
-      return (
-        <label className="field" title={given}>
-          <span>
-            {t('field.gain')}: {spec.db > 0 ? '+' : ''}
-            {spec.db} dB
-          </span>
-          <input className="nodrag" type="range" min={-60} max={24} step={0.5} value={spec.db} disabled={linked} onChange={(e) => update(spec.id, { type: 'gain', db: Number(e.target.value) })} />
-        </label>
-      );
     case 'variable':
       return (
         <label className="check">
           <input className="nodrag" type="checkbox" checked={spec.initial} onChange={(e) => update(spec.id, { type: 'variable', initial: e.target.checked })} />
           {t('field.startsOn')}
-        </label>
-      );
-    case 'level':
-      return (
-        <label className="field" title={given}>
-          <span>
-            {t('field.threshold')}: {spec.threshold_db} dB
-          </span>
-          <input className="nodrag" type="range" min={-80} max={0} step={1} value={spec.threshold_db} disabled={linked} onChange={(e) => update(spec.id, { type: 'level', threshold_db: Number(e.target.value) })} />
         </label>
       );
     case 'logic':
@@ -284,19 +226,8 @@ function Params({ spec }: { spec: NodeSpec }) {
           <ShortcutField value={spec.keys} onChange={(keys) => update(spec.id, { type: 'hotkey', keys })} />
         </div>
       );
-    case 'timer':
-      return (
-        <label className="field" title={given}>
-          <span>{t('field.interval')}</span>
-          <input className="nodrag" type="number" min={10} step={10} value={spec.interval_ms} disabled={linked} onChange={(e) => update(spec.id, { type: 'timer', interval_ms: Math.max(10, Number(e.target.value) || 10) })} />
-        </label>
-      );
     case 'delay':
       return <MsField label="field.delay" value={spec.ms} max={5000} onChange={(ms) => update(spec.id, { type: 'delay', ms })} />;
-    case 'hold':
-      return <MsField label="field.hold" value={spec.ms} max={60000} disabled={linked} title={given} onChange={(ms) => update(spec.id, { type: 'hold', ms })} />;
-    case 'after':
-      return <MsField label="field.after" value={spec.ms} max={60000} disabled={linked} title={given} onChange={(ms) => update(spec.id, { type: 'after', ms })} />;
     case 'branch':
     case 'select':
       return <Branches spec={spec} />;
@@ -329,6 +260,8 @@ function Params({ spec }: { spec: NodeSpec }) {
       return <OperationField value={spec.op} options={['equals', 'contains', 'starts_with', 'ends_with']} prefix="textop" onChange={(op) => update(spec.id, { type: 'text_compare', op: op as TextOp })} />;
     case 'counter':
       return <NumberField label="field.counterStart" value={spec.initial ?? 0} whole onChange={(initial) => update(spec.id, { type: 'counter', initial })} />;
+    case 'round':
+      return <OperationField value={spec.mode} options={['nearest', 'down', 'up']} prefix="round" onChange={(mode) => update(spec.id, { type: 'round', mode: mode as RoundMode })} />;
     case 'mixer':
     case 'gate':
     case 'not':
@@ -337,6 +270,16 @@ function Params({ spec }: { spec: NodeSpec }) {
     case 'change':
     case 'choose':
     case 'volume':
+    case 'to_number':
+    case 'from_condition':
+    case 'to_condition':
+    case 'network_in':
+    case 'network_out':
+    case 'gain':
+    case 'level':
+    case 'hold':
+    case 'after':
+    case 'timer':
       return null;
   }
 }
@@ -405,12 +348,11 @@ function JoinEditor({ spec }: { spec: Of<'join'> }) {
   const { update } = useEditor();
   const t = useT();
   const edges = useEdges();
-  const count = portsOf(spec).filter((q) => q.dir === 'in').length;
+  const count = portsOf(spec).filter((q) => q.dir === 'in' && !q.param).length;
   const used = edges.some((e) => e.target === spec.id && e.targetHandle === `arg${count}`);
   const set = (args: number) => update(spec.id, { ...spec, args });
   return (
     <>
-      <TextField label="field.template" value={spec.template} placeholder="$1 $2" onChange={(template) => update(spec.id, { ...spec, template })} />
       <div className="adders">
         <button className="mini add nodrag" title={t('node.addArgument')} aria-label={t('node.addArgument')} disabled={count >= MAX_JOIN_ARGS} onClick={() => set(count + 1)}>
           +
@@ -529,18 +471,83 @@ function EntriesRow({ port, node, asked }: { port: PortMeta; node: string; asked
 }
 
 /** One port: a label and the connection point (coloured by the flow it carries). */
-function PortRow({ port, node, inputs, text }: { port: PortMeta; node: string; inputs: number | undefined; text?: string }) {
+function PortRow({ port, spec, inputs, text }: { port: PortMeta; spec: NodeSpec; inputs: number | undefined; text?: string }) {
   const t = useT();
   const isInput = port.dir === 'in';
-  if (hasEntries(port)) return <EntriesRow port={port} node={node} asked={inputs} />;
+  if (hasEntries(port)) return <EntriesRow port={port} node={spec.id} asked={inputs} />;
   return (
     <>
       {port.gapBefore && <div className="port gap" aria-hidden="true" />}
-      <div className={`port ${isInput ? 'in' : 'out'}`} title={t(`flow.${port.flow}`)}>
+      <div className={`port ${isInput ? 'in' : 'out'}${port.inline ? ' inline' : ''}`} title={t(`flow.${port.flow}`)}>
         <Handle id={port.name} type={isInput ? 'target' : 'source'} position={isInput ? Position.Left : Position.Right} className={`flow-${port.flow}`} />
-        <span>{text ?? t(port.label, { n: port.n ?? '' }).trim()}</span>
+        <span className="port-name">{text ?? t(port.label, { n: port.n ?? '' }).trim()}</span>
+        {port.inline && <InlineValue spec={spec} port={port} />}
       </div>
     </>
+  );
+}
+
+/** A number typed in a field: what is being typed is kept until it is a number, and the number is cropped to the limits. */
+function TypedNumber({ value, whole, min, max, disabled, onChange }: { value: number; whole: boolean; min: number; max: number; disabled: boolean; onChange: (n: number) => void }) {
+  const [typed, setTyped] = useState(String(value));
+  useEffect(() => setTyped((now) => (Number(now) === value ? now : String(value))), [value]);
+  return (
+    <input
+      className="nodrag inline-number"
+      inputMode={whole ? 'numeric' : 'decimal'}
+      value={typed}
+      disabled={disabled}
+      onChange={(e) => {
+        setTyped(e.target.value);
+        const n = whole ? Math.trunc(Number(e.target.value)) : Number(e.target.value);
+        if (e.target.value.trim() !== '' && Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n)));
+      }}
+      onBlur={() => setTyped(String(value))}
+    />
+  );
+}
+
+/**
+ * The value of an input, typed next to its connection point: a text, a number (with a slider over the range that is advised
+ * when there is one). A flow linked to the input wins over it, and the field is then only shown.
+ */
+function InlineValue({ spec, port }: { spec: NodeSpec; port: PortMeta }) {
+  const { update, setInput } = useEditor();
+  const t = useT();
+  const edges = useEdges();
+  const linked = edges.some((e) => e.target === spec.id && e.targetHandle === port.name);
+  const current = inputValue(spec, port);
+  const write = (v: InputValue) => (port.field !== undefined ? update(spec.id, { ...spec, [port.field]: v } as NodeKind) : setInput(spec.id, port.name, v));
+  const title = linked ? t('node.fromFlow') : undefined;
+  if (port.flow === 'text') {
+    const text = String(current);
+    return port.name === 'template' ? (
+      <HighlightedInput value={text} disabled={linked} title={title} known={(name) => /^(arg)?\d+$/.test(name) && Number(name.replace('arg', '')) <= portsOf(spec).filter((q) => q.name.startsWith('arg')).length} onChange={write} />
+    ) : (
+      <input className="nodrag inline-text" value={text} disabled={linked} title={title} placeholder={port.help && port.field === 'stream' ? t('field.anyStream') : undefined} spellCheck={false} onChange={(e) => write(e.target.value)} />
+    );
+  }
+  const whole = port.flow === 'int';
+  const n = Number(current) || 0;
+  const l = port.limits;
+  const advised = l && l.softMax > l.softMin;
+  return (
+    <span className="inline-control" title={title}>
+      {advised && (
+        <input
+          className="nodrag inline-slider"
+          type="range"
+          min={l.softMin}
+          max={l.softMax}
+          step={whole ? 1 : l.softMax - l.softMin > 50 ? 1 : 0.5}
+          value={Math.min(l.softMax, Math.max(l.softMin, n))}
+          disabled={linked}
+          onChange={(e) => write(cropTo(l, Number(e.target.value)))}
+        />
+      )}
+      <TypedNumber value={n} whole={whole} min={l?.min ?? -1e9} max={l?.max ?? 1e9} disabled={linked} onChange={write} />
+      {port.unit && <small className="inline-unit">{port.unit}</small>}
+    </span>
   );
 }
 
@@ -557,7 +564,7 @@ function Footer({ spec }: { spec: NodeSpec }) {
     <>
       <span className={`dot ${status ? (failed ? 'bad' : 'ok') : 'idle'}`} title={status ? undefined : t('status.notRunning')} />
       {category === 'trigger' && <small className={off.trim()}>{t('status.actions', { count: status?.events ?? 0 })}</small>}
-      {category === 'value' && (
+      {(category === 'number' || category === 'text' || category === 'conversion') && (
         <small className={`value${off}`} title={status?.value ?? undefined}>
           {status?.value ?? '–'}
         </small>
@@ -605,7 +612,7 @@ function GridBox({ className, children }: { className: string; children: ReactNo
   );
 }
 
-export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
+export function NodeCard({ data, selected }: NodeProps<OmuNode>) {
   const { statusOf } = useEditor();
   const t = useT();
   const spec = data.spec;
@@ -654,12 +661,12 @@ export function NodeCard({ id, data, selected }: NodeProps<OmuNode>) {
           <NameField spec={spec} />
         </div>
       </header>
-      <div className="ports">
+      <div className={`ports${ports.some((q) => q.inline) ? ' stacked' : ''}`}>
         {zonesOf(spec).map((z) => (
           <div key={z.start} className="zone" style={{ top: z.start * GRID, height: z.rows * GRID }} aria-hidden="true" />
         ))}
-        <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} text={padName(q)} />)}</div>
-        <div>{ports.filter((q) => q.dir === 'out').map((q) => <PortRow key={q.name} port={q} node={id} inputs={data.inputs} />)}</div>
+        <div>{ports.filter((q) => q.dir === 'in').map((q) => <PortRow key={q.name} port={q} spec={spec} inputs={data.inputs} text={padName(q)} />)}</div>
+        <div>{ports.filter((q) => q.dir === 'out').map((q) => <PortRow key={q.name} port={q} spec={spec} inputs={data.inputs} />)}</div>
       </div>
       <div className="body">
         <Params spec={spec} />

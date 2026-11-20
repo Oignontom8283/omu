@@ -2,7 +2,7 @@
 // the editor's nodes and edges, layout, change detection, connection rules. No React here: it is unit-tested with Node.
 // The ports mirror src/types/node.rs of the daemon (the daemon validates again when a graph is applied).
 
-import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, Layout, NodeKind, NodeLayout, NodeSpec, NodeType } from './types.ts';
+import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, InputValue, Layout, NodeKind, NodeLayout, NodeSpec, NodeType } from './types.ts';
 
 /** The gap of the editor's grid, in pixels: blocks snap to it and the rows of their ports are as high. */
 export const GRID = 24;
@@ -15,7 +15,50 @@ export const NODE_WIDTH = 10 * GRID;
  * A port of a block. `label` is the translation key of its name and `n` the number it shows (`else if 2`); a port
  * with `gapBefore` is drawn one row lower, so that the rows of a branch line up (`if` with `then`).
  */
-export type PortMeta = { name: string; dir: 'in' | 'out'; flow: FlowType; multi: boolean; label: string; n?: number; gapBefore?: boolean; entries?: boolean; /** Gives a setting of the block from a flow. */ param?: boolean };
+/**
+ * How far a number input can go (the daemon's `PortLimits`): `min` and `max` are never passed, a number that comes in by a
+ * flow is cropped to them; `softMin` and `softMax` are the range a slider offers.
+ */
+export type PortLimits = { min: number; max: number; softMin: number; softMax: number };
+
+/** The limits of the settings that have some (the same table as the daemon's, which crops the flows). */
+export const LIMITS: Record<string, PortLimits> = {
+  db: { min: -120, max: 40, softMin: -60, softMax: 24 },
+  threshold_db: { min: -120, max: 0, softMin: -80, softMax: 0 },
+  ms: { min: 0, max: 60000, softMin: 0, softMax: 5000 },
+  interval_ms: { min: 10, max: 3600000, softMin: 10, softMax: 5000 },
+  port: { min: 1, max: 65535, softMin: 1, softMax: 65535 },
+};
+
+/** `value` brought back into the limits (a number that is not a number becomes the least). */
+export const cropTo = (limits: PortLimits, value: number): number => (Number.isNaN(value) ? limits.min : Math.min(limits.max, Math.max(limits.min, value)));
+
+/**
+ * A port of a block. `label` is the translation key of its name and `n` the number it shows (`else if 2`). Every input that
+ * is not a sound carries its own value in the block (`inline`): a number, a text. When it is `param`, the value is a setting
+ * of the block's kind (`field`) that a flow can give; otherwise it is kept with the other values typed in the block.
+ */
+export type PortMeta = {
+  name: string;
+  dir: 'in' | 'out';
+  flow: FlowType;
+  multi: boolean;
+  label: string;
+  n?: number;
+  gapBefore?: boolean;
+  entries?: boolean;
+  /** Gives a setting of the block from a flow. */
+  param?: boolean;
+  /** The setting of the block's kind this input stands for. */
+  field?: string;
+  /** Shows a field to type the value in, next to the connection point. */
+  inline?: boolean;
+  limits?: PortLimits;
+  /** What the number is counted in. */
+  unit?: string;
+  /** The translation key of what the input is for (its explanation is that key + `.help`). */
+  help?: string;
+};
 
 /** What decides a block's ports: its kind, and for the blocks that branch, how many conditions they have. */
 export type KindLike = { type: NodeType; branches?: number; triggers?: string[]; args?: number };
@@ -26,7 +69,7 @@ export const MAX_BRANCHES = 16;
 export const MAX_JOIN_ARGS = 16;
 
 /** The input of a block that gives one of its settings from a flow (the flow wins over what is typed in the block). */
-const param = (name: string, flow: FlowType): PortMeta => p(name, 'in', flow, false, { param: true });
+const param = (name: string, flow: FlowType, help: string, unit?: string): PortMeta => p(name, 'in', flow, false, { param: true, field: name, limits: LIMITS[name], help, unit });
 
 /** Whether an input of flow `input` takes a flow of type `from` (the same as the daemon's rule). */
 export function accepts(input: FlowType, from: FlowType): boolean {
@@ -40,14 +83,19 @@ function labelKey(name: string, flow: FlowType): string {
 
 // A sound input takes any number of links (the daemon adds the sounds together); the other inputs only when they are
 // told to (the actions of a variable, the conditions of `all` and `any`).
-const p = (name: string, dir: 'in' | 'out', flow: FlowType, multi = false, extra: Partial<PortMeta> = {}): PortMeta => ({
-  name,
-  dir,
-  flow,
-  multi: multi || (dir === 'in' && flow === 'audio'),
-  label: labelKey(name, flow),
-  ...extra,
-});
+const p = (name: string, dir: 'in' | 'out', flow: FlowType, multi = false, extra: Partial<PortMeta> = {}): PortMeta => {
+  const sums = multi || (dir === 'in' && flow === 'audio');
+  return {
+    name,
+    dir,
+    flow,
+    multi: sums,
+    label: labelKey(name, flow),
+    // an input that is not a sound or an action carries a value of its own, typed next to it
+    inline: dir === 'in' && (flow === 'text' || flow === 'int' || flow === 'float') && !sums && !extra.entries,
+    ...extra,
+  };
+};
 
 const range = (n: number): number[] => Array.from({ length: n }, (_, i) => i + 1);
 
@@ -86,7 +134,7 @@ export function portsOf(kind: KindLike): PortMeta[] {
     case 'virtual_speaker':
       return [p('out', 'out', 'audio')];
     case 'network_in':
-      return [param('port', 'int'), param('stream', 'text'), param('from', 'text'), p('out', 'out', 'audio')];
+      return [param('port', 'int', 'field.listenPort'), param('stream', 'text', 'field.streamName'), param('from', 'text', 'field.fromComputer'), p('out', 'out', 'audio')];
     case 'soundboard': {
       // the sound, then an action input for each pad the graph can play, and one that stops the whole soundboard
       const n = Math.min(kind.triggers?.length ?? 0, MAX_BRANCHES);
@@ -97,9 +145,9 @@ export function portsOf(kind: KindLike): PortMeta[] {
     case 'virtual_mic':
       return [p('in', 'in', 'audio')];
     case 'network_out':
-      return [p('in', 'in', 'audio'), param('host', 'text'), param('port', 'int'), param('stream', 'text')];
+      return [p('in', 'in', 'audio'), param('host', 'text', 'field.sendTo'), param('port', 'int', 'field.sendPort'), param('stream', 'text', 'field.streamName')];
     case 'gain':
-      return [p('in', 'in', 'audio'), param('db', 'float'), p('out', 'out', 'audio')];
+      return [p('in', 'in', 'audio'), param('db', 'float', 'field.gain', 'dB'), p('out', 'out', 'audio')];
     case 'delay':
     case 'noise_reduction':
     case 'deep_filter':
@@ -126,21 +174,21 @@ export function portsOf(kind: KindLike): PortMeta[] {
     case 'variable':
       return [p('set', 'in', 'action', true), p('clear', 'in', 'action', true), p('toggle', 'in', 'action', true), p('value', 'out', 'condition')];
     case 'level':
-      return [p('in', 'in', 'audio'), param('threshold_db', 'float'), p('active', 'out', 'condition')];
+      return [p('in', 'in', 'audio'), param('threshold_db', 'float', 'field.threshold', 'dB'), p('active', 'out', 'condition')];
     case 'logic':
       return [p('a', 'in', 'condition'), p('b', 'in', 'condition'), p('out', 'out', 'condition')];
     case 'not':
       return [p('in', 'in', 'condition'), p('out', 'out', 'condition')];
     case 'hold':
     case 'after':
-      return [p('in', 'in', 'condition'), param('ms', 'int'), p('out', 'out', 'condition')];
+      return [p('in', 'in', 'condition'), param('ms', 'int', kind.type === 'hold' ? 'field.hold' : 'field.after', 'ms'), p('out', 'out', 'condition')];
     case 'all':
     case 'any':
       return [p('in', 'in', 'condition', true, { entries: true }), p('out', 'out', 'condition')];
     case 'hotkey':
       return [p('pressed', 'out', 'action')];
     case 'timer':
-      return [param('interval_ms', 'int'), p('tick', 'out', 'action')];
+      return [param('interval_ms', 'int', 'field.interval', 'ms'), p('tick', 'out', 'action')];
     case 'change':
       return [p('in', 'in', 'condition'), p('rise', 'out', 'action'), p('fall', 'out', 'action')];
     case 'text':
@@ -151,7 +199,7 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [p('out', 'out', 'float')];
     case 'join': {
       const n = Number.isInteger(kind.args) ? Math.max(1, Math.min(MAX_JOIN_ARGS, kind.args as number)) : 2;
-      return [...range(n).map((k) => p(`arg${k}`, 'in', 'text', false, { label: 'port.arg', n: k })), p('out', 'out', 'text')];
+      return [param('template', 'text', 'field.template'), ...range(n).map((k) => p(`arg${k}`, 'in', 'text', false, { label: 'port.arg', n: k })), p('out', 'out', 'text')];
     }
     case 'math':
       return [p('a', 'in', 'float'), p('b', 'in', 'float'), p('out', 'out', 'float')];
@@ -165,19 +213,29 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [p('up', 'in', 'action', true), p('down', 'in', 'action', true), p('reset', 'in', 'action', true), p('out', 'out', 'int')];
     case 'volume':
       return [p('in', 'in', 'audio'), p('out', 'out', 'float')];
+    case 'to_number':
+      return [p('in', 'in', 'text'), p('out', 'out', 'float')];
+    case 'round':
+      return [p('in', 'in', 'float'), p('out', 'out', 'int')];
+    case 'from_condition':
+      return [p('in', 'in', 'condition'), p('out', 'out', 'int')];
+    case 'to_condition':
+      return [p('in', 'in', 'float'), p('out', 'out', 'condition')];
   }
 }
 
-export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger', 'value'];
+export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion'];
 
 /** The kinds of each family, in the order of the drop-down. */
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   input: ['app_capture', 'device_capture', 'virtual_speaker', 'soundboard', 'network_in'],
   output: ['virtual_mic', 'device_render', 'network_out'],
   processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction', 'deep_filter'],
-  condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'compare', 'text_compare'],
+  condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'compare', 'text_compare', 'to_condition'],
   trigger: ['hotkey', 'timer', 'change'],
-  value: ['text', 'integer', 'number', 'join', 'math', 'choose', 'counter', 'volume'],
+  number: ['integer', 'number', 'math', 'choose', 'counter'],
+  text: ['text', 'join'],
+  conversion: ['volume', 'to_number', 'round', 'from_condition'],
 };
 
 export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
@@ -196,6 +254,30 @@ export function categoryOf(type: NodeType): Category {
  */
 export function baseHandle(handle: string): string {
   return handle.split('#')[0];
+}
+
+/** What an input starts with when nothing was typed: zero (inside its limits), or nothing. */
+export function defaultInput(port: PortMeta): InputValue {
+  if (port.flow === 'text') return '';
+  return port.limits ? cropTo(port.limits, 0) : 0;
+}
+
+/** The value typed in a block for one of its inputs: the setting of its kind, or what was typed for that input. */
+export function inputValue(spec: NodeSpec, port: PortMeta): InputValue {
+  if (port.field !== undefined) {
+    const own = (spec as Record<string, unknown>)[port.field];
+    return typeof own === 'number' || typeof own === 'string' || typeof own === 'boolean' ? own : defaultInput(port);
+  }
+  return spec.inputs?.[port.name] ?? defaultInput(port);
+}
+
+/** The values typed in a block, kept only for the inputs it has (an input that went away takes its value with it). */
+export function prunedInputs(spec: NodeSpec): NodeSpec {
+  if (!spec.inputs) return spec;
+  const names = new Set(portsOf(spec).filter((q) => q.inline && q.field === undefined).map((q) => q.name));
+  const kept = Object.fromEntries(Object.entries(spec.inputs).filter(([name]) => names.has(name)));
+  const { inputs: _old, ...rest } = spec;
+  return (Object.keys(kept).length ? { ...rest, inputs: kept } : rest) as NodeSpec;
 }
 
 export function portOf(kind: KindLike, name: string): PortMeta | undefined {
@@ -308,7 +390,7 @@ export function defaultKind(type: NodeType): NodeKind {
     case 'number':
       return { type, value: 0 };
     case 'join':
-      return { type, template: '$1 $2', args: 2 };
+      return { type, template: '$arg1 $arg2', args: 2 };
     case 'math':
       return { type, op: 'add' };
     case 'compare':
@@ -317,7 +399,12 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, op: 'equals' };
     case 'choose':
     case 'volume':
+    case 'to_number':
+    case 'from_condition':
+    case 'to_condition':
       return { type };
+    case 'round':
+      return { type, mode: 'nearest' };
     case 'counter':
       return { type, initial: 0 };
   }
