@@ -19,9 +19,11 @@ import { Doc, docKey, type DocRef } from './components/BlockHelp.tsx';
 import { Calibration } from './components/Calibration.tsx';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette.tsx';
 import { History } from './history.ts';
+import { Button } from './kit/controls.tsx';
+import { loadDraft, loadVersions, saveDraft, saveVersions, withVersion, type Version } from './versions.ts';
 import { bindings, commandOf, loadOverrides, type CommandId } from './keybindings.ts';
 import { copyOf, pasteOf, type Clip, type ClipEdge, type ClipNode } from './selection.ts';
-import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Splitter, StatusBar, loadDock, saveDock, type DockState } from './components/Workbench.tsx';
+import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Splitter, StatusBar, VersionsPanel, loadDock, saveDock, type DockState } from './components/Workbench.tsx';
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
@@ -111,6 +113,12 @@ export function App() {
   }, []);
   // what is wrong with the graph, asked of the daemon (the same rules as when it is applied) a moment after each change
   const [diagnostics, setDiagnostics] = useState<Diagnostic[]>([]);
+  const [versions, setVersions] = useState<Version[]>(loadVersions);
+  // changes that were not applied when the page was closed
+  const [draftOffer, setDraftOffer] = useState<Version | null>(null);
+  const firstLoad = useRef(true);
+  // the draft is only kept once what the daemon has is on screen (before that, nothing differs)
+  const [loaded, setLoaded] = useState(false);
   // the soundboards the daemon keeps; `boardsFirst` is the board the soundboards tab opens on
   const [library, setLibrary] = useState<SoundLibrary>({ sounds: [], boards: [] });
   const [boardsFirst, setBoardsFirst] = useState<string | undefined>(undefined);
@@ -197,6 +205,14 @@ export function App() {
       show(g, layout);
       setProblems([]);
       refreshStale();
+      // the first time only: changes left unapplied by the last session are offered back
+      if (firstLoad.current) {
+        firstLoad.current = false;
+        const draft = loadDraft();
+        if (draft && canonical(draft.graph) !== canonical(g)) setDraftOffer(draft);
+        else saveDraft(null);
+        setLoaded(true);
+      }
     } catch (e) {
       setNotice(message(e));
     }
@@ -233,6 +249,13 @@ export function App() {
     return () => clearInterval(timer);
   }, [conn, daemon]);
 
+  // where the blocks are now, as the daemon keeps it
+  const currentLayout = () =>
+    layoutOf(
+      nodes.map((n) => ({ id: n.id, position: n.position, spec: n.data.spec, inputs: n.data.inputs })),
+      edges.map(asEdge),
+    );
+
   const apply = async () => {
     setBusy(true);
     setNotice(null);
@@ -240,6 +263,11 @@ export function App() {
       await daemon.graphSet(graph);
       setApplied(graph);
       setProblems([]);
+      // what was applied is a version to come back to, and nothing is left to rescue
+      const kept = withVersion(versions, { at: new Date().toISOString(), graph, layout: currentLayout() });
+      setVersions(kept);
+      saveVersions(kept);
+      saveDraft(null);
       // a renamed or removed device leaves an old one behind in Windows: the button shows how many
       refreshStale();
     } catch (e) {
@@ -536,6 +564,7 @@ export function App() {
         ...nodes.map((n): PaletteItem => ({ id: `node-${n.id}`, kind: 'node', label: nameOf(n.data.spec) || t(`kind.${n.data.spec.type}`), family: categoryOf(n.data.spec.type), keywords: `${t(`kind.${n.data.spec.type}`)} ${n.id}`, run: () => goTo({ severity: 'info', code: 'go', message: '', node: n.id }) })),
         { id: 'problems', kind: 'command', label: t('dock.problems'), icon: 'error', run: () => setDock({ ...dock, bottom: dock.bottom === 'problems' ? null : 'problems' }) },
         { id: 'logs', kind: 'command', label: t('app.logs'), icon: 'list', run: () => setDock({ ...dock, bottom: dock.bottom === 'logs' ? null : 'logs' }) },
+        { id: 'versions', kind: 'command', label: t('dock.versions'), icon: 'undo', run: () => toggleDock('versions') },
         { id: 'monitor', kind: 'command', label: t('dock.monitor'), icon: 'panel', run: () => setDock({ ...dock, bottom: dock.bottom === 'monitor' ? null : 'monitor' }) },
         { id: 'inspector', kind: 'command', label: t('dock.inspector'), icon: 'panel', run: () => setDock({ ...dock, right: dock.right ? null : 'inspector' }) },
         status?.running
@@ -580,6 +609,19 @@ export function App() {
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graphKey, conn, daemon]);
+  // the changes not applied yet are kept a moment after each edit, so that a closed window or a crash loses nothing
+  useEffect(() => {
+    if (conn !== 'open' || !loaded || draftOffer) return;
+    const timer = window.setTimeout(() => saveDraft(dirty ? { at: new Date().toISOString(), graph, layout: currentLayout() } : null), 1000);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [graphKey, dirty, conn, draftOffer, loaded]);
+  // brings a version of the graph back into the editor (it is not applied until the person says so)
+  const bringBack = (v: Version) => {
+    const f = toFlow(v.graph, v.layout);
+    setNodes(f.nodes.map((n) => ({ id: n.id, type: 'omu', position: n.position, data: { spec: n.spec, inputs: n.inputs } })));
+    setEdges(f.edges.map((e) => ({ ...e })));
+  };
   const errors = diagnostics.filter((d) => d.severity === 'error').length;
   const warnings = diagnostics.filter((d) => d.severity === 'warning').length;
   const selected = nodes.find((n) => n.selected)?.data.spec;
@@ -663,6 +705,19 @@ export function App() {
           </BlocksBar>
         )}
 
+        {draftOffer && (
+          <div className="banners">
+            <div className="banner info">
+              {t('draft.found', { date: new Date(draftOffer.at).toLocaleString() })}{' '}
+              <Button size="small" variant="primary" onClick={() => { bringBack(draftOffer); setDraftOffer(null); }}>
+                {t('draft.restore')}
+              </Button>{' '}
+              <Button size="small" onClick={() => { saveDraft(null); setDraftOffer(null); }}>
+                {t('draft.discard')}
+              </Button>
+            </div>
+          </div>
+        )}
         {(problems.length > 0 || notice || noProvider || (IN_DESKTOP_WINDOW && conn === 'closed')) && (
           <div className="banners">
             {problems.length > 0 && (
@@ -833,11 +888,12 @@ export function App() {
               <Splitter direction="horizontal" onResize={(d) => setDock({ ...dock, bottomHeight: clampSize(dock.bottomHeight - d, 90, 600) })} />
               <div style={{ height: dock.bottomHeight }} className="dock-wrap">
                 <DockFrame
-                  title={dock.bottom === 'problems' ? `${t('dock.problems')} (${diagnostics.length})` : dock.bottom === 'logs' ? t('app.logs') : t('dock.monitor')}
+                  title={dock.bottom === 'problems' ? `${t('dock.problems')} (${diagnostics.length})` : dock.bottom === 'logs' ? t('app.logs') : dock.bottom === 'versions' ? t('dock.versions') : t('dock.monitor')}
                   onClose={() => setDock({ ...dock, bottom: null })}
                 >
                   {dock.bottom === 'problems' && <ProblemsPanel diagnostics={diagnostics} nodes={nodes.map((n) => n.data.spec)} onGo={goTo} />}
                   {dock.bottom === 'logs' && <LogsPanel daemon={daemon} />}
+                  {dock.bottom === 'versions' && <VersionsPanel versions={versions} current={graph} onRestore={bringBack} />}
                   {dock.bottom === 'monitor' && <MonitorPanel status={status} nodes={nodes.map((n) => n.data.spec)} />}
                 </DockFrame>
               </div>

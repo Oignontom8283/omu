@@ -4,7 +4,8 @@ import { nameOf, portsOf, categoryOf } from '../graph.ts';
 import { useEditor } from '../context.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button } from '../kit/controls.tsx';
-import type { Diagnostic, EngineStatus, LogLine, NodeSpec } from '../types.ts';
+import type { Diagnostic, EngineStatus, GraphSpec, LogLine, NodeSpec } from '../types.ts';
+import { differences, same, type Version } from '../versions.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { InlineValue, Params } from './NodeCard.tsx';
 
@@ -12,7 +13,7 @@ import { InlineValue, Params } from './NodeCard.tsx';
 // (the inspector of the selected block), a bar at the bottom with the counts and the buttons that open them. Their sizes and
 // what is open are remembered.
 
-export type DockState = { bottom: 'problems' | 'logs' | 'monitor' | null; right: 'inspector' | null; bottomHeight: number; rightWidth: number };
+export type DockState = { bottom: 'problems' | 'logs' | 'monitor' | 'versions' | null; right: 'inspector' | null; bottomHeight: number; rightWidth: number };
 
 const KEY = 'omu-workbench';
 const DEFAULT: DockState = { bottom: null, right: null, bottomHeight: 220, rightWidth: 300 };
@@ -167,6 +168,30 @@ export function MonitorPanel({ status, nodes }: { status: EngineStatus | null; n
   );
 }
 
+/** The versions of the graph that were applied: what each one changes compared with what is in the editor now, and a way back to it. */
+export function VersionsPanel({ versions, current, onRestore }: { versions: Version[]; current: GraphSpec; onRestore: (v: Version) => void }) {
+  const t = useT();
+  if (versions.length === 0) return <p className="panel-empty">{t('versions.none')}</p>;
+  return (
+    <ul className="versions">
+      {versions.map((v, i) => {
+        const d = differences(current, v.graph);
+        return (
+          <li key={v.at}>
+            <span className="when">{new Date(v.at).toLocaleString()}</span>
+            <span className="summary muted">
+              {i === 0 && same(d) ? t('versions.current') : t('versions.diff', { added: d.removed.length, removed: d.added.length, changed: d.changed.length, links: d.links })}
+            </span>
+            <Button size="small" disabled={i === 0 && same(d)} onClick={() => onRestore(v)}>
+              {t('versions.restore')}
+            </Button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 /** All the settings of the selected block in one place, with what it does. */
 export function InspectorPanel({ spec }: { spec: NodeSpec | undefined }) {
   const t = useT();
@@ -255,6 +280,9 @@ export function StatusBar({
       </Button>
       <Button variant="flat" size="small" pressed={dock.bottom === 'logs'} onClick={() => toggleBottom('logs')}>
         {t('app.logs')}
+      </Button>
+      <Button variant="flat" size="small" pressed={dock.bottom === 'versions'} onClick={() => toggleBottom('versions')}>
+        {t('dock.versions')}
       </Button>
       <Button variant="flat" size="small" pressed={dock.bottom === 'monitor'} onClick={() => toggleBottom('monitor')}>
         {t('dock.monitor')}
