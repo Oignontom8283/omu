@@ -12,7 +12,7 @@
 
 use omu_types::{
     DeviceRef, EdgeSpec, GraphSpec, KeyCombo, NodeId, NodeKind, PortDirection, MAX_BRANCHES,
-    MAX_DELAY_MS, MAX_WAIT_MS,
+    MAX_DELAY_MS, MAX_JOIN_ARGS, MAX_TEXT, MAX_WAIT_MS,
 };
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -61,6 +61,8 @@ pub enum GraphError {
     BadNetwork(NodeId, String),
     #[error("network blocks {0:?} and {1:?} both listen on UDP port {2}")]
     SamePort(NodeId, NodeId, u16),
+    #[error("block {0:?}: {1}")]
+    BadValue(NodeId, String),
 }
 
 /// A validated graph: node indices follow `spec.nodes`, `order` is a valid evaluation order.
@@ -153,7 +155,7 @@ pub fn validate(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
             ));
             continue;
         }
-        if fp.ty != tp.ty {
+        if !tp.ty.accepts(fp.ty) {
             errors.push(GraphError::TypeMismatch {
                 from: port_name(&edge.from.node, &edge.from.port),
                 to: port_name(&edge.to.node, &edge.to.port),
@@ -230,6 +232,32 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
                 if !(1..=MAX_BRANCHES).contains(branches) =>
             {
                 errors.push(GraphError::BadBranches(node.id.clone(), *branches));
+            }
+            NodeKind::Text { value } if value.chars().count() > MAX_TEXT => {
+                errors.push(GraphError::BadValue(
+                    node.id.clone(),
+                    format!("the text is longer than {MAX_TEXT} characters"),
+                ));
+            }
+            NodeKind::Number { value } if !value.is_finite() => {
+                errors.push(GraphError::BadValue(
+                    node.id.clone(),
+                    "the number is not a finite number".into(),
+                ));
+            }
+            NodeKind::Join { template, args } => {
+                if !(1..=MAX_JOIN_ARGS).contains(args) {
+                    errors.push(GraphError::BadValue(
+                        node.id.clone(),
+                        format!("it has {args} arguments: use between 1 and {MAX_JOIN_ARGS}"),
+                    ));
+                }
+                if template.chars().count() > MAX_TEXT {
+                    errors.push(GraphError::BadValue(
+                        node.id.clone(),
+                        format!("the template is longer than {MAX_TEXT} characters"),
+                    ));
+                }
             }
             NodeKind::Delay { ms } if *ms > MAX_DELAY_MS => {
                 errors.push(GraphError::DelayTooLong(node.id.clone(), *ms));
@@ -365,6 +393,100 @@ mod tests {
     }
     fn gain() -> NodeKind {
         NodeKind::Gain { db: 0.0 }
+    }
+
+    #[test]
+    fn flows_connect_when_the_input_takes_the_type_of_the_output() {
+        let check = |from: NodeKind, fp: &str, to: NodeKind, tp: &str| {
+            let spec = GraphSpec {
+                nodes: vec![node("a", from), node("b", to)],
+                edges: vec![edge("a", fp, "b", tp)],
+            };
+            validate(&spec).is_ok()
+        };
+        let int = || NodeKind::Integer { value: 3 };
+        let float = || NodeKind::Number { value: 1.5 };
+        let text = || NodeKind::Text { value: "x".into() };
+        let join = || NodeKind::Join {
+            template: "$1".into(),
+            args: 1,
+        };
+        let math = || NodeKind::Math {
+            op: omu_types::MathOp::Add,
+        };
+        // a whole number goes where a decimal one is wanted, and numbers go into text
+        assert!(check(int(), "out", math(), "a"));
+        assert!(check(float(), "out", math(), "b"));
+        assert!(check(int(), "out", join(), "arg1"));
+        assert!(check(float(), "out", join(), "arg1"));
+        assert!(check(text(), "out", join(), "arg1"));
+        assert!(check(
+            NodeKind::Variable { initial: true },
+            "value",
+            join(),
+            "arg1"
+        ));
+        // not the other way round, and not across kinds that do not convert
+        assert!(!check(float(), "out", NodeKind::Hold { ms: 10 }, "ms"));
+        assert!(!check(text(), "out", math(), "a"));
+        assert!(!check(text(), "out", gain(), "db"));
+        assert!(!check(app(), "out", join(), "arg1"));
+        // a flow can give the setting of a block
+        assert!(check(int(), "out", NodeKind::Hold { ms: 10 }, "ms"));
+        assert!(check(float(), "out", gain(), "db"));
+        assert!(check(
+            int(),
+            "out",
+            NodeKind::Timer { interval_ms: 1000 },
+            "interval_ms"
+        ));
+    }
+
+    #[test]
+    fn a_setting_takes_one_flow_only() {
+        let spec = GraphSpec {
+            nodes: vec![
+                node("a", NodeKind::Number { value: 1.0 }),
+                node("b", NodeKind::Number { value: 2.0 }),
+                node("g", gain()),
+            ],
+            edges: vec![edge("a", "out", "g", "db"), edge("b", "out", "g", "db")],
+        };
+        assert!(validate(&spec)
+            .unwrap_err()
+            .iter()
+            .any(|e| matches!(e, GraphError::FanIn(..))));
+    }
+
+    #[test]
+    fn values_are_checked() {
+        let bad = |kind: NodeKind| {
+            validate(&GraphSpec {
+                nodes: vec![node("x", kind)],
+                edges: vec![],
+            })
+            .unwrap_err()
+        };
+        assert!(bad(NodeKind::Join {
+            template: "$1".into(),
+            args: 0
+        })
+        .iter()
+        .any(|e| matches!(e, GraphError::BadValue(..))));
+        assert!(bad(NodeKind::Join {
+            template: "$1".into(),
+            args: 99
+        })
+        .iter()
+        .any(|e| matches!(e, GraphError::BadValue(..))));
+        assert!(bad(NodeKind::Number { value: f64::NAN })
+            .iter()
+            .any(|e| matches!(e, GraphError::BadValue(..))));
+        assert!(bad(NodeKind::Text {
+            value: "x".repeat(5000)
+        })
+        .iter()
+        .any(|e| matches!(e, GraphError::BadValue(..))));
     }
 
     #[test]

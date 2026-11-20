@@ -12,7 +12,8 @@ use super::bridge::{SinkProducer, SourceConsumer};
 use omu_dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
 use omu_soundboard::voices::BoardRuntime;
 use omu_types::{
-    port_number, LogicOp, NodeId, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES, MAX_DELAY_MS,
+    port_number, LogicOp, MathOp, NodeId, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES,
+    MAX_DELAY_MS, MAX_WAIT_MS,
 };
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -23,10 +24,83 @@ const GAIN_RAMP_MS: f32 = 10.0;
 /// How long a level detector stays on after the sound stops, so that speech is not chopped between words.
 const LEVEL_HOLD_MS: u32 = 300;
 
+/// What a block sends on a value flow (text, numbers), or its yes/no for a block that makes one.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Value {
+    /// Nothing (the block makes no value, or none has arrived).
+    #[default]
+    None,
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    Text(Arc<str>),
+}
+
+impl Value {
+    /// The value as a number, for a flow that carries one.
+    pub fn number(&self) -> Option<f64> {
+        match self {
+            Value::Int(i) => Some(*i as f64),
+            Value::Float(f) => Some(*f),
+            _ => None,
+        }
+    }
+
+    /// The value written out, as a text flow takes it.
+    pub fn written(&self) -> String {
+        match self {
+            Value::None => String::new(),
+            Value::Bool(b) => (if *b { "true" } else { "false" }).to_owned(),
+            Value::Int(i) => i.to_string(),
+            Value::Float(f) => f.to_string(),
+            Value::Text(t) => t.to_string(),
+        }
+    }
+}
+
+/// Makes the text of a `join` block: `$1`, `$2`... (or `${1}`) are replaced by the arguments written out; `$$` is a
+/// dollar sign. An argument that does not exist is left as it is typed.
+pub fn render_template(template: &str, args: &[Value]) -> String {
+    let chars: Vec<char> = template.chars().collect();
+    let mut out = String::with_capacity(template.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != '$' {
+            out.push(chars[i]);
+            i += 1;
+        } else if chars.get(i + 1) == Some(&'$') {
+            out.push('$');
+            i += 2;
+        } else {
+            let braced = chars.get(i + 1) == Some(&'{');
+            let start = i + 1 + braced as usize;
+            let mut end = start;
+            while end < chars.len() && chars[end].is_ascii_digit() {
+                end += 1;
+            }
+            let closed = !braced || chars.get(end) == Some(&'}');
+            let n: Option<usize> = chars[start..end].iter().collect::<String>().parse().ok();
+            match n {
+                Some(n) if closed && (1..=args.len()).contains(&n) => {
+                    out.push_str(&args[n - 1].written());
+                    i = end + braced as usize;
+                }
+                _ => {
+                    out.push('$');
+                    i += 1;
+                }
+            }
+        }
+    }
+    out
+}
+
 /// What a node shows to the status API: the loudest sample since the last reading, the node's yes/no when it has
-/// one, and how many actions it sent.
+/// one, the value it makes, and how many actions it sent.
 #[derive(Debug)]
 pub struct Meter {
+    /// The value the block makes now, written out (only set when it changes).
+    value: Mutex<Option<String>>,
     /// Highest absolute sample (non-negative `f32` bits order like integers).
     peak: AtomicU32,
     /// 0 = no condition, 1 = false, 2 = true.
@@ -37,6 +111,7 @@ pub struct Meter {
 impl Default for Meter {
     fn default() -> Self {
         Meter {
+            value: Mutex::new(None),
             peak: AtomicU32::new(0),
             state: AtomicU8::new(0),
             events: AtomicU64::new(0),
@@ -63,6 +138,19 @@ impl Meter {
             0 => None,
             s => Some(s == 2),
         }
+    }
+    /// Remembers the value the block makes (called when it changes; the graph thread never waits for the lock).
+    pub fn set_value(&self, value: &Value) {
+        if let Ok(mut v) = self.value.try_lock() {
+            *v = match value {
+                Value::None => None,
+                other => Some(other.written()),
+            };
+        }
+    }
+    /// The value the block makes now, written out.
+    pub fn value(&self) -> Option<String> {
+        self.value.lock().ok().and_then(|v| v.clone())
     }
     pub fn add_events(&self, n: u32) {
         if n > 0 {
@@ -95,6 +183,10 @@ pub enum Port {
     Play(u8),
     /// The action that stops a whole soundboard.
     StopAll,
+    /// The input that gives a block's setting (its gain, a wait) from a flow instead of by hand.
+    Param,
+    /// An argument of a `join` block (`arg1`, `arg2`...), counted from 0.
+    Arg(u8),
 }
 
 impl Port {
@@ -114,11 +206,13 @@ impl Port {
             "b" => Port::B,
             "else" => Port::Else,
             "stop" => Port::StopAll,
+            "db" | "threshold_db" | "ms" | "interval_ms" => Port::Param,
             _ => {
                 return numbered("when")
                     .map(Port::When)
                     .or_else(|| numbered("in").map(Port::Pick))
                     .or_else(|| numbered("play").map(Port::Play))
+                    .or_else(|| numbered("arg").map(Port::Arg))
             }
         })
     }
@@ -205,6 +299,17 @@ pub enum NodeOp {
         interval_frames: u64,
         elapsed: u64,
     },
+    /// A value that never changes (a text, a number).
+    Const(Value),
+    /// Text made from a template and its arguments; written again only when an argument changes.
+    Join {
+        template: String,
+        args: u32,
+        last: Vec<Value>,
+        text: Arc<str>,
+    },
+    /// Two numbers combined.
+    Math(MathOp),
     /// Tests only: audio that never runs dry.
     #[cfg(test)]
     Constant(f32),
@@ -251,11 +356,23 @@ impl NodeOp {
     }
 }
 
+/// The setting of a block that a flow can give (the block's `Port::Param` input).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParamKind {
+    GainDb,
+    ThresholdDb,
+    HoldMs,
+    AfterMs,
+    IntervalMs,
+}
+
 pub struct PlanNode {
     pub id: NodeId,
     pub op: NodeOp,
     pub inputs: Vec<Wire>,
     pub meter: Arc<Meter>,
+    /// Which setting the block's `Port::Param` input gives, when it has one.
+    pub param: Option<ParamKind>,
 }
 
 /// What a node produced this cycle.
@@ -266,6 +383,8 @@ struct Out {
     cond: bool,
     /// One count per action output.
     actions: [u32; ACTION_OUTPUTS],
+    /// What the block sends on its value output.
+    value: Value,
 }
 
 /// The sound entering `port` of the node at `me`, or silence when nothing is linked.
@@ -289,6 +408,14 @@ fn cond_of(outs: &[Out], inputs: &[Wire], port: Port) -> Option<bool> {
         .iter()
         .find(|w| w.port == port)
         .map(|w| outs[w.from].cond)
+}
+
+/// The value entering `port`: `None` when nothing is linked. A block that makes a yes/no sends it as a value too.
+fn value_of(outs: &[Out], inputs: &[Wire], port: Port) -> Value {
+    inputs
+        .iter()
+        .find(|w| w.port == port && w.from < outs.len())
+        .map_or(Value::None, |w| outs[w.from].value.clone())
 }
 
 /// Which of the conditions `Port::When(0..branches)` is the first true one (`branches` itself when none is).
@@ -418,6 +545,30 @@ impl Plan {
         }
     }
 
+    /// Puts into a block the setting that its parameter input gives (the number is limited to what the block accepts).
+    fn apply_param(op: &mut NodeOp, kind: ParamKind, v: f64, cycle_frames: usize) {
+        match (op, kind) {
+            (NodeOp::Gain(g), ParamKind::GainDb) => g.set_db(v.clamp(-120.0, 40.0) as f32),
+            (NodeOp::Level { threshold, .. }, ParamKind::ThresholdDb) => {
+                *threshold = Plan::level_threshold(v.clamp(-120.0, 0.0) as f32)
+            }
+            (NodeOp::Hold { cycles, .. }, ParamKind::HoldMs)
+            | (NodeOp::After { cycles, .. }, ParamKind::AfterMs) => {
+                *cycles = Plan::cycles(v.clamp(0.0, MAX_WAIT_MS as f64) as u32, cycle_frames)
+            }
+            (
+                NodeOp::Timer {
+                    interval_frames, ..
+                },
+                ParamKind::IntervalMs,
+            ) => {
+                let ms = v.clamp(10.0, 3_600_000.0) as u64;
+                *interval_frames = (ms * ENGINE_SAMPLE_RATE as u64 / 1000).max(cycle_frames as u64);
+            }
+            _ => {}
+        }
+    }
+
     /// Runs one cycle.
     pub fn process(&mut self) {
         let hold_cycles =
@@ -426,8 +577,15 @@ impl Plan {
         for i in 0..self.nodes.len() {
             let mut audios = std::mem::take(&mut self.outs[i].audio);
             let (mut cond, mut actions) = (false, [0u32; ACTION_OUTPUTS]);
+            let mut value = Value::None;
             let node = &mut self.nodes[i];
             let (outs, silence) = (&self.outs[..], &self.silence[..]);
+            // a flow linked to the setting wins over what was typed in the block
+            if let Some(kind) = node.param {
+                if let Some(v) = value_of(outs, &node.inputs, Port::Param).number() {
+                    Plan::apply_param(&mut node.op, kind, v, self.cycle_frames);
+                }
+            }
             let wire = |port: Port| node.inputs.iter().find(|w| w.port == port).copied();
             let input_audio = |port: Port| audio_of(outs, silence, &node.inputs, port, i);
             match &mut node.op {
@@ -605,6 +763,37 @@ impl Plan {
                     }
                     *prev = Some(on);
                 }
+                NodeOp::Const(v) => value = v.clone(),
+                NodeOp::Join {
+                    template,
+                    args,
+                    last,
+                    text,
+                } => {
+                    let now: Vec<Value> = (0..*args as u8)
+                        .map(|k| value_of(outs, &node.inputs, Port::Arg(k)))
+                        .collect();
+                    // written again only when an argument changed (writing makes text, which is not free)
+                    if now != *last {
+                        *text = render_template(template, &now).into();
+                        *last = now;
+                    }
+                    value = Value::Text(text.clone());
+                }
+                NodeOp::Math(op) => {
+                    let num =
+                        |port: Port| value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
+                    let (a, b) = (num(Port::A), num(Port::B));
+                    value = Value::Float(match op {
+                        MathOp::Add => a + b,
+                        MathOp::Subtract => a - b,
+                        MathOp::Multiply => a * b,
+                        MathOp::Divide if b == 0.0 => 0.0,
+                        MathOp::Divide => a / b,
+                        MathOp::Min => a.min(b),
+                        MathOp::Max => a.max(b),
+                    });
+                }
                 NodeOp::Trigger(events) => actions[0] = events.swap(0, Ordering::AcqRel),
                 NodeOp::Timer {
                     interval_frames,
@@ -623,12 +812,23 @@ impl Plan {
             }
             if node.op.has_condition() {
                 node.meter.set_condition(cond);
+                // a yes/no can also go where a value is expected (it is written out in a text)
+                value = Value::Bool(cond);
             }
             node.meter.add_events(actions.iter().sum());
             let out = &mut self.outs[i];
+            // the status shows the value when it changes
+            if matches!(
+                node.op,
+                NodeOp::Const(_) | NodeOp::Join { .. } | NodeOp::Math(_)
+            ) && out.value != value
+            {
+                node.meter.set_value(&value);
+            }
             out.audio = audios;
             out.cond = cond;
             out.actions = actions;
+            out.value = value;
         }
     }
 
@@ -645,6 +845,11 @@ impl Plan {
     /// The condition output of node `i` after the last cycle.
     pub fn condition(&self, i: usize) -> bool {
         self.outs[i].cond
+    }
+
+    /// The value node `i` sent in the last cycle.
+    pub fn value(&self, i: usize) -> &Value {
+        &self.outs[i].value
     }
 
     /// The actions node `i` sent in the last cycle, on its first action output.
@@ -676,6 +881,7 @@ mod tests {
     }
     fn node(id: &str, op: NodeOp, inputs: Vec<Wire>) -> PlanNode {
         PlanNode {
+            param: None,
             id: id.into(),
             op,
             inputs,
@@ -1349,5 +1555,192 @@ mod tests {
             panic!("not noise reduction blocks");
         };
         assert!(Arc::ptr_eq(a, b));
+    }
+
+    fn text(v: &str) -> NodeOp {
+        NodeOp::Const(Value::Text(v.into()))
+    }
+
+    #[test]
+    fn a_template_puts_the_arguments_where_the_dollar_signs_are() {
+        let args = [
+            Value::Text("Bob".into()),
+            Value::Int(3),
+            Value::Float(1.5),
+            Value::Bool(true),
+        ];
+        let said = |t: &str| render_template(t, &args);
+        assert_eq!(said("hi $1"), "hi Bob");
+        assert_eq!(said("${1} has ${2} items"), "Bob has 3 items");
+        assert_eq!(said("$1$2"), "Bob3");
+        assert_eq!(said("$3 / $4"), "1.5 / true");
+        // a dollar sign of its own, an argument that does not exist, a brace that is not closed: left as typed
+        assert_eq!(said("cost $$5"), "cost $5");
+        assert_eq!(said("$9 and $0 and ${2"), "$9 and $0 and ${2");
+        assert_eq!(said("no arguments"), "no arguments");
+        assert_eq!(said("price: $"), "price: $");
+    }
+
+    #[test]
+    fn a_join_writes_text_numbers_and_yes_no_together_and_follows_its_arguments() {
+        let join = NodeOp::Join {
+            template: "$1 has $2 items".into(),
+            args: 2,
+            last: vec![],
+            text: "".into(),
+        };
+        let mut plan = Plan::new(
+            vec![
+                node("name", text("Bob"), vec![]),
+                node("count", NodeOp::Const(Value::Int(3)), vec![]),
+                node(
+                    "j",
+                    join,
+                    vec![wire_to(0, Port::Arg(0)), wire_to(1, Port::Arg(1))],
+                ),
+            ],
+            480,
+        );
+        plan.process();
+        assert_eq!(plan.value(2), &Value::Text("Bob has 3 items".into()));
+        // a join with nothing linked writes its template with empty arguments
+        let empty = NodeOp::Join {
+            template: "[$1]".into(),
+            args: 1,
+            last: vec![],
+            text: "".into(),
+        };
+        let mut plan = Plan::new(vec![node("j", empty, vec![])], 480);
+        plan.process();
+        assert_eq!(plan.value(0), &Value::Text("[]".into()));
+    }
+
+    #[test]
+    fn math_combines_two_numbers_and_a_division_by_zero_gives_zero() {
+        let result = |op: MathOp, a: Value, b: Value| {
+            let mut plan = Plan::new(
+                vec![
+                    node("a", NodeOp::Const(a), vec![]),
+                    node("b", NodeOp::Const(b), vec![]),
+                    node(
+                        "m",
+                        NodeOp::Math(op),
+                        vec![wire_to(0, Port::A), wire_to(1, Port::B)],
+                    ),
+                ],
+                480,
+            );
+            plan.process();
+            plan.value(2).clone()
+        };
+        assert_eq!(
+            result(MathOp::Add, Value::Int(2), Value::Float(0.5)),
+            Value::Float(2.5)
+        );
+        assert_eq!(
+            result(MathOp::Subtract, Value::Int(2), Value::Int(5)),
+            Value::Float(-3.0)
+        );
+        assert_eq!(
+            result(MathOp::Multiply, Value::Float(1.5), Value::Int(4)),
+            Value::Float(6.0)
+        );
+        assert_eq!(
+            result(MathOp::Divide, Value::Int(9), Value::Int(2)),
+            Value::Float(4.5)
+        );
+        assert_eq!(
+            result(MathOp::Divide, Value::Int(9), Value::Int(0)),
+            Value::Float(0.0)
+        );
+        assert_eq!(
+            result(MathOp::Min, Value::Int(9), Value::Int(2)),
+            Value::Float(2.0)
+        );
+        assert_eq!(
+            result(MathOp::Max, Value::Int(9), Value::Int(2)),
+            Value::Float(9.0)
+        );
+    }
+
+    #[test]
+    fn a_flow_on_a_setting_wins_over_what_was_typed_in_the_block() {
+        let build = |linked: bool| {
+            let mut gain = node(
+                "g",
+                NodeOp::Gain(Plan::gain(0.0)),
+                if linked {
+                    vec![wire(0), wire_to(1, Port::Param)]
+                } else {
+                    vec![wire(0)]
+                },
+            );
+            gain.param = Some(ParamKind::GainDb);
+            Plan::new(
+                vec![
+                    node("s", NodeOp::Constant(1.0), vec![]),
+                    node("n", NodeOp::Const(Value::Float(-6.0206)), vec![]),
+                    gain,
+                ],
+                480,
+            )
+        };
+        let mut linked = build(true);
+        run(&mut linked, 30);
+        assert!(
+            (last_sample(&linked, 2, 0) - 0.5).abs() < 0.01,
+            "the linked number sets the gain"
+        );
+        let mut typed = build(false);
+        run(&mut typed, 30);
+        assert!(
+            (last_sample(&typed, 2, 0) - 1.0).abs() < 0.01,
+            "without a flow the typed value is used"
+        );
+    }
+
+    #[test]
+    fn a_whole_number_sets_a_wait_and_a_timer_follows_its_flow() {
+        // a hold of 0 ms, lengthened to 100 ms by a flow: it stays true for 10 cycles after the input stops
+        let mut hold = node(
+            "h",
+            NodeOp::Hold { cycles: 0, left: 0 },
+            vec![wire(0), wire_to(1, Port::Param)],
+        );
+        hold.param = Some(ParamKind::HoldMs);
+        let mut plan = Plan::new(
+            vec![
+                node("v", variable(true), vec![]),
+                node("ms", NodeOp::Const(Value::Int(100)), vec![]),
+                hold,
+            ],
+            480,
+        );
+        plan.process();
+        assert!(plan.condition(2));
+        set_var(&mut plan, 0, false);
+        run(&mut plan, 5);
+        assert!(plan.condition(2), "still true 50 ms after");
+        run(&mut plan, 10);
+        assert!(!plan.condition(2), "false after 100 ms");
+    }
+
+    #[test]
+    fn a_yes_no_can_be_written_into_a_text() {
+        let join = NodeOp::Join {
+            template: "mic: $1".into(),
+            args: 1,
+            last: vec![],
+            text: "".into(),
+        };
+        let mut plan = Plan::new(
+            vec![
+                node("v", variable(true), vec![]),
+                node("j", join, vec![wire_to(0, Port::Arg(0))]),
+            ],
+            480,
+        );
+        plan.process();
+        assert_eq!(plan.value(1), &Value::Text("mic: true".into()));
     }
 }

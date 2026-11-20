@@ -20,16 +20,36 @@ impl From<&str> for NodeId {
     }
 }
 
-/// The three kinds of flows of the graph. Only the same type connects to the same type.
+/// The kinds of flows of the graph. An input takes the flows of its own type, and a few others that convert without
+/// loss of meaning ([`PortType::accepts`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PortType {
     /// Interleaved `f32` audio in the engine format.
     Audio,
-    /// A boolean/scalar level (not implemented yet).
+    /// A yes/no that follows something, evaluated every cycle.
     Condition,
-    /// A discrete event (not implemented yet).
+    /// A discrete event: something that happens once.
     Action,
+    /// A piece of text.
+    Text,
+    /// A whole number.
+    Int,
+    /// A number with a decimal part.
+    Float,
+}
+
+impl PortType {
+    /// Whether an input of this type takes a flow of type `from`: the same type; a whole number where a decimal one is
+    /// wanted; and text takes numbers and yes/no (they are written out).
+    pub fn accepts(self, from: PortType) -> bool {
+        use PortType::*;
+        self == from
+            || matches!(
+                (self, from),
+                (Float, Int) | (Text, Int) | (Text, Float) | (Text, Condition)
+            )
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -55,6 +75,10 @@ pub struct PortSpec {
 pub const MAX_STREAM_NAME: usize = 16;
 /// The most conditions a `branch` or `select` block can have.
 pub const MAX_BRANCHES: u32 = 16;
+/// The most arguments a `join` block can have.
+pub const MAX_JOIN_ARGS: u32 = 16;
+/// The longest text a block can hold.
+pub const MAX_TEXT: usize = 4096;
 /// The longest delay of a `delay` block, in milliseconds.
 pub const MAX_DELAY_MS: u32 = 5_000;
 /// The longest time a `hold` or `after` block can wait, in milliseconds.
@@ -66,6 +90,10 @@ fn no_limit() -> f32 {
 
 fn one() -> u32 {
     1
+}
+
+fn two() -> u32 {
+    2
 }
 
 /// One end of an edge: `{"node": "app", "port": "out"}`.
@@ -127,6 +155,21 @@ pub enum Category {
     Condition,
     /// Produces actions when something happens (a key is pressed, a timer fires).
     Trigger,
+    /// Makes or combines values: text, whole numbers, decimal numbers.
+    Value,
+}
+
+/// What a [`NodeKind::Math`] block does with its two numbers.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MathOp {
+    Add,
+    Subtract,
+    Multiply,
+    /// A division by zero gives 0.
+    Divide,
+    Min,
+    Max,
 }
 
 /// How a [`NodeKind::Logic`] block combines its conditions.
@@ -248,10 +291,27 @@ pub enum NodeKind {
     /// Trigger: watches a condition and sends an action when it becomes true (`rise`) and another when it becomes
     /// false (`fall`).
     Change,
+    // ---- values
+    /// Value: a piece of text.
+    Text { value: String },
+    /// Value: a whole number.
+    Integer { value: i64 },
+    /// Value: a number with a decimal part.
+    Number { value: f64 },
+    /// Value: text made from a template, where `$1`, `$2`... (or `${1}`) stand for the arguments `arg1`, `arg2`...
+    /// An argument can be text, a number or a yes/no.
+    Join {
+        template: String,
+        #[serde(default = "two")]
+        args: u32,
+    },
+    /// Value: two numbers combined (`a` and `b`).
+    Math { op: MathOp },
 }
 
 use PortDirection::{Input, Output};
-use PortType::{Action, Audio, Condition};
+use PortType::Text as TextFlow;
+use PortType::{Action, Audio, Condition, Float, Int};
 
 fn port(name: impl Into<String>, direction: PortDirection, ty: PortType, multi: bool) -> PortSpec {
     PortSpec {
@@ -311,10 +371,8 @@ impl NodeKind {
             NodeKind::DeviceRender { .. }
             | NodeKind::VirtualMic { .. }
             | NodeKind::NetworkOut { .. } => vec![in_audio()],
-            NodeKind::Gain { .. }
-            | NodeKind::Delay { .. }
-            | NodeKind::NoiseReduction
-            | NodeKind::DeepFilter { .. } => {
+            NodeKind::Gain { .. } => vec![in_audio(), port("db", Input, Float, false), out_audio()],
+            NodeKind::Delay { .. } | NodeKind::NoiseReduction | NodeKind::DeepFilter { .. } => {
                 vec![in_audio(), out_audio()]
             }
             NodeKind::Mixer => vec![in_audio(), out_audio()],
@@ -339,23 +397,54 @@ impl NodeKind {
                 port("toggle", Input, Action, true),
                 port("value", Output, Condition, false),
             ],
-            NodeKind::Level { .. } => vec![in_audio(), port("active", Output, Condition, false)],
+            NodeKind::Level { .. } => vec![
+                in_audio(),
+                port("threshold_db", Input, Float, false),
+                port("active", Output, Condition, false),
+            ],
             NodeKind::Logic { .. } => vec![
                 port("a", Input, Condition, false),
                 port("b", Input, Condition, false),
                 out_cond(),
             ],
-            NodeKind::Not | NodeKind::Hold { .. } | NodeKind::After { .. } => {
-                vec![in_cond(false), out_cond()]
+            NodeKind::Not => vec![in_cond(false), out_cond()],
+            NodeKind::Hold { .. } | NodeKind::After { .. } => {
+                vec![in_cond(false), port("ms", Input, Int, false), out_cond()]
             }
             NodeKind::All | NodeKind::Any => vec![in_cond(true), out_cond()],
             NodeKind::Hotkey { .. } => vec![port("pressed", Output, Action, false)],
-            NodeKind::Timer { .. } => vec![port("tick", Output, Action, false)],
+            NodeKind::Timer { .. } => vec![
+                port("interval_ms", Input, Int, false),
+                port("tick", Output, Action, false),
+            ],
             NodeKind::Change => vec![
                 in_cond(false),
                 port("rise", Output, Action, false),
                 port("fall", Output, Action, false),
             ],
+            NodeKind::Text { .. } => vec![port("out", Output, TextFlow, false)],
+            NodeKind::Integer { .. } => vec![port("out", Output, Int, false)],
+            NodeKind::Number { .. } => vec![port("out", Output, Float, false)],
+            NodeKind::Join { args, .. } => (1..=(*args).clamp(1, MAX_JOIN_ARGS))
+                .map(|n| port(format!("arg{n}"), Input, TextFlow, false))
+                .chain([port("out", Output, TextFlow, false)])
+                .collect(),
+            NodeKind::Math { .. } => vec![
+                port("a", Input, Float, false),
+                port("b", Input, Float, false),
+                port("out", Output, Float, false),
+            ],
+        }
+    }
+
+    /// The input that gives a setting of this block from a flow (its name is the setting's), for a block that has one.
+    pub fn param_port(&self) -> Option<&'static str> {
+        match self {
+            NodeKind::Gain { .. } => Some("db"),
+            NodeKind::Level { .. } => Some("threshold_db"),
+            NodeKind::Hold { .. } | NodeKind::After { .. } => Some("ms"),
+            NodeKind::Timer { .. } => Some("interval_ms"),
+            _ => None,
         }
     }
 
@@ -402,6 +491,11 @@ impl NodeKind {
             NodeKind::Hotkey { .. } | NodeKind::Timer { .. } | NodeKind::Change => {
                 Category::Trigger
             }
+            NodeKind::Text { .. }
+            | NodeKind::Integer { .. }
+            | NodeKind::Number { .. }
+            | NodeKind::Join { .. }
+            | NodeKind::Math { .. } => Category::Value,
         }
     }
 
@@ -646,6 +740,14 @@ mod tests {
             NodeKind::Hold { ms: 500 },
             NodeKind::After { ms: 200 },
             NodeKind::Change,
+            NodeKind::Text { value: "hi".into() },
+            NodeKind::Integer { value: 3 },
+            NodeKind::Number { value: 1.5 },
+            NodeKind::Join {
+                template: "$1-$2".into(),
+                args: 2,
+            },
+            NodeKind::Math { op: MathOp::Add },
             NodeKind::Soundboard {
                 board: "b".into(),
                 triggers: vec!["p".into()],
@@ -675,7 +777,9 @@ mod tests {
             let inputs: Vec<PortType> = k
                 .ports()
                 .iter()
-                .filter(|p| p.direction == PortDirection::Input)
+                .filter(|p| {
+                    p.direction == PortDirection::Input && Some(p.name.as_str()) != k.param_port()
+                })
                 .map(|p| p.ty)
                 .collect();
             match k.category() {
@@ -703,6 +807,12 @@ mod tests {
                 Category::Processing => {
                     assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Audio))
                 }
+                Category::Value => assert!(
+                    !outputs.is_empty()
+                        && outputs
+                            .iter()
+                            .all(|t| matches!(t, PortType::Text | PortType::Int | PortType::Float))
+                ),
             }
         }
     }
