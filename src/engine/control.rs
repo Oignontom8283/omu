@@ -5,7 +5,7 @@
 //! does not interrupt the audio of the other nodes.
 
 use super::bridge::{sink_bridge, source_bridge, BridgeStats, SinkProducer, SourceConsumer};
-use super::plan::{Meter, NodeOp, ParamKind, Plan, PlanNode, Port, Value, Wire};
+use super::plan::{Meter, NetFlows, NodeOp, ParamKind, Plan, PlanNode, Port, Value, Wire};
 use super::runtime::{GraphThread, RuntimeStats, ThreadInit};
 use omu_graph::ValidGraph;
 use omu_hal::{Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider};
@@ -79,6 +79,48 @@ struct State {
     /// Panics of the graph thread already answered with a new plan.
     panics_handled: u64,
     meters: HashMap<NodeId, Arc<Meter>>,
+    /// The flows that give the settings of the network blocks of the running plan.
+    net_flows: HashMap<NodeId, Arc<NetFlows>>,
+}
+
+/// How long the flows on a network block's settings stay the same before the stream is opened again with them.
+const NET_SETTLE: Duration = Duration::from_millis(500);
+
+/// The text a flow gives to a setting, when it is usable (not empty, not longer than `longest`).
+fn flow_text(v: &Value, longest: usize) -> Option<String> {
+    let text = v.written();
+    (!matches!(v, Value::None) && !text.is_empty() && text.chars().count() <= longest)
+        .then_some(text)
+}
+
+/// The port a flow gives, when it is a whole number a port can be.
+fn flow_port(v: &Value) -> Option<u16> {
+    let n = v.number()?.round();
+    (1.0..=65535.0).contains(&n).then_some(n as u16)
+}
+
+/// The kind of a block with the settings that flows give it (a flow that gives nothing usable changes nothing).
+fn with_flows(kind: &NodeKind, flows: Option<&[Value]>) -> NodeKind {
+    let Some(v) = flows.filter(|v| v.len() == 4) else {
+        return kind.clone();
+    };
+    match kind {
+        NodeKind::NetworkIn { port, stream, from } => NodeKind::NetworkIn {
+            port: flow_port(&v[1]).unwrap_or(*port),
+            stream: flow_text(&v[2], omu_types::MAX_STREAM_NAME)
+                .filter(|s| s.is_ascii())
+                .unwrap_or_else(|| stream.clone()),
+            from: flow_text(&v[3], 255).unwrap_or_else(|| from.clone()),
+        },
+        NodeKind::NetworkOut { host, port, stream } => NodeKind::NetworkOut {
+            host: flow_text(&v[0], 255).unwrap_or_else(|| host.clone()),
+            port: flow_port(&v[1]).unwrap_or(*port),
+            stream: flow_text(&v[2], omu_types::MAX_STREAM_NAME)
+                .filter(|s| s.is_ascii())
+                .unwrap_or_else(|| stream.clone()),
+        },
+        other => other.clone(),
+    }
 }
 
 struct Inner {
@@ -281,12 +323,35 @@ impl Inner {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The kind a block of the graph runs with now: what is typed in it, and the settings that flows give it once they
+    /// have settled (until then, what the running stream has).
+    fn effective_kind(st: &State, node: &omu_types::NodeSpec) -> NodeKind {
+        match st.net_flows.get(&node.id) {
+            None => node.kind.clone(),
+            Some(flows) => match flows.settled(NET_SETTLE) {
+                Some(values) => with_flows(&node.kind, Some(&values)),
+                None => st
+                    .resources
+                    .get(&node.id)
+                    .map_or_else(|| node.kind.clone(), |r| r.kind.clone()),
+            },
+        }
+    }
+
     fn needs_attention(&self) -> bool {
         let st = self.lock();
         let Some(desired) = &st.desired else {
             return false;
         };
         let now = Instant::now();
+        // a flow changed a network block's setting: its stream has to be opened again
+        if desired.spec.nodes.iter().any(|n| {
+            st.resources
+                .get(&n.id)
+                .is_some_and(|r| Self::effective_kind(&st, n) != r.kind)
+        }) {
+            return true;
+        }
         st.resources.values().any(|r| r.health.has_failed())
             || st.failures.values().any(|f| f.retry_at <= now)
             || st.graph_thread.as_ref().is_some_and(|t| t.is_finished())
@@ -306,15 +371,15 @@ impl Inner {
         let now = Instant::now();
 
         // 1. Drop streams that are no longer wanted, changed, or broke.
-        let wanted: HashMap<&NodeId, &NodeKind> = desired
+        let wanted: HashMap<&NodeId, NodeKind> = desired
             .spec
             .nodes
             .iter()
-            .map(|n| (&n.id, &n.kind))
+            .map(|n| (&n.id, Self::effective_kind(&st, n)))
             .collect();
         let mut broken = vec![];
         st.resources.retain(|id, r| {
-            let keep = wanted.get(id).is_some_and(|k| **k == r.kind);
+            let keep = wanted.get(id).is_some_and(|k| *k == r.kind);
             if keep && r.health.has_failed() {
                 broken.push((
                     id.clone(),
@@ -348,12 +413,16 @@ impl Inner {
             if st.failures.get(&node.id).is_some_and(|f| f.retry_at > now) {
                 continue;
             }
-            match self.open_node(&node.kind) {
+            let kind = wanted
+                .get(&node.id)
+                .cloned()
+                .unwrap_or_else(|| node.kind.clone());
+            match self.open_node(&kind) {
                 Ok(resource) => {
                     if st.failures.remove(&node.id).is_some() {
                         tracing::info!(node = %node.id.0, "stream recovered");
                     } else {
-                        tracing::info!(node = %node.id.0, name = node.display.as_deref().unwrap_or(""), kind = ?node.kind, "stream started");
+                        tracing::info!(node = %node.id.0, name = node.display.as_deref().unwrap_or(""), kind = ?kind, "stream started");
                     }
                     st.resources.insert(node.id.clone(), resource);
                 }
@@ -393,7 +462,10 @@ impl Inner {
                 .collect();
             sounds.sync(&boards);
         }
-        let (plan, meters) = self.build_plan(&desired, &st.resources);
+        let mut flows = std::mem::take(&mut st.net_flows);
+        let (plan, meters) = self.build_plan(&desired, &st.resources, &mut flows);
+        flows.retain(|id, _| wanted.contains_key(id));
+        st.net_flows = flows;
         st.meters = meters;
         if st.graph_thread.as_ref().is_some_and(|t| t.is_finished()) {
             tracing::error!("the graph thread ended unexpectedly; starting a new one");
@@ -439,10 +511,12 @@ impl Inner {
         &self,
         graph: &ValidGraph,
         resources: &HashMap<NodeId, Resource>,
+        net_flows: &mut HashMap<NodeId, Arc<NetFlows>>,
     ) -> (Plan, HashMap<NodeId, Arc<Meter>>) {
         // where each block of the graph is in the plan (a block can be preceded by a mixer the engine adds)
         let mut position = vec![0usize; graph.spec.nodes.len()];
         let mut meters = HashMap::new();
+        let mut with_net: Vec<NodeId> = vec![];
         let mut nodes: Vec<PlanNode> = Vec::with_capacity(graph.order.len());
         for &idx in &graph.order {
             {
@@ -562,15 +636,31 @@ impl Inner {
                     NodeKind::Timer { .. } => Some(ParamKind::IntervalMs),
                     _ => None,
                 };
+                // the flows on the settings of a network block are handed to the control side, which opens its stream with them
+                let net = inputs
+                    .iter()
+                    .any(|w| matches!(w.port, Port::Net(_)))
+                    .then(|| {
+                        net_flows
+                            .entry(spec.id.clone())
+                            .or_insert_with(NetFlows::new)
+                            .clone()
+                    });
+                if net.is_some() {
+                    with_net.push(spec.id.clone());
+                }
                 nodes.push(PlanNode {
                     id: spec.id.clone(),
                     op,
                     inputs,
                     meter,
                     param,
+                    net,
                 });
             }
         }
+        // a block whose links to its settings are gone goes back to what is typed in it
+        net_flows.retain(|id, _| with_net.contains(id));
         (Plan::new(nodes, self.cfg.cycle_frames), meters)
     }
 
@@ -733,6 +823,7 @@ fn sum_sounds(
                 .collect(),
             meter: Arc::default(),
             param: None,
+            net: None,
         });
         out.push(Wire {
             from: nodes.len() - 1,
@@ -741,4 +832,82 @@ fn sum_sounds(
         });
     }
     out
+}
+
+#[cfg(test)]
+mod flow_tests {
+    use super::*;
+
+    fn incoming() -> NodeKind {
+        NodeKind::NetworkIn {
+            port: 6980,
+            stream: "typed".into(),
+            from: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_network_block_without_flows_keeps_what_is_typed_in_it() {
+        assert_eq!(with_flows(&incoming(), None), incoming());
+        let nothing = vec![Value::None; 4];
+        assert_eq!(with_flows(&incoming(), Some(&nothing)), incoming());
+    }
+
+    #[test]
+    fn flows_give_the_port_the_stream_and_the_computer() {
+        let values = [
+            Value::None,
+            Value::Float(7000.0),
+            Value::Text("Voice".into()),
+            Value::Text("192.168.1.20".into()),
+        ];
+        assert_eq!(
+            with_flows(&incoming(), Some(&values)),
+            NodeKind::NetworkIn {
+                port: 7000,
+                stream: "Voice".into(),
+                from: "192.168.1.20".into()
+            }
+        );
+        let out = NodeKind::NetworkOut {
+            host: "a".into(),
+            port: 1,
+            stream: "s".into(),
+        };
+        let values = [
+            Value::Text("studio".into()),
+            Value::Int(6981),
+            Value::None,
+            Value::None,
+        ];
+        assert_eq!(
+            with_flows(&out, Some(&values)),
+            NodeKind::NetworkOut {
+                host: "studio".into(),
+                port: 6981,
+                stream: "s".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_flow_that_gives_nothing_usable_changes_nothing() {
+        // a port that is not one, a stream name that is too long or not plain text
+        let values = [
+            Value::None,
+            Value::Int(70000),
+            Value::Text("a-stream-name-that-is-too-long".into()),
+            Value::Text("".into()),
+        ];
+        assert_eq!(with_flows(&incoming(), Some(&values)), incoming());
+        let values = [
+            Value::None,
+            Value::Int(0),
+            Value::Text("été".into()),
+            Value::None,
+        ];
+        assert_eq!(with_flows(&incoming(), Some(&values)), incoming());
+        // other blocks are not touched
+        assert_eq!(with_flows(&NodeKind::Mixer, Some(&values)), NodeKind::Mixer);
+    }
 }

@@ -17,6 +17,7 @@ use omu_types::{
 };
 use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 const CH: usize = ENGINE_CHANNELS as usize;
 /// Time a gain change takes to complete a full 0 -> 1 move (also the fade of a gate).
@@ -221,6 +222,8 @@ pub enum Port {
     Arg(u8),
     /// The number a `choose` block sends while its condition is true.
     Then,
+    /// The flows that give the settings of a network block: `host` (0), `port` (1), `stream` (2), `from` (3).
+    Net(u8),
     /// The actions that make a counter go up, go down, go back to its first value.
     Up,
     Down,
@@ -243,6 +246,10 @@ impl Port {
             "a" => Port::A,
             "b" => Port::B,
             "else" => Port::Else,
+            "host" => Port::Net(0),
+            "port" => Port::Net(1),
+            "stream" => Port::Net(2),
+            "from" => Port::Net(3),
             "when" => Port::When(0),
             "then" => Port::Then,
             "up" => Port::Up,
@@ -413,6 +420,33 @@ impl NodeOp {
     }
 }
 
+/// The values that flows give to the settings of a network block, and how long they have been what they are: the
+/// control side opens the stream again with them once they have settled.
+#[derive(Debug)]
+pub struct NetFlows(Mutex<(Vec<Value>, Instant)>);
+
+impl NetFlows {
+    pub fn new() -> Arc<NetFlows> {
+        Arc::new(NetFlows(Mutex::new((vec![Value::None; 4], Instant::now()))))
+    }
+
+    /// Called every cycle by the graph thread, which never waits for the lock.
+    pub fn publish(&self, now: [Value; 4]) {
+        if let Ok(mut g) = self.0.try_lock() {
+            if g.0 != now {
+                g.0 = now.to_vec();
+                g.1 = Instant::now();
+            }
+        }
+    }
+
+    /// The values, when they have not changed for `stable`.
+    pub fn settled(&self, stable: Duration) -> Option<Vec<Value>> {
+        let g = self.0.lock().ok()?;
+        (g.1.elapsed() >= stable).then(|| g.0.clone())
+    }
+}
+
 /// The setting of a block that a flow can give (the block's `Port::Param` input).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParamKind {
@@ -430,6 +464,8 @@ pub struct PlanNode {
     pub meter: Arc<Meter>,
     /// Which setting the block's `Port::Param` input gives, when it has one.
     pub param: Option<ParamKind>,
+    /// The flows on the settings of a network block, shared with the control side.
+    pub net: Option<Arc<NetFlows>>,
 }
 
 /// What a node produced this cycle.
@@ -638,6 +674,9 @@ impl Plan {
             let mut value = Value::None;
             let node = &mut self.nodes[i];
             let (outs, silence) = (&self.outs[..], &self.silence[..]);
+            if let Some(net) = &node.net {
+                net.publish([0, 1, 2, 3].map(|k| value_of(outs, &node.inputs, Port::Net(k))));
+            }
             // a flow linked to the setting wins over what was typed in the block
             if let Some(kind) = node.param {
                 if let Some(v) = value_of(outs, &node.inputs, Port::Param).number() {
@@ -997,6 +1036,7 @@ mod tests {
     fn node(id: &str, op: NodeOp, inputs: Vec<Wire>) -> PlanNode {
         PlanNode {
             param: None,
+            net: None,
             id: id.into(),
             op,
             inputs,
@@ -2041,5 +2081,29 @@ mod tests {
         let all = meter.levels();
         assert_eq!(all.len(), LEVEL_HISTORY);
         assert!(all.iter().all(|db| *db == 0.0));
+    }
+
+    #[test]
+    fn the_flows_on_a_network_blocks_settings_are_published_and_settle() {
+        let flows = NetFlows::new();
+        let mut plan = Plan::new(
+            vec![
+                node("p", NodeOp::Const(Value::Int(7000)), vec![]),
+                PlanNode {
+                    net: Some(flows.clone()),
+                    ..node("n", NodeOp::SilentSource, vec![wire_to(0, Port::Net(1))])
+                },
+            ],
+            480,
+        );
+        plan.process();
+        // just changed: not settled yet
+        assert_eq!(flows.settled(Duration::from_secs(60)), None);
+        // settled once it has stayed the same for the asked time
+        let values = flows.settled(Duration::ZERO).unwrap();
+        assert_eq!(values[1], Value::Int(7000));
+        assert_eq!(values[0], Value::None);
+        assert_eq!(Port::from_name("port"), Some(Port::Net(1)));
+        assert_eq!(Port::from_name("host"), Some(Port::Net(0)));
     }
 }

@@ -388,8 +388,13 @@ impl NodeKind {
         match self {
             NodeKind::AppCapture { .. }
             | NodeKind::DeviceCapture { .. }
-            | NodeKind::NetworkIn { .. }
             | NodeKind::VirtualSpeaker { .. } => vec![out_audio()],
+            NodeKind::NetworkIn { .. } => vec![
+                port("port", Input, Int, false),
+                port("stream", Input, TextFlow, false),
+                port("from", Input, TextFlow, false),
+                out_audio(),
+            ],
             NodeKind::Soundboard { triggers, .. } => {
                 let count = (triggers.len() as u32).min(MAX_BRANCHES);
                 let plays = numbered("play", count, Input, Action);
@@ -403,9 +408,13 @@ impl NodeKind {
                         .collect()
                 }
             }
-            NodeKind::DeviceRender { .. }
-            | NodeKind::VirtualMic { .. }
-            | NodeKind::NetworkOut { .. } => vec![in_audio()],
+            NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],
+            NodeKind::NetworkOut { .. } => vec![
+                in_audio(),
+                port("host", Input, TextFlow, false),
+                port("port", Input, Int, false),
+                port("stream", Input, TextFlow, false),
+            ],
             NodeKind::Gain { .. } => vec![in_audio(), port("db", Input, Float, false), out_audio()],
             NodeKind::Delay { .. } | NodeKind::NoiseReduction | NodeKind::DeepFilter { .. } => {
                 vec![in_audio(), out_audio()]
@@ -495,14 +504,16 @@ impl NodeKind {
         }
     }
 
-    /// The input that gives a setting of this block from a flow (its name is the setting's), for a block that has one.
-    pub fn param_port(&self) -> Option<&'static str> {
+    /// The inputs that give a setting of this block from a flow (each is named after its setting).
+    pub fn param_ports(&self) -> &'static [&'static str] {
         match self {
-            NodeKind::Gain { .. } => Some("db"),
-            NodeKind::Level { .. } => Some("threshold_db"),
-            NodeKind::Hold { .. } | NodeKind::After { .. } => Some("ms"),
-            NodeKind::Timer { .. } => Some("interval_ms"),
-            _ => None,
+            NodeKind::Gain { .. } => &["db"],
+            NodeKind::Level { .. } => &["threshold_db"],
+            NodeKind::Hold { .. } | NodeKind::After { .. } => &["ms"],
+            NodeKind::Timer { .. } => &["interval_ms"],
+            NodeKind::NetworkIn { .. } => &["port", "stream", "from"],
+            NodeKind::NetworkOut { .. } => &["host", "port", "stream"],
+            _ => &[],
         }
     }
 
@@ -850,7 +861,8 @@ mod tests {
                 .ports()
                 .iter()
                 .filter(|p| {
-                    p.direction == PortDirection::Input && Some(p.name.as_str()) != k.param_port()
+                    p.direction == PortDirection::Input
+                        && !k.param_ports().contains(&p.name.as_str())
                 })
                 .map(|p| p.ty)
                 .collect();
