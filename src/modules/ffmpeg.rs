@@ -3,7 +3,7 @@
 //!
 //! FFmpeg is only ever run as a separate program with fixed arguments, never linked in.
 
-use super::download::{agent, fetch, host_of, Counters};
+use super::download::{fetch, host_of, Counters};
 use omu_audiofile::wav::WavWriter;
 use omu_types::SoundInfo;
 use std::io::Read;
@@ -245,10 +245,14 @@ pub const DOWNLOAD_MB: u32 = 115;
 
 /// Downloads FFmpeg into `<modules_dir>/ffmpeg/`: the archive is checked against its published SHA-256 before anything
 /// is taken out of it, and only the program and its licence are kept.
-pub fn download(modules_dir: &Path, urls: &Urls, counters: &Counters) -> Result<(), String> {
+pub fn download(
+    modules_dir: &Path,
+    urls: &Urls,
+    counters: &Counters,
+    agent: &ureq::Agent,
+) -> Result<(), String> {
     let dir = modules_dir.join("ffmpeg");
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
-    let agent = agent();
     counters.done.store(0, Ordering::Relaxed);
     counters.total.store(0, Ordering::Relaxed);
 
@@ -268,7 +272,7 @@ pub fn download(modules_dir: &Path, urls: &Urls, counters: &Counters) -> Result<
 
     let archive = dir.join("download.zip.part");
     let result = (|| -> Result<(), String> {
-        let hex = fetch(&agent, &urls.archive, &archive, counters)?;
+        let hex = fetch(agent, &urls.archive, &archive, counters)?;
         if hex != wanted {
             return Err(
                 "the downloaded file does not match its published checksum: it was not installed"

@@ -1,0 +1,30 @@
+[package]
+name = "omu-tls"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "which certificates the program trusts, and the HTTP client that uses them"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[dependencies]
+omu-types = { path = "../types" }
+thiserror = "2.0"
+# the HTTP client, with the same pure-Rust TLS (rustls) on every system
+ureq = { version = "3.5", default-features = false, features = ["json", "rustls", "platform-verifier"] }
+# the certificates the operating system trusts, read so that the user's own can be added to them
+rustls-native-certs = "0.8"
+rustls-pki-types = { version = "1", features = ["std"] }
+# reading a certificate: who it is about, until when it is valid
+x509-parser = "0.18"
+
+[dev-dependencies]
+rcgen = "0.14"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

@@ -15,6 +15,7 @@ members = [
     "src/desktop",
     "src/deepfilter",
     "src/net",
+    "src/tls",
     "src/modules",
     "src/virtual_devices",
     "src/soundboard",

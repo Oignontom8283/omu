@@ -109,6 +109,10 @@ impl Daemon {
         let saved = store.load_state();
         let layout = store.load_layout();
         let sounds = Arc::new(omu_soundboard::SoundEngine::new(store.dir()));
+        sounds.modules().set_trust(omu_tls::Trust::from_settings(
+            &sounds.settings(),
+            store.dir(),
+        ));
         let mut engine_config = engine_config;
         engine_config.sounds = Some(sounds.clone());
         let engine = Engine::new(backend.clone(), virtual_devices.clone(), engine_config);
@@ -149,6 +153,11 @@ impl Daemon {
         };
         self.pad_hotkeys
             .sync(self.backend.as_ref(), &self.sounds, &wanted);
+    }
+
+    /// Whose certificates the program believes, from the settings.
+    fn trust(&self) -> omu_tls::Trust {
+        omu_tls::Trust::from_settings(&self.sounds.settings(), self.store.dir())
     }
 
     /// The soundboards' engine (the panel's upload route imports through it).
@@ -428,6 +437,7 @@ impl Daemon {
                 result(status)
             }
             m::SettingsGet::NAME => result(self.sounds.settings()),
+            m::CertificatesList::NAME => result(omu_tls::report(&self.trust())),
             m::SettingsSet::NAME => {
                 let settings = params::<m::SettingsSet>(p)?;
                 if self
@@ -440,6 +450,7 @@ impl Daemon {
                 self.sounds
                     .set_settings(settings.clone())
                     .map_err(RpcError::internal)?;
+                self.sounds.modules().set_trust(self.trust());
                 for l in lock(&self.settings_listeners).iter() {
                     l(&settings);
                 }
@@ -1540,6 +1551,60 @@ mod tests {
         assert_eq!(settings.sound_cache_mb, 256);
         ok(call(&d, "settings.set", json!({"sound_cache_mb": 64})));
         assert_eq!(status(&d).cache_limit_bytes, 64 * 1024 * 1024);
+        drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_certificates_the_program_trusts_follow_the_settings_and_the_folder() {
+        let dir = temp_dir("trust");
+        let sim = SimBackend::new();
+        let d = daemon_in(&dir, &sim);
+        let report = |d: &Daemon| -> omu_types::TrustReport {
+            let r = call(d, "certificates.list", Value::Null);
+            assert!(r.error.is_none(), "{:?}", r.error);
+            serde_json::from_value(r.result.unwrap()).unwrap()
+        };
+        // by default: the system's certificates, and the folder is in the data folder
+        let first = report(&d);
+        assert_eq!(first.mode, omu_types::TrustMode::System);
+        assert!(
+            first.folder.ends_with("certificates")
+                && first.certificates.is_empty()
+                && first.problems.is_empty()
+        );
+
+        // trusting only one's own certificates with none in the folder is reported as the problem it is
+        let mut settings: omu_types::Settings =
+            serde_json::from_value(call(&d, "settings.get", Value::Null).result.unwrap()).unwrap();
+        settings.trust = omu_types::TrustMode::Own;
+        let r = call(&d, "settings.set", serde_json::to_value(&settings).unwrap());
+        assert!(r.error.is_none(), "{:?}", r.error);
+        let own = report(&d);
+        assert_eq!(own.mode, omu_types::TrustMode::Own);
+        assert!(
+            own.problems.iter().any(|p| p.code == "nothing_trusted"),
+            "{own:?}"
+        );
+
+        // the choice is kept, and a folder of the user's own is the one that is read
+        let mine = dir.join("my-certs");
+        std::fs::create_dir_all(&mine).unwrap();
+        settings.certificates_dir = Some(mine.display().to_string());
+        assert!(
+            call(&d, "settings.set", serde_json::to_value(&settings).unwrap())
+                .error
+                .is_none()
+        );
+        let moved = report(&d);
+        assert_eq!(moved.folder, mine.display().to_string());
+        assert!(moved.folder_exists);
+        let again: omu_types::Settings =
+            serde_json::from_value(call(&d, "settings.get", Value::Null).result.unwrap()).unwrap();
+        assert_eq!(
+            (again.trust, again.certificates_dir),
+            (omu_types::TrustMode::Own, Some(mine.display().to_string()))
+        );
         drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }
