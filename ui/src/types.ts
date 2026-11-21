@@ -69,7 +69,7 @@ export type FlowType = 'audio' | 'condition' | 'action' | 'text' | 'int' | 'floa
  * A block of the graph. `id` is what the links call it (an editor makes a random one, a graph written by hand can use
  * any text that no other block uses); `display` is the name people give it, free text, missing when there is none.
  */
-export type NodeSpec = { id: string; display?: string; /** What is typed for the inputs nothing is linked to, by port name. */ inputs?: Record<string, InputValue> } & NodeKind;
+export type NodeSpec = { id: string; display?: string; /** Sends nothing: to hear the rest of the graph without it. */ muted?: boolean; /** What is typed for the inputs nothing is linked to, by port name. */ inputs?: Record<string, InputValue> } & NodeKind;
 export type PortRef = { node: string; port: string };
 export type EdgeSpec = { from: PortRef; to: PortRef };
 export type GraphSpec = { nodes: NodeSpec[]; edges: EdgeSpec[] };

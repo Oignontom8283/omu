@@ -11,6 +11,9 @@
     "test": "node --test --experimental-strip-types src/graph.test.ts src/soundboard.test.ts src/modules.test.ts src/i18n/i18n.test.ts src/richtext.test.ts src/fuzzy.test.ts src/calibration.test.ts src/template.test.ts src/kit/expression.test.ts src/history.test.ts src/keybindings.test.ts src/selection.test.ts src/versions.test.ts"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "6.18.6",
+    "@codemirror/state": "6.5.2",
+    "@codemirror/view": "6.36.5",
     "@tauri-apps/api": "^2.12.4",
     "@xyflow/react": "^12.12.1",
     "react": "^19.3.1",
