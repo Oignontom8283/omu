@@ -569,5 +569,6 @@
   "kind.stream_out.warning": "Demande le module FFmpeg (voir la page Modules). L’adresse peut contenir un mot de passe : ne partagez pas le fichier du graphe. Certains services (YouTube, Twitch) attendent aussi une vidéo.",
   "field.streamUrl": "Adresse",
   "field.streamUrl.help": "L’adresse du flux, qui commence par son protocole : rtmp://, rtmps://, rtsp://, srt://, rtp://, udp://, icecast:// (sortie) ou http(s):// (entrée).",
-  "port.url": "Adresse"
+  "port.url": "Adresse",
+  "palette.openPanel": "Ouvrir {title}"
 }

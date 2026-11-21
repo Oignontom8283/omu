@@ -11,7 +11,7 @@ import {
   type Edge,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react';
 import { EVENT_GRAPH, EVENT_STATUS, IN_DESKTOP_WINDOW, Rpc, RpcError, api, findToken, startDaemon, type Connection } from './api.ts';
 import { Editor, type EditorContext } from './context.ts';
 import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
@@ -29,7 +29,8 @@ import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Spli
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
-import { JsonWindow } from './components/ToolWindows.tsx';
+import { ExtensionWindow, JsonWindow } from './components/ToolWindows.tsx';
+import { getSnapshot as extensionsNow, subscribe as onExtensions } from './extensionRegistry.ts';
 import { flashPort } from './components/BlockHelp.tsx';
 import { Modules } from './components/Modules.tsx';
 import { SettingsPanel } from './components/SettingsPanel.tsx';
@@ -593,9 +594,15 @@ export function App() {
     setCalibrations((list) => (list.every((c) => nodes.some((n) => n.id === c.node)) ? list : list.filter((c) => nodes.some((n) => n.id === c.node))));
   }, [nodes]);
 
+  // what extensions added, and the panels of them that are open
+  const extensions = useSyncExternalStore(onExtensions, extensionsNow);
+  const [openPanels, setOpenPanels] = useState<string[]>([]);
+
   // what the search bar offers: the commands, the settings (declared in `settingsRegistry.ts`) and every kind of block
   const paletteItems: PaletteItem[] = palette
     ? [
+        ...extensions.commands.map((c): PaletteItem => ({ id: `ext-${c.id}`, kind: 'command', label: c.title, icon: 'panel', run: c.run })),
+        ...extensions.panels.map((p): PaletteItem => ({ id: `ext-panel-${p.id}`, kind: 'command', label: t('palette.openPanel', { title: p.title }), icon: 'panel', run: () => setOpenPanels((open) => (open.includes(p.id) ? open : [...open, p.id])) })),
         ...TABS.map((x): PaletteItem => ({ id: `go-${x.id}`, kind: 'command', label: t('palette.goTo', { name: t(x.label) }), icon: 'arrow', run: () => setTab(x.id) })),
         ...(dirty ? [{ id: 'apply', kind: 'command' as const, label: t('app.apply'), icon: 'check' as const, run: () => void apply() }, { id: 'revert', kind: 'command' as const, label: t('app.revert'), icon: 'undo' as const, run: revert }] : []),
         { id: 'tidy', kind: 'command', label: t('app.tidy'), icon: 'grid', run: autoLayout },
@@ -708,7 +715,9 @@ export function App() {
               </button>
             ))}
           </nav>
-          <span className={`pill ${conn}`}>{t(connLabel)}</span>
+          <span className={`pill ${conn}`} role="status">
+            {t(connLabel)}
+          </span>
           {info && (
             <span className="muted" title={`protocol ${info.protocol_version}`}>
               {info.backend} · v{info.version}
@@ -757,7 +766,7 @@ export function App() {
 
         {draftOffer && (
           <div className="banners">
-            <div className="banner info">
+            <div className="banner info" role="status">
               {t('draft.found', { date: new Date(draftOffer.at).toLocaleString() })}{' '}
               <Button size="small" variant="primary" onClick={() => { bringBack(draftOffer); setDraftOffer(null); }}>
                 {t('draft.restore')}
@@ -771,7 +780,7 @@ export function App() {
         {(problems.length > 0 || notice || noProvider || (IN_DESKTOP_WINDOW && conn === 'closed')) && (
           <div className="banners">
             {problems.length > 0 && (
-              <div className="banner error">
+              <div className="banner error" role="alert">
                 <strong>{t('app.refused')}</strong>
                 <ul>
                   {problems.map((p) => namedProblem(p, graph.nodes, t('node.unnamed'))).map((p) => (
@@ -784,7 +793,7 @@ export function App() {
               </div>
             )}
             {IN_DESKTOP_WINDOW && conn === 'closed' && (
-              <div className="banner warn">
+              <div className="banner warn" role="status">
                 {t('app.daemonDown')}{' '}
                 <button
                   className="inline"
@@ -919,6 +928,9 @@ export function App() {
           {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}
           {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} focus={settingFocus} shortcuts={{ overrides, onChange: setOverrides }} />}
           {showJson && <JsonWindow graph={graph} onClose={() => setShowJson(false)} />}
+          {extensions.panels.filter((p) => openPanels.includes(p.id)).map((p) => (
+            <ExtensionWindow key={p.id} panel={p} onClose={() => setOpenPanels((open) => open.filter((id) => id !== p.id))} />
+          ))}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">
               <p>{t('app.emptyTitle')}</p>

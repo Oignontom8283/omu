@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { ExtensionPanel } from '../extensionRegistry.ts';
 import { useT } from '../i18n/index.tsx';
 import { FloatingWindow } from './FloatingWindow.tsx';
 
@@ -18,6 +19,27 @@ export function JsonWindow({ graph, onClose }: { graph: unknown; onClose: () => 
   return (
     <ToolWindow title={t('app.json')} at={{ x: Math.max(8, window.innerWidth - 520), y: 130 }} onClose={onClose}>
       <textarea className="json-body" readOnly spellCheck={false} value={JSON.stringify(graph, null, 2)} />
+    </ToolWindow>
+  );
+}
+
+/** A panel an extension added: a window whose content the extension fills, and empties when the window closes. */
+export function ExtensionWindow({ panel, onClose }: { panel: ExtensionPanel; onClose: () => void }) {
+  const host = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!host.current) return;
+    // an extension that fails must not take the interface down with it
+    try {
+      const unmount = panel.mount(host.current);
+      return typeof unmount === 'function' ? unmount : undefined;
+    } catch (e) {
+      host.current.textContent = e instanceof Error ? e.message : String(e);
+      return undefined;
+    }
+  }, [panel]);
+  return (
+    <ToolWindow title={panel.title} at={{ x: Math.max(8, window.innerWidth - 560), y: 150 }} onClose={onClose}>
+      <div ref={host} className="extension-panel" />
     </ToolWindow>
   );
 }
