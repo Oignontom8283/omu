@@ -537,6 +537,9 @@ impl Inner {
                 },
             );
         }
+        // what the engine's state is needed for is done: the lock is released before the commands that talk to the driver (they take
+        // as long as the driver takes, and the status and the levels wait for this lock)
+        drop(st);
         // the virtual devices that exist now are the ones the system should bring back by itself at the next start
         if let Some(provider) = &self.virtual_devices {
             provider.persist();

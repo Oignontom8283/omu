@@ -348,6 +348,24 @@ impl CaptureStream for VbanCapture {
     }
 }
 
+/// The address of `host`, looked for for at most a few seconds: a bare computer name that nobody answers for can take half a minute to
+/// give up on Windows, and the engine opens streams while everything else waits for it.
+fn resolve(host: &str, port: u16) -> Result<SocketAddr, HalError> {
+    use std::net::ToSocketAddrs;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let name = host.to_owned();
+    std::thread::spawn(move || {
+        let found = (name.as_str(), port).to_socket_addrs().map(|mut a| a.next());
+        let _ = tx.send(found);
+    });
+    match rx.recv_timeout(Duration::from_secs(3)) {
+        Ok(Ok(Some(address))) => Ok(address),
+        Ok(Ok(None)) => Err(HalError::NotFound(format!("cannot find {host}"))),
+        Ok(Err(e)) => Err(HalError::NotFound(format!("cannot find {host}: {e}"))),
+        Err(_) => Err(HalError::NotFound(format!("cannot find {host}: no answer to the search for its address"))),
+    }
+}
+
 /// Sound sent to the network, as a render stream in the engine's format.
 pub struct VbanRender {
     socket: UdpSocket,
@@ -359,16 +377,11 @@ pub struct VbanRender {
 impl VbanRender {
     /// `host` is a name or an address; the sound goes to its UDP `port`.
     pub fn open(host: &str, port: u16, stream: &str) -> Result<VbanRender, HalError> {
-        use std::net::ToSocketAddrs;
         let host = host.trim();
         if host.is_empty() {
             return Err(HalError::Backend("no computer to send the sound to".into()));
         }
-        let target = (host, port)
-            .to_socket_addrs()
-            .map_err(|e| HalError::NotFound(format!("cannot find {host}: {e}")))?
-            .next()
-            .ok_or_else(|| HalError::NotFound(format!("cannot find {host}")))?;
+        let target = resolve(host, port)?;
         // sound for this very computer is sent from the loopback, which never leaves it (no firewall question either)
         let socket = UdpSocket::bind(match (target.ip().is_loopback(), target.is_ipv4()) {
             (true, true) => "127.0.0.1:0",
