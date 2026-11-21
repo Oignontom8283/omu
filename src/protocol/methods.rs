@@ -6,7 +6,8 @@
 use omu_diagnostics::Line;
 use omu_types::{
     AppInfo, Board, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Levels,
-    ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices, TrustReport,
+    ModuleInfo, RemoteInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices,
+    TrustReport,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -249,6 +250,10 @@ method!(
     SettingsSet, "settings.set", Settings => ()
 );
 method!(
+    /// Whether other devices may reach the daemon over HTTPS, and the pages to open on them.
+    RemoteInfoMethod, "remote.info", () => RemoteInfo
+);
+method!(
     /// Whose certificates the program trusts, and the certificates found in the user's folder.
     CertificatesList, "certificates.list", () => TrustReport
 );
@@ -331,6 +336,7 @@ pub const ALL_METHODS: &[&str] = &[
     SettingsGet::NAME,
     SettingsSet::NAME,
     CertificatesList::NAME,
+    RemoteInfoMethod::NAME,
     AppsList::NAME,
     GraphGet::NAME,
     GraphValidate::NAME,

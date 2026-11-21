@@ -55,6 +55,10 @@ pub struct Daemon {
     sounds: Arc<omu_soundboard::SoundEngine>,
     /// The names of the web inputs and outputs, and the connections to them.
     web: omu_net::web::Hub,
+    /// What the secure server says about itself (written by the task that runs it).
+    remote: Mutex<omu_types::RemoteInfo>,
+    /// The key a page on another device carries: it only allows the web sound routes.
+    guest_token: Mutex<String>,
     /// The keyboard shortcuts that play pads.
     pad_hotkeys: omu_soundboard::hotkeys::PadHotkeys,
     /// What is told when the settings are saved (the notification-area icon shows or hides itself).
@@ -136,6 +140,8 @@ impl Daemon {
             elevator: Arc::new(omu_desktop::elevation::SystemElevator),
             sounds,
             web,
+            remote: Mutex::default(),
+            guest_token: Mutex::default(),
             pad_hotkeys: Default::default(),
             settings_listeners: Mutex::new(vec![]),
             manages_autostart: std::sync::atomic::AtomicBool::new(false),
@@ -166,6 +172,44 @@ impl Daemon {
     }
 
     /// The soundboards' engine (the panel's upload route imports through it).
+    /// The program's data folder.
+    pub fn data_dir(&self) -> &std::path::Path {
+        self.store.dir()
+    }
+
+    /// Records what the secure server is doing (called by the task that runs it).
+    pub fn set_remote(&self, info: omu_types::RemoteInfo) {
+        *lock(&self.remote) = info;
+    }
+
+    pub fn set_guest_token(&self, token: String) {
+        *lock(&self.guest_token) = token;
+    }
+
+    /// What the secure server is doing, with the pages to open on other devices.
+    fn remote_info(&self) -> omu_types::RemoteInfo {
+        let mut info = lock(&self.remote).clone();
+        if info.enabled {
+            let key = lock(&self.guest_token).clone();
+            info.urls = omu_tls::local_names(&[])
+                .into_iter()
+                .filter(|n| {
+                    n.parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_ipv4() && !ip.is_loopback())
+                })
+                .map(|ip| format!("https://{ip}:{}/remote.html#token={key}", info.port))
+                .collect();
+            if info.urls.is_empty() {
+                // no network but this computer: a browser here can still use the page
+                info.urls.push(format!(
+                    "https://localhost:{}/remote.html#token={key}",
+                    info.port
+                ));
+            }
+        }
+        info
+    }
+
     /// The web inputs and outputs (the HTTP side hands the connection requests to it).
     pub fn web(&self) -> &omu_net::web::Hub {
         &self.web
@@ -448,6 +492,7 @@ impl Daemon {
             }
             m::SettingsGet::NAME => result(self.sounds.settings()),
             m::CertificatesList::NAME => result(omu_tls::report(&self.trust())),
+            m::RemoteInfoMethod::NAME => result(self.remote_info()),
             m::SettingsSet::NAME => {
                 let settings = params::<m::SettingsSet>(p)?;
                 if self

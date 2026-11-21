@@ -20,10 +20,13 @@ rustls-native-certs = "0.8"
 rustls-pki-types = { version = "1", features = ["std"] }
 # reading a certificate: who it is about, until when it is valid
 x509-parser = "0.18"
-
-[dev-dependencies]
-rcgen = "0.14"
+# the certificate the daemon shows over HTTPS: made here, served with rustls (ring: no C compiler needed)
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rcgen = "0.14"
+sha2 = "0.10"
+time = "0.3"
+if-addrs = "0.13"
+serde_json = "1.0"
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -39,6 +39,8 @@ pub struct ServerConfig {
 struct AppState {
     daemon: Arc<Daemon>,
     token: Arc<String>,
+    /// The key of pages on other devices: it opens the web sound routes and nothing else.
+    guest: Arc<String>,
     origins: Arc<Vec<String>>,
     events: broadcast::Sender<String>,
 }
@@ -56,9 +58,12 @@ pub async fn bind(
             let _ = tx.send(text); // no listener is not an error
         }
     }));
+    let guest = auth::new_token();
+    daemon.set_guest_token(guest.clone());
     let state = AppState {
         daemon,
         token: Arc::new(cfg.token),
+        guest: Arc::new(guest),
         origins: Arc::new(cfg.allowed_origins),
         events,
     };
@@ -117,6 +122,18 @@ pub async fn run(
     result
 }
 
+/// `Some(response)` when the request must be refused, whichever key it carries: the one of the program, or (for the web sound
+/// routes) the guest key of a page on another device.
+fn refuse_guest(state: &AppState, headers: &HeaderMap, query: Option<&str>) -> Option<Response> {
+    if !auth::origin_allowed(headers, &state.origins) {
+        return refuse(state, headers, query);
+    }
+    match auth::presented_token(headers, query) {
+        Some(t) if auth::same_secret(&t, &state.guest) => None,
+        _ => refuse(state, headers, query),
+    }
+}
+
 /// `Some(response)` when the request must be refused.
 fn refuse(state: &AppState, headers: &HeaderMap, query: Option<&str>) -> Option<Response> {
     if !auth::origin_allowed(headers, &state.origins) {
@@ -168,7 +185,7 @@ async fn signal(
     offer: String,
     sending: bool,
 ) -> Response {
-    if let Some(r) = refuse(&state, &headers, uri.query()) {
+    if let Some(r) = refuse_guest(&state, &headers, uri.query()) {
         return r;
     }
     let hub = state.daemon.web().clone();
@@ -222,7 +239,7 @@ async fn end_connection(
     uri: Uri,
     Path((_, session)): Path<(String, String)>,
 ) -> Response {
-    if let Some(r) = refuse(&state, &headers, uri.query()) {
+    if let Some(r) = refuse_guest(&state, &headers, uri.query()) {
         return r;
     }
     state.daemon.web().close_session(&session);
@@ -385,4 +402,84 @@ async fn socket_loop(state: AppState, socket: WebSocket) {
         }
     }
     tracing::info!("WebSocket client disconnected");
+}
+
+/// The port of the secure server (HTTPS), when other devices are allowed in.
+pub const HTTPS_PORT: u16 = 7651;
+
+/// Runs the secure server for as long as the setting says: started when it is switched on, stopped when it is switched off. What
+/// it does (or why it could not start) is recorded in the daemon for the panel to show.
+pub async fn serve_https(
+    daemon: Arc<Daemon>,
+    router: Router,
+    mut wanted: tokio::sync::watch::Receiver<bool>,
+) {
+    loop {
+        let on = *wanted.borrow_and_update();
+        let mut running: Option<axum_server::Handle<SocketAddr>> = None;
+        if on {
+            match start_https(&daemon, router.clone()).await {
+                Ok(handle) => running = Some(handle),
+                Err(message) => {
+                    tracing::warn!("the secure server could not start: {message}");
+                    daemon.set_remote(omu_types::RemoteInfo {
+                        port: HTTPS_PORT,
+                        error: Some(message),
+                        ..Default::default()
+                    });
+                }
+            }
+        } else {
+            daemon.set_remote(omu_types::RemoteInfo::default());
+        }
+        let ended = wanted.changed().await.is_err();
+        if let Some(handle) = running {
+            handle.shutdown();
+        }
+        if ended {
+            return;
+        }
+    }
+}
+
+async fn start_https(
+    daemon: &Arc<Daemon>,
+    router: Router,
+) -> Result<axum_server::Handle<SocketAddr>, String> {
+    let trust = omu_tls::Trust::from_settings(&daemon.sounds().settings(), daemon.data_dir());
+    let data_dir = daemon.data_dir().to_owned();
+    let identity =
+        tokio::task::spawn_blocking(move || omu_tls::server_identity(&trust, &data_dir, &[]))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+    // the port is taken first, so that a port in use is said instead of failing later
+    let listener = std::net::TcpListener::bind(SocketAddr::from(([0, 0, 0, 0], HTTPS_PORT)))
+        .map_err(|e| format!("cannot listen on port {HTTPS_PORT}: {e}"))?;
+    listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let handle = axum_server::Handle::new();
+    let config = axum_server::tls_rustls::RustlsConfig::from_config(identity.config.clone());
+    let server = axum_server::from_tcp_rustls(listener, config).map_err(|e| e.to_string())?;
+    let serving = server
+        .handle(handle.clone())
+        .serve(router.into_make_service());
+    tokio::spawn(async move {
+        if let Err(e) = serving.await {
+            tracing::warn!("the secure server stopped: {e}");
+        }
+    });
+    tracing::info!(
+        port = HTTPS_PORT,
+        generated = identity.generated,
+        "secure server open"
+    );
+    daemon.set_remote(omu_types::RemoteInfo {
+        enabled: true,
+        port: HTTPS_PORT,
+        urls: vec![],
+        fingerprint: Some(identity.fingerprint),
+        certificate_generated: identity.generated,
+        error: None,
+    });
+    Ok(handle)
 }

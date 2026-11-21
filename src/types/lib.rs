@@ -29,4 +29,4 @@ pub use node::{
 pub use soundboard::{Board, HotkeyProblem, Pad, Settings, SoundInfo, SoundLibrary, SoundStatus};
 pub use status::{EngineStatus, Levels, NodeState, NodeStatus};
 pub use template::TemplateError;
-pub use trust::{CertificateInfo, TrustMode, TrustReport};
+pub use trust::{CertificateInfo, RemoteInfo, TrustMode, TrustReport};

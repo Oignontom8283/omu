@@ -264,6 +264,92 @@ fn a_web_connection_needs_the_token_a_running_block_and_a_real_offer() {
 }
 
 #[test]
+fn other_devices_reach_the_daemon_over_https_only_when_allowed_and_only_for_sound() {
+    let (running, client, dir) = start("remote");
+    assert!(
+        !client.call::<RemoteInfoMethod>(&()).unwrap().enabled,
+        "off until the user allows it"
+    );
+
+    let mut settings = client.call::<SettingsGet>(&()).unwrap();
+    settings.remote_access = true;
+    client.call::<SettingsSet>(&settings).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let info = loop {
+        let info = client.call::<RemoteInfoMethod>(&()).unwrap();
+        if info.enabled || info.error.is_some() {
+            break info;
+        }
+        assert!(Instant::now() < deadline, "the secure server starts");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert!(info.error.is_none(), "{:?}", info.error);
+    assert!(
+        info.certificate_generated && info.fingerprint.as_deref().is_some_and(|f| f.len() == 95)
+    );
+    let page = info.urls.first().expect("a page to open on another device");
+    assert!(
+        page.starts_with("https://") && page.contains("/remote.html#token="),
+        "{page}"
+    );
+    let guest = page.split("#token=").nth(1).unwrap().to_owned();
+    assert_ne!(
+        guest, running.info.token,
+        "the page's key is not the program's"
+    );
+
+    // a client that trusts the certificate the program made (put in its certificates folder) can talk to it
+    let certs = dir.join("certificates");
+    std::fs::create_dir_all(&certs).unwrap();
+    std::fs::copy(
+        dir.join("tls").join("server.pem"),
+        certs.join("omu-server.pem"),
+    )
+    .unwrap();
+    let trust = omu_tls::Trust {
+        mode: omu_types::TrustMode::Own,
+        folder: certs,
+    };
+    let agent = omu_tls::agent(&trust).unwrap();
+    let base = format!("https://localhost:{}", info.port);
+    let status = |r: Result<ureq::http::Response<ureq::Body>, ureq::Error>| match r {
+        Ok(r) => r.status().as_u16(),
+        Err(ureq::Error::StatusCode(code)) => code,
+        Err(e) => panic!("{e}"),
+    };
+    assert_eq!(status(agent.get(&format!("{base}/health")).call()), 200);
+    let post = |path: &str, key: &str| {
+        status(
+            agent
+                .post(&format!("{base}{path}"))
+                .header("Authorization", &format!("Bearer {key}"))
+                .send("v=0"),
+        )
+    };
+    // the guest key opens the sound routes (the name is not there: that is the answer, not a refusal)...
+    assert_eq!(post("/whip/nobody", &guest), 404);
+    assert_eq!(post("/whip/nobody", "wrong"), 401);
+    // ...and nothing that controls the program
+    assert_eq!(post("/rpc", &guest), 401);
+    assert_eq!(post("/sounds?name=x", &guest), 401);
+    assert!(
+        matches!(post("/rpc", &running.info.token), 200 | 400),
+        "the program's own key still works"
+    );
+
+    // switched off again: the secure port closes
+    settings.remote_access = false;
+    client.call::<SettingsSet>(&settings).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while client.call::<RemoteInfoMethod>(&()).unwrap().enabled {
+        assert!(Instant::now() < deadline, "the secure server stops");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    running.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn health_and_the_panel_page_need_no_token() {
     let (running, client, dir) = start("static");
     let agent = ureq::Agent::config_builder()

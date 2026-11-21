@@ -167,7 +167,8 @@ MIT licence or the Apache-2.0 licence (at your choice); their full licence texts
   (Apache-2.0, ISC or MIT);
 - `rustls-platform-verifier`, through `ureq` (https://github.com/algesten/ureq), the HTTP client;
 - `x509-parser` (https://github.com/rusticata/x509-parser), to read who a certificate is about and until when it is valid;
-- `rcgen` (https://github.com/rustls/rcgen), to make the certificates the tests use.
+- `rcgen` (https://github.com/rustls/rcgen), to make the certificate the daemon shows over HTTPS, and the ones the tests use;
+- `axum-server` (https://github.com/programatik29/axum-server), the secure (HTTPS) server: MIT.
 
 ## WebRTC and Opus (sound through the web)
 

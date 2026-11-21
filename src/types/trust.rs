@@ -40,3 +40,20 @@ pub struct TrustReport {
     /// Files that could not be read, expired certificates, a mode that would trust nothing...
     pub problems: Vec<Diagnostic>,
 }
+
+/// Whether other devices on the network may reach the daemon over HTTPS, and how.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RemoteInfo {
+    /// True while the secure server runs (the setting is on and it could start).
+    pub enabled: bool,
+    pub port: u16,
+    /// Pages to open on another device, one per address of this computer: they carry a key that only allows sending and
+    /// listening to sound through the web, not controlling the program.
+    pub urls: Vec<String>,
+    /// The SHA-256 of the certificate the server shows, to compare with what a browser shows.
+    pub fingerprint: Option<String>,
+    /// True when the program made the certificate itself (a browser then warns the first time).
+    pub certificate_generated: bool,
+    /// Why the secure server could not start.
+    pub error: Option<String>,
+}

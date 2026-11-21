@@ -21,6 +21,9 @@ use std::time::Duration;
 /// The name of the folder, in the program's data folder, where the user's certificates go unless they chose another one.
 pub const FOLDER_NAME: &str = "certificates";
 
+pub mod server;
+pub use server::{local_names, server_identity, Identity};
+
 /// The extensions a certificate file may have.
 const EXTENSIONS: [&str; 5] = ["pem", "crt", "cer", "cert", "der"];
 
@@ -51,6 +54,8 @@ pub enum Error {
     NoOwnCertificate(String),
     #[error("cannot read the certificates of the system: {0}")]
     System(String),
+    #[error("{0}")]
+    Server(String),
 }
 
 /// A certificate read from the folder, with what is known about it.
