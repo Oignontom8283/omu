@@ -8,6 +8,7 @@ import type { Settings } from '../types.ts';
 import type { Overrides } from '../keybindings.ts';
 import { Shortcuts } from './Shortcuts.tsx';
 import { Certificates } from './Certificates.tsx';
+import { RemoteAccess } from './RemoteAccess.tsx';
 
 type Props = {
   daemon: ReturnType<typeof api>;
@@ -76,6 +77,7 @@ export function SettingsPanel({ daemon, notify, focus, shortcuts }: Props) {
     },
     tray: { value: settings?.show_tray_icon ?? false, set: (v) => void change({ show_tray_icon: Boolean(v) }), disabled: !settings },
     logon: { value: settings?.start_at_logon ?? false, set: (v) => void change({ start_at_logon: Boolean(v) }), disabled: !settings },
+    remote: { value: settings?.remote_access ?? false, set: (v) => void change({ remote_access: Boolean(v) }), disabled: !settings },
     trust: {
       value: settings?.trust ?? 'system',
       options: [
@@ -126,6 +128,7 @@ export function SettingsPanel({ daemon, notify, focus, shortcuts }: Props) {
               {decl.hint && <small className="muted">{t(decl.hint)}</small>}
             </div>
           ))}
+          {section.id === 'security' && <RemoteAccess daemon={daemon} allowed={Boolean(settings?.remote_access)} notify={notify} />}
           {section.id === 'security' && <Certificates daemon={daemon} settings={settings} notify={notify} onFolder={(folder) => void change({ certificates_dir: folder || undefined })} />}
         </section>
       ))}

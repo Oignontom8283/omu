@@ -32,6 +32,8 @@ pub struct EngineConfig {
     pub retry_max: Duration,
     /// The soundboards' memory and sounds; without it a soundboard block is silent.
     pub sounds: Option<Arc<omu_soundboard::SoundEngine>>,
+    /// The names of the web inputs and outputs (sound through WebRTC); without it those blocks cannot be opened.
+    pub web: Option<omu_net::web::Hub>,
 }
 
 impl Default for EngineConfig {
@@ -43,6 +45,7 @@ impl Default for EngineConfig {
             retry_initial: Duration::from_secs(1),
             retry_max: Duration::from_secs(10),
             sounds: None,
+            web: None,
         }
     }
 }
@@ -131,6 +134,16 @@ fn with_flows(kind: &NodeKind, flows: Option<&[Value]>) -> NodeKind {
             stream: flow_text(&v[2], omu_types::MAX_STREAM_NAME)
                 .filter(|s| s.is_ascii())
                 .unwrap_or_else(|| stream.clone()),
+        },
+        NodeKind::WebIn { name } => NodeKind::WebIn {
+            name: flow_text(&v[2], omu_types::MAX_WEB_NAME)
+                .filter(|s| omu_types::is_web_name(s))
+                .unwrap_or_else(|| name.clone()),
+        },
+        NodeKind::WebOut { name } => NodeKind::WebOut {
+            name: flow_text(&v[2], omu_types::MAX_WEB_NAME)
+                .filter(|s| omu_types::is_web_name(s))
+                .unwrap_or_else(|| name.clone()),
         },
         other => other.clone(),
     }
@@ -762,6 +775,16 @@ impl Inner {
                     omu_net::vban::VbanRender::open(host, *port, stream).map_err(describe)?;
                 self.start_sink(kind, Box::new(render))
             }
+            NodeKind::WebIn { name } => {
+                let hub = self.web_hub()?;
+                let capture = hub.open_ingest(name).map_err(describe)?;
+                self.start_source(kind, Box::new(capture))
+            }
+            NodeKind::WebOut { name } => {
+                let hub = self.web_hub()?;
+                let render = hub.open_egress(name).map_err(describe)?;
+                self.start_sink(kind, Box::new(render))
+            }
             NodeKind::VirtualMic { name } => {
                 let provider = self.virtual_devices.as_ref().ok_or_else(|| {
                     "no virtual device provider is available on this system".to_string()
@@ -792,6 +815,14 @@ impl Inner {
             }
             _ => Err("this block needs nothing from the system".into()),
         }
+    }
+
+    /// The names of the web blocks; they cannot be opened where the engine was made without them.
+    fn web_hub(&self) -> Result<&omu_net::web::Hub, String> {
+        self.cfg
+            .web
+            .as_ref()
+            .ok_or_else(|| "sound through the web is not available here".to_string())
     }
 
     fn start_source(

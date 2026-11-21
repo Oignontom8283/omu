@@ -133,6 +133,9 @@ pub struct Settings {
     /// Where the certificates of the user are kept (`None`: the `certificates` folder of the program's data).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub certificates_dir: Option<String>,
+    /// Let other devices of the network send sound to the program, and listen to it, over HTTPS (a phone's microphone...).
+    #[serde(default)]
+    pub remote_access: bool,
 }
 
 fn default_true() -> bool {
@@ -156,6 +159,7 @@ impl Default for Settings {
             start_at_logon: false,
             trust: crate::TrustMode::System,
             certificates_dir: None,
+            remote_access: false,
         }
     }
 }

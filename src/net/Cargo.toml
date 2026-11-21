@@ -3,7 +3,7 @@ name = "omu-net"
 version = "0.22.1"
 edition = "2021"
 rust-version = "1.88"
-description = "sound over the network (VBAN)"
+description = "sound over the network: VBAN, and WebRTC (WHIP and WHEP)"
 license-file = "../../LICENSE"
 publish = false
 
@@ -11,6 +11,12 @@ publish = false
 path = "lib.rs"
 
 [dependencies]
+# WebRTC without input/output of its own (the sockets and the clock are ours), with the crypto written in Rust: nothing to install
+str0m = { version = "0.25", default-features = false, features = ["rust-crypto"] }
+# Opus, the codec of WebRTC audio: libopus translated to Rust, so no C compiler or cmake is needed
+unsafe-libopus = "0.2"
+if-addrs = "0.13"
+thiserror = "2.0"
 omu-dsp = { path = "../dsp" }
 omu-hal = { path = "../hal" }
 omu-types = { path = "../types" }

@@ -24,6 +24,7 @@ omu-discovery = { path = "../discovery" }
 omu-engine = { path = "../engine" }
 omu-graph = { path = "../graph" }
 omu-hal = { path = "../hal" }
+omu-net = { path = "../net" }
 omu-protocol = { path = "../protocol" }
 omu-soundboard = { path = "../soundboard" }
 omu-tls = { path = "../tls" }
@@ -32,6 +33,7 @@ omu-virtual-devices = { path = "../virtual_devices" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tracing = "0.1"
+axum-server = { version = "0.9", default-features = false, features = ["tls-rustls-ring"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal", "fs", "io-util"] }
 axum = { version = "0.8", features = ["ws"] }
 futures-util = "0.3"

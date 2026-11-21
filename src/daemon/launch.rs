@@ -216,7 +216,19 @@ pub async fn serve(
             () = asked.notified() => {}
         }
     };
+    // the secure server follows the setting for as long as the daemon runs
+    let (wanted_tx, wanted_rx) =
+        tokio::sync::watch::channel(daemon.sounds().settings().remote_access);
+    daemon.on_settings(move |s| {
+        wanted_tx.send_if_modified(|on| std::mem::replace(on, s.remote_access) != s.remote_access);
+    });
+    let https = tokio::spawn(server::serve_https(
+        daemon.clone(),
+        router.clone(),
+        wanted_rx,
+    ));
     let result = server::run(daemon.clone(), listener, router, shutdown).await;
+    https.abort();
     tracing::info!("shutting down");
     Discovery::remove_if_mine(&opts.data_dir);
     #[cfg(feature = "tray")]

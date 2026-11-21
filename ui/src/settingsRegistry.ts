@@ -24,4 +24,5 @@ export const SETTING_DECLS: SettingDecl[] = [
   { id: 'tray', section: 'system', type: 'toggle', label: 'settings.tray', hint: 'settings.trayHint' },
   { id: 'logon', section: 'system', type: 'toggle', label: 'settings.logon', hint: 'settings.logonHint' },
   { id: 'trust', section: 'security', type: 'choice', label: 'settings.trust', hint: 'settings.trustHint' },
+  { id: 'remote', section: 'security', type: 'toggle', label: 'settings.remote', hint: 'settings.remoteHint' },
 ];
