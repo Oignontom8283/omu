@@ -152,6 +152,10 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [p('in', 'in', 'audio')];
     case 'network_out':
       return [p('in', 'in', 'audio'), param('host', 'text', 'field.sendTo'), param('port', 'int', 'field.sendPort'), param('stream', 'text', 'field.streamName')];
+    case 'web_in':
+      return [param('name', 'text', 'field.webName'), p('out', 'out', 'audio')];
+    case 'web_out':
+      return [p('in', 'in', 'audio'), param('name', 'text', 'field.webName')];
     case 'gain':
       return [p('in', 'in', 'audio'), param('db', 'float', 'field.gain', 'dB'), p('out', 'out', 'audio')];
     case 'delay':
@@ -241,8 +245,8 @@ export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'conditi
 
 /** The kinds of each family, in the order of the drop-down. */
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
-  input: ['app_capture', 'device_capture', 'virtual_speaker', 'soundboard', 'network_in'],
-  output: ['virtual_mic', 'device_render', 'network_out'],
+  input: ['app_capture', 'device_capture', 'virtual_speaker', 'soundboard', 'network_in', 'web_in'],
+  output: ['virtual_mic', 'device_render', 'network_out', 'web_out'],
   processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction', 'deep_filter'],
   condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'compare', 'text_compare', 'to_condition'],
   trigger: ['hotkey', 'timer', 'change'],
@@ -369,6 +373,10 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, port: 6980, stream: '', from: '' };
     case 'network_out':
       return { type, host: '', port: 6980, stream: '' };
+    case 'web_in':
+      return { type, name: 'phone' };
+    case 'web_out':
+      return { type, name: 'listen' };
     case 'gain':
       return { type, db: 0 };
     case 'mixer':

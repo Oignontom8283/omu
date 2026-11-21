@@ -2123,3 +2123,20 @@ button.ref:hover:not(:disabled) {
 .cert-list li.expired strong {
   color: var(--warn);
 }
+
+.remote {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.remote-url {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.cert-list li:has(> .remote-url) {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

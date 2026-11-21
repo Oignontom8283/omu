@@ -25,6 +25,8 @@ export type NodeKind =
   | { type: 'virtual_mic'; name: string }
   | { type: 'network_in'; port: number; stream?: string; from?: string }
   | { type: 'network_out'; host: string; port: number; stream?: string }
+  | { type: 'web_in'; name: string }
+  | { type: 'web_out'; name: string }
   | { type: 'gain'; db: number }
   | { type: 'mixer' }
   | { type: 'gate' }
@@ -158,7 +160,8 @@ export type SoundStatus = {
   hotkey_problems?: HotkeyProblem[];
 };
 export type TrustMode = 'system' | 'own';
-export type Settings = { sound_cache_mb: number; compress_above_mb: number; show_tray_icon: boolean; start_at_logon: boolean; trust: TrustMode; certificates_dir?: string };
+export type Settings = { sound_cache_mb: number; compress_above_mb: number; show_tray_icon: boolean; start_at_logon: boolean; trust: TrustMode; certificates_dir?: string; remote_access: boolean };
+export type RemoteInfo = { enabled: boolean; port: number; urls: string[]; fingerprint?: string | null; certificate_generated: boolean; error?: string | null };
 export type CertificateInfo = { file: string; subject: string; issuer: string; expires: string; expired: boolean };
 export type TrustReport = { mode: TrustMode; folder: string; folder_exists: boolean; certificates: CertificateInfo[]; problems: Diagnostic[] };
 

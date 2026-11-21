@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sound</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f3f4f7; --panel: #ffffff; --text: #1c1f26; --muted: #646b7b; --line: #d3d6de; --primary: #3454d1; --on-primary: #ffffff; --ok: #1c9a4a; --bad: #c0392b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #14161c; --panel: #1d2029; --text: #e6e8ee; --muted: #9097ab; --line: #343949; --primary: #7b93ff; --on-primary: #10131a; --ok: #4ade80; --bad: #f87171; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px system-ui, sans-serif; padding: 16px; padding-block: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-bottom)); }
+  main { max-width: 28rem; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+  h1 { font-size: 1.25rem; margin: 0; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+  h2 { font-size: 1rem; margin: 0; }
+  p, small { margin: 0; color: var(--muted); }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: var(--muted); }
+  input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 14px; background: var(--primary); color: var(--on-primary); cursor: pointer; }
+  button.stop { background: var(--bad); color: #fff; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .state { font-weight: 600; }
+  .state.on { color: var(--ok); }
+  .state.problem { color: var(--bad); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title"></h1>
+  <label><span id="nameLabel"></span><input id="name" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="32"></label>
+
+  <section>
+    <h2 id="sendTitle"></h2>
+    <p id="sendHelp"></p>
+    <button id="send"></button>
+  </section>
+
+  <section>
+    <h2 id="listenTitle"></h2>
+    <p id="listenHelp"></p>
+    <button id="listen"></button>
+    <audio id="player" autoplay playsinline></audio>
+  </section>
+
+  <p id="state" class="state" role="status" aria-live="polite"></p>
+</main>
+<script>
+(() => {
+  const TEXTS = {
+    en: {
+      title: 'Sound through the web', nameLabel: 'Name of the sound', sendTitle: 'Send my microphone', sendHelp: 'Your microphone goes into the program, to the web input of that name.',
+      send: 'Send my microphone', stopSend: 'Stop sending', listenTitle: 'Listen', listenHelp: 'You hear what the program sends to the web output of that name.', listen: 'Listen', stopListen: 'Stop listening',
+      idle: 'Choose what to do.', connecting: 'Connecting…', sending: 'Your microphone is being sent.', listening: 'You are listening.',
+      needSecure: 'The microphone is only given to pages opened through a secure (https) address. Open the page again from the program.',
+      noMic: 'The microphone was not allowed, or there is none.',
+      noKey: 'This page was opened without its key, or the key is no longer valid. Open the page again from the program.',
+      noName: 'No sound of that name is open. Start the graph with a web block of that name in the program.',
+      failed: 'The connection could not be made.', ended: 'The connection ended.',
+    },
+    fr: {
+      title: 'Du son par le web', nameLabel: 'Nom du son', sendTitle: 'Envoyer mon microphone', sendHelp: 'Votre microphone entre dans le programme, par l’entrée web de ce nom.',
+      send: 'Envoyer mon microphone', stopSend: 'Arrêter l’envoi', listenTitle: 'Écouter', listenHelp: 'Vous entendez ce que le programme envoie à la sortie web de ce nom.', listen: 'Écouter', stopListen: 'Arrêter l’écoute',
+      idle: 'Choisissez quoi faire.', connecting: 'Connexion…', sending: 'Votre microphone est envoyé.', listening: 'Vous écoutez.',
+      needSecure: 'Le microphone n’est donné qu’aux pages ouvertes par une adresse sécurisée (https). Rouvrez la page depuis le programme.',
+      noMic: 'Le microphone n’a pas été autorisé, ou il n’y en a pas.',
+      noKey: 'Cette page a été ouverte sans sa clé, ou la clé n’est plus valable. Rouvrez la page depuis le programme.',
+      noName: 'Aucun son de ce nom n’est ouvert. Lancez le graphe avec un bloc web de ce nom dans le programme.',
+      failed: 'La connexion n’a pas pu être établie.', ended: 'La connexion est terminée.',
+    },
+  };
+  const t = TEXTS[(navigator.language || 'en').toLowerCase().startsWith('fr') ? 'fr' : 'en'];
+  document.documentElement.lang = t === TEXTS.fr ? 'fr' : 'en';
+  const $ = (id) => document.getElementById(id);
+  for (const id of ['title', 'nameLabel', 'sendTitle', 'sendHelp', 'listenTitle', 'listenHelp']) $(id).textContent = t[id];
+  document.title = t.title;
+  $('send').textContent = t.send;
+  $('listen').textContent = t.listen;
+
+  // the key is in the address after #, which is never sent to a server by the browser itself
+  const key = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+  const params = new URLSearchParams(location.search);
+  $('name').value = params.get('name') || 'phone';
+  const state = (text, kind) => { const el = $('state'); el.textContent = text; el.className = 'state' + (kind ? ' ' + kind : ''); };
+  state(t.idle);
+
+  // one connection at a time, in one direction or the other
+  let active = null;
+  const gathered = (pc) => new Promise((done) => {
+    if (pc.iceGatheringState === 'complete') return done();
+    const timer = setTimeout(done, 2500);
+    pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(timer); done(); } });
+  });
+
+  async function connect(kind) {
+    const name = $('name').value.trim();
+    if (!name) return;
+    if (kind === 'whip' && !window.isSecureContext) { state(t.needSecure, 'problem'); return; }
+    state(t.connecting);
+    const pc = new RTCPeerConnection();
+    let stream = null;
+    try {
+      if (kind === 'whip') {
+        try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: 2 } }); }
+        catch { state(t.noMic, 'problem'); pc.close(); return; }
+        for (const track of stream.getAudioTracks()) pc.addTrack(track, stream);
+      } else {
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+        pc.ontrack = (e) => { $('player').srcObject = e.streams[0] || new MediaStream([e.track]); $('player').play().catch(() => {}); };
+      }
+      await pc.setLocalDescription(await pc.createOffer());
+      await gathered(pc);
+      const response = await fetch(`/${kind}/${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': 'application/sdp', Authorization: `Bearer ${key}` }, body: pc.localDescription.sdp });
+      if (response.status === 401) throw new Error('key');
+      if (response.status === 404) throw new Error('name');
+      if (response.status !== 201) throw new Error('failed');
+      const location = response.headers.get('Location');
+      await pc.setRemoteDescription({ type: 'answer', sdp: await response.text() });
+      active = { kind, pc, stream, location };
+      pc.addEventListener('connectionstatechange', () => {
+        if (active && active.pc === pc && ['failed', 'closed', 'disconnected'].includes(pc.connectionState)) { stop(); state(t.ended, 'problem'); }
+      });
+      buttons();
+      state(kind === 'whip' ? t.sending : t.listening, 'on');
+    } catch (e) {
+      pc.close();
+      if (stream) stream.getTracks().forEach((track) => track.stop());
+      state(e.message === 'key' ? t.noKey : e.message === 'name' ? t.noName : t.failed, 'problem');
+    }
+  }
+
+  function stop() {
+    if (!active) return;
+    const { pc, stream, location } = active;
+    active = null;
+    if (location) fetch(location, { method: 'DELETE', headers: { Authorization: `Bearer ${key}` } }).catch(() => {});
+    if (stream) stream.getTracks().forEach((track) => track.stop());
+    pc.close();
+    $('player').srcObject = null;
+    buttons();
+    state(t.idle);
+  }
+
+  function buttons() {
+    const send = $('send'), listen = $('listen');
+    send.textContent = active && active.kind === 'whip' ? t.stopSend : t.send;
+    listen.textContent = active && active.kind === 'whep' ? t.stopListen : t.listen;
+    send.className = active && active.kind === 'whip' ? 'stop' : '';
+    listen.className = active && active.kind === 'whep' ? 'stop' : '';
+    send.disabled = !!active && active.kind !== 'whip';
+    listen.disabled = !!active && active.kind !== 'whep';
+    $('name').disabled = !!active;
+  }
+
+  $('send').addEventListener('click', () => (active ? stop() : connect('whip')));
+  $('listen').addEventListener('click', () => (active ? stop() : connect('whep')));
+  window.addEventListener('pagehide', stop);
+})();
+</script>
+</body>
+</html>

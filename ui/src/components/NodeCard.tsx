@@ -240,6 +240,8 @@ export function Params({ spec }: { spec: NodeSpec }) {
     case 'to_condition':
     case 'network_in':
     case 'network_out':
+    case 'web_in':
+    case 'web_out':
     case 'gain':
     case 'level':
     case 'hold':
