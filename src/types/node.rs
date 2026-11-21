@@ -75,6 +75,52 @@ pub struct PortSpec {
 pub const MAX_STREAM_NAME: usize = 16;
 /// The longest name of a web input or output.
 pub const MAX_WEB_NAME: usize = 32;
+/// The longest address of a live stream.
+pub const MAX_STREAM_URL: usize = 2048;
+
+/// The protocol of a stream address, in lower case (`rtmp` for `rtmp://host/app`).
+pub fn stream_scheme(url: &str) -> Option<String> {
+    let (scheme, rest) = url.trim().split_once("://")?;
+    (!scheme.is_empty()
+        && !rest.is_empty()
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.'))
+    .then(|| scheme.to_ascii_lowercase())
+}
+
+/// What is wrong with the address of a live stream, if anything: only protocols that carry sound over a network are accepted
+/// (so a stream block can never be made to read a file of this computer).
+pub fn stream_problem(url: &str, output: bool) -> Option<String> {
+    const INPUTS: [&str; 9] = [
+        "rtmp", "rtmps", "rtsp", "rtsps", "srt", "rtp", "udp", "http", "https",
+    ];
+    const OUTPUTS: [&str; 7] = ["rtmp", "rtmps", "rtsp", "srt", "rtp", "udp", "icecast"];
+    let allowed: &[&str] = if output { &OUTPUTS } else { &INPUTS };
+    if url.chars().count() > MAX_STREAM_URL {
+        return Some(format!(
+            "the address is at most {MAX_STREAM_URL} characters"
+        ));
+    }
+    if url.chars().any(char::is_control) {
+        return Some("the address holds a character that cannot be in an address".into());
+    }
+    match stream_scheme(url) {
+        Some(s) if allowed.contains(&s.as_str()) => None,
+        Some(s) => Some(format!(
+            "{s}:// cannot be used here: use {}",
+            allowed
+                .iter()
+                .map(|a| format!("{a}://"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+        None => Some(format!(
+            "the address starts with its protocol, like {}://host/name",
+            allowed[0]
+        )),
+    }
+}
 
 /// A name that fits in an address, as a web input or output needs: letters, digits, `-` and `_`.
 pub fn is_web_name(name: &str) -> bool {
@@ -325,6 +371,8 @@ pub enum NodeKind {
     /// Input: sound sent through the web (WebRTC): a browser (a phone's microphone, the page `/remote`) or a program
     /// (OBS, FFmpeg...) connects with WHIP to the address of `name` and sends. The name is open only while the graph runs.
     WebIn { name: String },
+    /// Input: a live stream read through FFmpeg (needs the FFmpeg module): RTMP, RTSP, SRT, RTP, UDP, or HTTP (Icecast, HLS...).
+    StreamIn { url: String },
     /// Input: a soundboard: the sound of its pads, as many as are playing at once. The soundboards themselves (their
     /// pads and sounds) are saved by the daemon, not in the graph: this block only names one.
     ///
@@ -351,6 +399,8 @@ pub enum NodeKind {
     /// Output: sound for whoever listens through the web (WebRTC): a browser or a program connects with WHEP to the address
     /// of `name` and hears the graph.
     WebOut { name: String },
+    /// Output: the sound sent as a live stream through FFmpeg (needs the FFmpeg module): RTMP, RTSP, SRT, RTP, UDP or Icecast.
+    StreamOut { url: String },
     // ---- processing
     /// Processing: gain in decibels.
     Gain { db: f32 },
@@ -515,6 +565,7 @@ impl NodeKind {
                 out_audio(),
             ],
             NodeKind::WebIn { .. } => vec![port("name", Input, TextFlow, false), out_audio()],
+            NodeKind::StreamIn { .. } => vec![port("url", Input, TextFlow, false), out_audio()],
             NodeKind::Soundboard { triggers, .. } => {
                 let count = (triggers.len() as u32).min(MAX_BRANCHES);
                 let plays = numbered("play", count, Input, Action);
@@ -536,6 +587,7 @@ impl NodeKind {
                 port("stream", Input, TextFlow, false),
             ],
             NodeKind::WebOut { .. } => vec![in_audio(), port("name", Input, TextFlow, false)],
+            NodeKind::StreamOut { .. } => vec![in_audio(), port("url", Input, TextFlow, false)],
             NodeKind::Gain { .. } => vec![in_audio(), port("db", Input, Float, false), out_audio()],
             NodeKind::Delay { .. } | NodeKind::NoiseReduction | NodeKind::DeepFilter { .. } => {
                 vec![in_audio(), out_audio()]
@@ -666,6 +718,7 @@ impl NodeKind {
             NodeKind::NetworkIn { .. } => &["port", "stream", "from"],
             NodeKind::NetworkOut { .. } => &["host", "port", "stream"],
             NodeKind::WebIn { .. } | NodeKind::WebOut { .. } => &["name"],
+            NodeKind::StreamIn { .. } | NodeKind::StreamOut { .. } => &["url"],
             _ => &[],
         }
     }
@@ -690,12 +743,14 @@ impl NodeKind {
             | NodeKind::DeviceCapture { .. }
             | NodeKind::NetworkIn { .. }
             | NodeKind::WebIn { .. }
+            | NodeKind::StreamIn { .. }
             | NodeKind::VirtualSpeaker { .. }
             | NodeKind::Soundboard { .. } => Category::Input,
             NodeKind::DeviceRender { .. }
             | NodeKind::VirtualMic { .. }
             | NodeKind::NetworkOut { .. }
-            | NodeKind::WebOut { .. } => Category::Output,
+            | NodeKind::WebOut { .. }
+            | NodeKind::StreamOut { .. } => Category::Output,
             NodeKind::Gain { .. }
             | NodeKind::Mixer
             | NodeKind::Gate
@@ -976,6 +1031,12 @@ mod tests {
             NodeKind::WebOut {
                 name: "listen".into(),
             },
+            NodeKind::StreamIn {
+                url: "rtmp://localhost/live/in".into(),
+            },
+            NodeKind::StreamOut {
+                url: "rtmp://localhost/live/out".into(),
+            },
             NodeKind::Gain { db: 0.0 },
             NodeKind::Mixer,
             NodeKind::Gate,
@@ -1201,13 +1262,15 @@ mod tests {
                         | NodeKind::NetworkOut { .. }
                         | NodeKind::WebIn { .. }
                         | NodeKind::WebOut { .. }
+                        | NodeKind::StreamIn { .. }
+                        | NodeKind::StreamOut { .. }
                         | NodeKind::Hotkey { .. }
                         | NodeKind::DeepFilter { .. }
                 )
             })
             .collect();
         assert_eq!(needs, expected);
-        assert_eq!(needs.iter().filter(|n| **n).count(), 10);
+        assert_eq!(needs.iter().filter(|n| **n).count(), 12);
     }
 
     #[test]

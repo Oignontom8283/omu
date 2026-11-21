@@ -535,6 +535,13 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
                     errors.push(GraphError::SameVirtualName(other.clone(), node.id.clone()));
                 }
             }
+            NodeKind::StreamIn { url } | NodeKind::StreamOut { url } => {
+                if let Some(problem) =
+                    omu_types::stream_problem(url, matches!(node.kind, NodeKind::StreamOut { .. }))
+                {
+                    errors.push(GraphError::BadNetwork(node.id.clone(), problem));
+                }
+            }
             NodeKind::WebIn { name } | NodeKind::WebOut { name } => {
                 let inputs = matches!(node.kind, NodeKind::WebIn { .. });
                 if !omu_types::is_web_name(name) {
@@ -1012,6 +1019,32 @@ mod tests {
             .filter_map(|d| d.node)
             .collect();
         assert_eq!(bad, vec!["b".into(), "c".into()], "{bad:?}");
+    }
+
+    #[test]
+    fn a_stream_address_must_use_a_protocol_that_carries_sound() {
+        let stream_in = |u: &str| NodeKind::StreamIn { url: u.into() };
+        let stream_out = |u: &str| NodeKind::StreamOut { url: u.into() };
+        let spec = GraphSpec {
+            nodes: vec![
+                node("file", stream_in("file:///c:/secret.wav")),
+                node("live", stream_in("rtmp://example.com/live/key")),
+                node("radio", stream_out("icecast://source:pw@host:8000/mount")),
+                node("web", stream_out("http://example.com/x")),
+                node("none", stream_in("example.com/no-protocol")),
+            ],
+            edges: vec![],
+        };
+        let bad: Vec<_> = diagnose(&spec)
+            .into_iter()
+            .filter(|d| d.code == "bad_network")
+            .filter_map(|d| d.node)
+            .collect();
+        assert_eq!(
+            bad,
+            vec!["file".into(), "web".into(), "none".into()],
+            "{bad:?}"
+        );
     }
 
     #[test]

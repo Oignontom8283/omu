@@ -191,6 +191,27 @@ pub fn report(trust: &Trust) -> TrustReport {
     }
 }
 
+/// Writes the certificates of the folder as one PEM bundle at `path` (what FFmpeg's own TLS reads), and says whether there was one
+/// to write.
+pub fn ca_bundle(trust: &Trust, path: &Path) -> Result<bool, Error> {
+    let loaded = load_folder(&trust.folder);
+    if loaded.found.is_empty() {
+        return Ok(false);
+    }
+    let text: String = loaded
+        .found
+        .iter()
+        .map(|f| pem::encode(&pem::Pem::new("CERTIFICATE", f.der.as_ref().to_vec())))
+        .collect();
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)
+            .map_err(|e| Error::Server(format!("cannot create {}: {e}", dir.display())))?;
+    }
+    std::fs::write(path, text)
+        .map_err(|e| Error::Server(format!("cannot write {}: {e}", path.display())))?;
+    Ok(true)
+}
+
 /// The certificates the HTTP client will believe.
 fn roots(trust: &Trust) -> Result<ureq::tls::RootCerts, Error> {
     let own: Vec<ureq::tls::Certificate<'static>> = load_folder(&trust.folder)

@@ -126,6 +126,24 @@ impl Modules {
         &self.dir
     }
 
+    /// What FFmpeg is told about certificates when it opens a secure stream: with only the user's own certificates trusted, it
+    /// is given them (and told to check); otherwise it uses what it normally does (the system's).
+    pub fn ffmpeg_tls_args(&self) -> Vec<String> {
+        let trust = lock(&self.trust).clone();
+        if trust.mode != omu_types::TrustMode::Own {
+            return vec![];
+        }
+        let bundle = self.data_dir.join("tls").join("ffmpeg-ca.pem");
+        match omu_tls::ca_bundle(&trust, &bundle) {
+            Ok(true) => ["-tls_verify", "1", "-ca_file"]
+                .map(String::from)
+                .into_iter()
+                .chain([bundle.display().to_string()])
+                .collect(),
+            _ => vec![],
+        }
+    }
+
     /// Whose certificates the next downloads believe.
     pub fn set_trust(&self, trust: omu_tls::Trust) {
         *lock(&self.trust) = trust;

@@ -211,7 +211,7 @@ impl Port {
             "a" => Port::A,
             "b" => Port::B,
             "else" => Port::Else,
-            "host" => Port::Net(0),
+            "host" | "url" => Port::Net(0),
             "port" => Port::Net(1),
             "stream" | "name" => Port::Net(2),
             "from" => Port::Net(3),

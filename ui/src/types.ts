@@ -27,6 +27,8 @@ export type NodeKind =
   | { type: 'network_out'; host: string; port: number; stream?: string }
   | { type: 'web_in'; name: string }
   | { type: 'web_out'; name: string }
+  | { type: 'stream_in'; url: string }
+  | { type: 'stream_out'; url: string }
   | { type: 'gain'; db: number }
   | { type: 'mixer' }
   | { type: 'gate' }

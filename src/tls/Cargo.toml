@@ -23,6 +23,7 @@ x509-parser = "0.18"
 # the certificate the daemon shows over HTTPS: made here, served with rustls (ring: no C compiler needed)
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = "0.14"
+pem = "3"
 sha2 = "0.10"
 time = "0.3"
 if-addrs = "0.13"
