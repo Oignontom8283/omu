@@ -512,12 +512,12 @@ button.inline {
   gap: 6px;
   height: var(--grid);
 }
-.adders .mini.add {
-  margin: 0;
 /* the buttons that add a connection point are in the column of the rows, one cell high like them */
 .adders.in-ports {
   padding: 0 10px;
 }
+.adders .mini.add {
+  margin: 0;
 }
 /* the buttons of a row are all the same size, their sign in the middle */
 .adders .mini {
@@ -584,6 +584,17 @@ button.inline {
   display: flex;
   align-items: center;
   min-height: var(--grid);
+}
+/* what is wrong with a setting: a red frame and a mark by its name, never a line more */
+.node .body .field.warned > span:first-child {
+  color: var(--bad);
+  gap: 3px;
+}
+.node .body .field.warned .kit-text,
+.node .body .field.warned .kit-select,
+.node .body .field.warned .kit-number,
+.node .body .field.warned .code-input {
+  border-color: var(--bad);
 }
 .trigger-row {
   min-height: var(--grid);
@@ -1488,6 +1499,9 @@ button.ref:hover:not(:disabled) {
 .tok-number {
   color: var(--cat-number);
 }
+.tok-string {
+  color: var(--cat-input);
+}
 .tok-function {
   color: var(--cat-processing);
 }
@@ -2153,6 +2167,23 @@ button.ref:hover:not(:disabled) {
   min-width: 0;
   height: 100%;
 }
+/* the pointer of a field is the one of its kind, not the one of the block it is on */
+.code-editor,
+.code-editor .cm-scroller,
+.code-editor .cm-content,
+.code-editor .cm-line,
+.react-flow__node .code-editor .cm-content,
+.react-flow__node .kit-text {
+  cursor: text;
+}
+.react-flow__node .kit-button,
+.react-flow__node .kit-select,
+.react-flow__node .kit-switch {
+  cursor: pointer;
+}
+.react-flow__node .kit-button:disabled {
+  cursor: default;
+}
 .code-editor.disabled {
   opacity: 0.5;
 }
@@ -2183,23 +2214,6 @@ button.ref:hover:not(:disabled) {
   font-size: 11px;
 }
 /* the lists and hovers of the editors are drawn in the page, over everything */
-/* the pointer of a field is the one of its kind, not the one of the block it is on */
-.code-editor,
-.code-editor .cm-scroller,
-.code-editor .cm-content,
-.code-editor .cm-line,
-.react-flow__node .code-editor .cm-content,
-.react-flow__node .kit-text {
-  cursor: text;
-}
-.react-flow__node .kit-button,
-.react-flow__node .kit-select,
-.react-flow__node .kit-switch {
-  cursor: pointer;
-}
-.react-flow__node .kit-button:disabled {
-  cursor: default;
-}
 .cm-tooltip {
   z-index: 100000 !important;
   background: var(--panel);
@@ -2355,4 +2369,105 @@ button.ref:hover:not(:disabled) {
   min-width: 240px;
   min-height: 80px;
   padding: 8px;
+}
+
+/* the blocks of the panel: a key, a lever, two cells high */
+.panel-control {
+  display: flex;
+  flex-direction: column;
+}
+.panel-button {
+  display: block;
+  width: 100%;
+  height: calc(2 * var(--grid) - 8px);
+  margin: 2px 0 6px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--cat-trigger) 55%, #000);
+  border-radius: 9px;
+  background: linear-gradient(color-mix(in srgb, #fff 28%, transparent), color-mix(in srgb, #000 12%, transparent)), var(--cat-trigger);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--cat-trigger) 50%, #000), 0 5px 7px rgb(0 0 0 / 0.25);
+  color: #fff;
+  font: 700 12px/1 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 60ms, box-shadow 60ms;
+}
+.panel-button:hover {
+  filter: brightness(1.06);
+}
+.panel-button:active,
+.panel-button.down {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 color-mix(in srgb, var(--cat-trigger) 50%, #000), 0 1px 2px rgb(0 0 0 / 0.3);
+}
+.panel-switch {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  height: calc(2 * var(--grid) - 4px);
+  margin: 2px 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(color-mix(in srgb, #000 6%, transparent), transparent), var(--field);
+  color: var(--text);
+  font: 700 12px/1 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.panel-switch .lamp {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.4);
+}
+.panel-switch.on .lamp {
+  background: var(--cat-condition);
+  box-shadow: 0 0 6px 1px var(--cat-condition);
+}
+.panel-switch .rail {
+  position: relative;
+  justify-self: center;
+  width: 44px;
+  height: 20px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #000 22%, var(--field));
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.4);
+}
+.panel-switch .lever {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(#fff, #c9ccd4);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+  transition: left 90ms;
+}
+.panel-switch.on .lever {
+  left: 26px;
+}
+.panel-switch.on .rail {
+  background: color-mix(in srgb, var(--cat-condition) 70%, #000);
+}
+.panel-switch .state {
+  min-width: 22px;
+  text-align: right;
+  color: var(--muted);
+}
+.panel-button.refused,
+.panel-switch.refused {
+  outline: 2px solid var(--bad);
+  outline-offset: 1px;
+}
+.panel-switch:focus-visible,
+.panel-button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }

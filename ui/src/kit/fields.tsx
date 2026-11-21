@@ -35,6 +35,8 @@ const Text = code('plain');
 const Template = code('template', (name) => name.startsWith('arg'));
 /** The expression of a calculation or a test: its inputs `a`, `b`... coloured, completed with the functions, and shown with what they are now. */
 const Expression = code('expression', () => true);
+/** The test of a block that tests texts: its inputs `a`, `b`... coloured, completed with the functions of a text, and shown with what they are now. */
+const TextTest = code('test', () => true);
 
 const number = ({ port, value, title, disabled, write }: FieldProps) => (
   <NumberField value={Number(value) || 0} whole={port.flow === 'int'} min={port.limits?.min} max={port.limits?.max} step={port.step ?? (port.flow === 'int' ? 1 : 0.5)} unit={port.unit} title={title} disabled={disabled} onChange={write} />
@@ -59,6 +61,7 @@ registerControl('omu.text', Text);
 registerControl('omu.code', Text);
 registerControl('omu.template', Template);
 registerControl('omu.expression', Expression);
+registerControl('omu.test', TextTest);
 registerControl('omu.number', number);
 registerControl('omu.number-slider', numberSlider);
 registerControl('omu.switch', toggle);

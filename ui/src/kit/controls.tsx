@@ -209,6 +209,8 @@ export type SliderProps = {
   max: number;
   step?: number;
   onChange: (n: number) => void;
+  /** Called with the last value when the thumb is let go (or a key has moved it): what is kept, not tried step by step. */
+  onCommit?: (n: number) => void;
   disabled?: boolean;
   title?: string;
   label?: string;
@@ -216,14 +218,18 @@ export type SliderProps = {
 };
 
 /** A slider over an advised range; a value outside it (typed, or given by a flow) keeps the thumb at the end, outlined. */
-export function Slider({ value, min, max, step = 1, onChange, disabled, title, label, className }: SliderProps) {
+export function Slider({ value, min, max, step = 1, onChange, onCommit, disabled, title, label, className }: SliderProps) {
   const track = useRef<HTMLDivElement>(null);
+  const last = useRef(value);
   const inside = Math.min(max, Math.max(min, value));
   const at = max > min ? (inside - min) / (max - min) : 0;
   const snap = (n: number) => Math.min(max, Math.max(min, Math.round(n / step) * step));
   const fromPointer = (clientX: number) => {
     const r = track.current?.getBoundingClientRect();
-    if (r && r.width > 0) onChange(snap(min + ((clientX - r.left) / r.width) * (max - min)));
+    if (r && r.width > 0) {
+      last.current = snap(min + ((clientX - r.left) / r.width) * (max - min));
+      onChange(last.current);
+    }
   };
   const press = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || e.button !== 0) return;
@@ -233,6 +239,7 @@ export function Slider({ value, min, max, step = 1, onChange, disabled, title, l
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      onCommit?.(last.current);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
@@ -242,6 +249,7 @@ export function Slider({ value, min, max, step = 1, onChange, disabled, title, l
     const to = (n: number) => {
       e.preventDefault();
       onChange(snap(n));
+      onCommit?.(snap(n));
     };
     if (e.key === 'ArrowRight' || e.key === 'ArrowUp') to(value + step * big);
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') to(value - step * big);

@@ -4,7 +4,7 @@ import { bracketMatching } from '@codemirror/language';
 import { Annotation, Compartment, EditorState, Prec, RangeSetBuilder, StateField, type Extension, type Text } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, ViewPlugin, highlightActiveLine, highlightActiveLineGutter, hoverTooltip, keymap, lineNumbers, placeholder as placeholderExtension, tooltips, type DecorationSet } from '@codemirror/view';
 import { useEffect, useRef } from 'react';
-import { FORMULA_FUNCTIONS, tokenizeFormula } from '../formula.ts';
+import { FORMULA_FUNCTIONS, TEXT_METHODS, TEXT_SIZE, tokenizeFormula, tokenizeTest } from '../formula.ts';
 import { useT } from '../i18n/index.tsx';
 import { tokenizeTemplate } from '../template.ts';
 
@@ -15,8 +15,11 @@ import { tokenizeTemplate } from '../template.ts';
 // It is drawn in one line, as a field of a block (a line break, when the text has one, is shown as a mark), or as a whole editor
 // with line numbers (the window that every text field opens: see `kit/code.tsx`).
 
-/** What the text is: a plain text, a template of text (`$arg1 is ${arg2:none}`), or a mathematical expression (`a + b`). */
-export type CodeLanguage = 'plain' | 'template' | 'expression';
+/**
+ * What the text is: a plain text, a template of text (`$arg1 is ${arg2:none}`), a mathematical expression (`a + b`), or a test on texts
+ * (`a.contains(b)`).
+ */
+export type CodeLanguage = 'plain' | 'template' | 'expression' | 'test';
 
 /** A name the text can use (an input of the block: `arg1`, `a`), with what it holds now, written out. */
 export type CodeName = { name: string; shown: string };
@@ -96,7 +99,18 @@ function piecesOf(language: CodeLanguage, doc: string, names: readonly CodeName[
       if (token.kind !== 'space') {
         const found = token.kind === 'variable' ? shownOf(token.text) : undefined;
         const fn = token.kind === 'function' ? FORMULA_FUNCTIONS.find((f) => f.name === token.text) : undefined;
-        const tip = found ? () => `${found.name} = ${found.shown}` : fn ? () => `${fn.signature}: ${fn.info}` : token.kind === 'unknown' && /^\w+$/.test(token.text) ? () => say('code.unknownName', { name: token.text }) : undefined;
+        const tip = found ? () => `${found.name} = ${found.shown}` : fn ? () => `${fn.signature}: ${say(`formula.fn.${fn.name}`)}` : token.kind === 'unknown' && /^\w+$/.test(token.text) ? () => say('code.unknownName', { name: token.text }) : undefined;
+        pieces.push({ from: at, to: end, className: `tok-${token.kind === 'unknown' ? 'error' : token.kind}`, tip });
+      }
+      at = end;
+    }
+  } else if (language === 'test') {
+    for (const token of tokenizeTest(doc, names.map((n) => n.name))) {
+      const end = at + token.text.length;
+      if (token.kind !== 'space') {
+        const found = token.kind === 'variable' ? shownOf(token.text) : undefined;
+        const fn = token.kind === 'function' ? [...TEXT_METHODS, TEXT_SIZE].find((f) => f.name === token.text) : undefined;
+        const tip = found ? () => `${found.name} = ${found.shown}` : fn ? () => `${fn.signature}: ${say(`test.fn.${fn.name}`)}` : token.kind === 'unknown' && /^\w+$/.test(token.text) ? () => say('code.unknownName', { name: token.text }) : undefined;
         pieces.push({ from: at, to: end, className: `tok-${token.kind === 'unknown' ? 'error' : token.kind}`, tip });
       }
       at = end;
@@ -128,9 +142,9 @@ function colours(language: CodeLanguage, read: () => { names: readonly CodeName[
 }
 
 /** The list of what can be written at the caret: the names of the block, and for an expression its functions. */
-function completer(language: CodeLanguage, read: () => { names: readonly CodeName[] }) {
+function completer(language: CodeLanguage, read: () => { names: readonly CodeName[]; say: (key: string, params?: Record<string, string>) => string }) {
   return (ctx: CompletionContext): CompletionResult | null => {
-    const { names } = read();
+    const { names, say } = read();
     if (language === 'template') {
       const before = ctx.matchBefore(/\$\{?\w*$/);
       if (!before || (before.from === before.to && !ctx.explicit)) return null;
@@ -141,11 +155,29 @@ function completer(language: CodeLanguage, read: () => { names: readonly CodeNam
         validFor: /^\$\{?\w*\}?$/,
       };
     }
+    if (language === 'test') {
+      // after a dot: the functions of a text
+      const method = ctx.matchBefore(/\.\w*$/);
+      if (method) {
+        return { from: method.from + 1, options: TEXT_METHODS.map((f) => snippetCompletion(f.snippet, { label: f.name, detail: f.signature, info: say(`test.fn.${f.name}`), type: 'method' })), validFor: /^\w*$/ };
+      }
+      const word = ctx.matchBefore(/[A-Za-z_]\w*$/);
+      if (!word && !ctx.explicit) return null;
+      const options: Completion[] = [
+        ...names.map((v): Completion => ({ label: v.name, detail: v.shown, type: 'variable', boost: 2 })),
+        snippetCompletion(TEXT_SIZE.snippet, { label: TEXT_SIZE.name, detail: TEXT_SIZE.signature, info: say(`test.fn.${TEXT_SIZE.name}`), type: 'function' }),
+        { label: 'and', type: 'keyword', detail: '&&' },
+        { label: 'or', type: 'keyword', detail: '||' },
+        { label: 'true', type: 'keyword' },
+        { label: 'false', type: 'keyword' },
+      ];
+      return { from: word ? word.from : ctx.pos, options, validFor: /^\w*$/ };
+    }
     const word = ctx.matchBefore(/[A-Za-z_]\w*$/);
     if (!word && !ctx.explicit) return null;
     const options: Completion[] = [
       ...names.map((v): Completion => ({ label: v.name, detail: v.shown, type: 'variable', boost: 2 })),
-      ...FORMULA_FUNCTIONS.map((f) => snippetCompletion(f.name === 'e' || f.name === 'pi' ? `${f.name}()` : `${f.name}(\${x})`, { label: f.name, detail: f.signature, info: f.info, type: 'function' })),
+      ...FORMULA_FUNCTIONS.map((f) => snippetCompletion(f.snippet, { label: f.name, detail: f.signature, info: say(`formula.fn.${f.name}`), type: 'function' })),
       { label: 'and', type: 'keyword', detail: '&&' },
       { label: 'or', type: 'keyword', detail: '||' },
     ];
@@ -221,7 +253,7 @@ export function CodeEditor({ value, onChange, language = 'plain', names = [], di
     if (code) {
       extensions.push(
         // only the brackets that mean something in this text are closed (an apostrophe or a quote in a text is only text)
-        EditorState.languageData.of(() => [{ closeBrackets: { brackets: language === 'expression' ? ['('] : ['{', '('] } }]),
+        EditorState.languageData.of(() => [{ closeBrackets: { brackets: language === 'expression' ? ['('] : language === 'test' ? ['(', '[', '"', "'"] : ['{', '('] } }]),
         colouring.current.of(colours(language, read)),
         hover,
         bracketMatching(),

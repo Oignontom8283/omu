@@ -1,3 +1,4 @@
+import { FORMULA_FUNCTIONS, TEXT_METHODS, TEXT_SIZE } from '../formula.ts';
 import { CATEGORIES, KINDS_BY_CATEGORY, categoryOf, defaultKind, portsOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { FlowType, NodeSpec, NodeType } from '../types.ts';
@@ -39,7 +40,15 @@ const SETTINGS: Partial<Record<NodeType, { key: string; type: string }[]>> = {
   math: [{ key: 'field.operation', type: 'Operation' }],
   compare: [{ key: 'field.operation', type: 'Operation' }],
   text_compare: [{ key: 'field.operation', type: 'Operation' }],
-  counter: [{ key: 'field.counterStart', type: 'Integer' }],
+  counter: [
+    { key: 'field.counterStart', type: 'Integer' },
+    { key: 'field.counterUp', type: 'Integer' },
+    { key: 'field.counterDown', type: 'Integer' },
+  ],
+  slider: [
+    { key: 'field.sliderMin', type: 'Decimal' },
+    { key: 'field.sliderMax', type: 'Decimal' },
+  ],
   round: [{ key: 'field.rounding', type: 'Mode' }],
 };
 
@@ -81,6 +90,10 @@ export function Doc({ doc, spec, onOpen }: { doc: DocRef; spec?: NodeSpec; onOpe
     if (settings.length) {
       lines.push(`## ${t('help.settings')}`, head, ...settings.map((s) => `| ${t(s.key)} | ${s.type === 'Condition' ? `[Condition](type:condition)` : `\`${s.type}\``} | ${t(`${s.key}.help`)} |`), '');
     }
+    // what can be written in the block, with examples, and the functions that can be called
+    if (has(`kind.${type}.examples`)) lines.push(`## ${t('help.examples')}`, t(`kind.${type}.examples`), '');
+    const functions = type === 'text_expr' ? [...TEXT_METHODS, TEXT_SIZE].map((f) => ({ f, key: `test.fn.${f.name}` })) : type === 'math_expr' || type === 'cond_expr' ? FORMULA_FUNCTIONS.map((f) => ({ f, key: `formula.fn.${f.name}` })) : [];
+    if (functions.length) lines.push(`## ${t('help.functions')}`, `| ${t('help.col.function')} | ${t('help.col.does')} |`, '|---|---|', ...functions.map(({ f, key }) => `| \`${f.signature}\` | ${t(key)} |`), '');
     if (has(`kind.${type}.warning`)) lines.push(`## ${t('help.warning')}`, `> ${t(`kind.${type}.warning`)}`, '');
     const family = KINDS_BY_CATEGORY[categoryOf(type)].filter((k) => k !== type);
     if (family.length) lines.push(`## ${t('help.seeAlso')}`, ...family.map((k) => `- [${t(`kind.${k}`)}](kind:${k})`), '');

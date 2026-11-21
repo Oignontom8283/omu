@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { tokenizeFormula } from './formula.ts';
+import { tokenizeFormula, tokenizeTest } from './formula.ts';
 
 const kinds = (source: string, inputs = ['a', 'b']) => tokenizeFormula(source, inputs).filter((t) => t.kind !== 'space').map((t) => `${t.kind}:${t.text}`);
 
@@ -23,4 +23,21 @@ test('a word that is not an input, and a function without its parenthesis, are m
   assert.deepEqual(kinds('log + 1'), ['unknown:log', 'operator:+', 'number:1']);
   assert.deepEqual(kinds('e() * a'), ['function:e', 'paren:(', 'paren:)', 'operator:*', 'variable:a']);
   assert.deepEqual(kinds('a # b'), ['variable:a', 'unknown:#', 'variable:b']);
+});
+
+const tested = (source: string, inputs = ['a', 'b']) => tokenizeTest(source, inputs).filter((t) => t.kind !== 'space').map((t) => `${t.kind}:${t.text}`);
+
+test('a test on texts: the texts between quotes, the functions of a text after a dot', () => {
+  for (const text of ['a.contains(b)', 'a == "x y"', "a.matches('^[0-9]+$') and b", 'a == "open', '¤ #']) assert.equal(tokenizeTest(text, ['a', 'b']).map((t) => t.text).join(''), text);
+  assert.deepEqual(tested('a.contains(b)'), ['variable:a', 'operator:.', 'function:contains', 'paren:(', 'variable:b', 'paren:)']);
+  assert.deepEqual(tested('a == "x = y"'), ['variable:a', 'operator:==', 'string:"x = y"']);
+  assert.deepEqual(tested('a.matches("^[0-9]+$") and not'), ['variable:a', 'operator:.', 'function:matches', 'paren:(', 'string:"^[0-9]+$"', 'paren:)', 'keyword:and', 'unknown:not']);
+  assert.deepEqual(tested('size(a) > 3 or true'), ['function:size', 'paren:(', 'variable:a', 'paren:)', 'operator:>', 'number:3', 'keyword:or', 'keyword:true']);
+});
+
+test('in a test, a word that is not an input, a function that does not exist, and a text left open are marked', () => {
+  assert.deepEqual(tested('a.nothing(b)'), ['variable:a', 'operator:.', 'unknown:nothing', 'paren:(', 'variable:b', 'paren:)']);
+  assert.deepEqual(tested('z == a'), ['unknown:z', 'operator:==', 'variable:a']);
+  assert.deepEqual(tested('a == "open'), ['variable:a', 'operator:==', 'string:"open']);
+  assert.deepEqual(tested('a.contains'), ['variable:a', 'operator:.', 'unknown:contains'], 'a function needs its parenthesis');
 });

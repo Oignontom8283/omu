@@ -3,11 +3,12 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useEditor } from '../context.ts';
 import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_EXPRESSION_ARGS, MAX_JOIN_ARGS, inputValue, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, variableName, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
-import type { CompareOp, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, RoundMode, TextOp } from '../types.ts';
+import type { CompareOp, ControlAction, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, RoundMode, TextOp } from '../types.ts';
 import { sizeOf } from '../grouping.ts';
 import { Button, ComboInput, NumberField, Select, Slider, Switch, TextInput } from '../kit/controls.tsx';
 import { controlNamed, defaultControl } from '../kit/registry.ts';
 import '../kit/fields.tsx';
+import { Icon } from './Icon.tsx';
 import { ShortcutField } from './ShortcutField.tsx';
 
 /** `inputs`: how many input points the block shows, for a block that sums its inputs (the mixer). */
@@ -30,16 +31,20 @@ function AppEditor({ spec }: { spec: Of<'app_capture'> }) {
   const value = 'pid' in spec.target ? String(spec.target.pid) : spec.target.process_name;
   const names = [...new Set(apps.map((a) => a.name))];
   const known = apps.some((a) => a.name.toLowerCase() === value.toLowerCase());
+  const missing = Boolean(value) && !/^\d+$/.test(value) && apps.length > 0 && !known;
+  // what is wrong is said by the field itself (a red frame, a mark by its name, the reason as a hover), never by a line that would make the block taller
   return (
-    <div className="field">
-      <span>{t('field.program')}</span>
+    <div className={`field${missing ? ' warned' : ''}`} title={missing ? t('field.programNotPlaying') : undefined}>
+      <span>
+        {missing && <Icon name="warning" size={12} />}
+        {t('field.program')}
+      </span>
       <ComboInput
         value={value}
         options={names}
         placeholder="chrome.exe"
         onChange={(v) => update(spec.id, { type: 'app_capture', target: /^\d+$/.test(v.trim()) ? { pid: Number(v.trim()) } : { process_name: v } })}
       />
-      {value && !/^\d+$/.test(value) && apps.length > 0 && !known && <small className="warn">{t('field.programNotPlaying')}</small>}
     </div>
   );
 }
@@ -80,19 +85,17 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
   // the last trigger cannot go while a link is on its input
   return (
     <>
-      <div className="field">
-        <span>{t('field.soundboard')}</span>
+      <div className={`field${!known && spec.board !== '' ? ' warned' : ''}`} title={!known && spec.board !== '' ? t('field.soundboardMissing') : undefined}>
+        <span>
+          {!known && spec.board !== '' && <Icon name="warning" size={12} />}
+          {t('field.soundboard')}
+        </span>
         <Select
           value={spec.board}
           options={[...(known ? [] : [{ value: spec.board, label: spec.board ? t('field.notFound') : t('field.chooseSoundboard') }]), ...library.boards.map((b) => ({ value: b.id, label: b.name }))]}
           onChange={(board) => update(spec.id, { type: 'soundboard', board, ...(spec.triggers?.length ? { triggers: [] } : {}) })}
         />
       </div>
-      {!known && spec.board !== '' && (
-        <small className="warn" title={t('field.soundboardMissing')}>
-          {t('field.notFound')}
-        </small>
-      )}
       {triggers.map((pad, i) => {
         const linked = edges.some((e) => e.target === spec.id && e.targetHandle === `play${i + 1}`);
         const last = i === triggers.length - 1;
@@ -215,6 +218,7 @@ export function Params({ spec }: { spec: NodeSpec }) {
       return <InputCount spec={spec} max={MAX_JOIN_ARGS} handle={(n) => `arg${n}`} add="node.addArgument" remove="node.removeArgument" />;
     case 'math_expr':
     case 'cond_expr':
+    case 'text_expr':
       return <InputCount spec={spec} max={MAX_EXPRESSION_ARGS} handle={(n) => variableName(n - 1)} add="node.addVariable" remove="node.removeVariable" />;
     case 'math':
       return <OperationField value={spec.op} options={['add', 'subtract', 'multiply', 'divide', 'min', 'max']} prefix="math" onChange={(op) => update(spec.id, { type: 'math', op: op as MathOp })} />;
@@ -225,7 +229,19 @@ export function Params({ spec }: { spec: NodeSpec }) {
     case 'text_compare':
       return <OperationField value={spec.op} options={['equals', 'contains', 'starts_with', 'ends_with']} prefix="textop" onChange={(op) => update(spec.id, { type: 'text_compare', op: op as TextOp })} />;
     case 'counter':
-      return <ValueField label="field.counterStart" value={spec.initial ?? 0} whole onChange={(initial) => update(spec.id, { type: 'counter', initial })} />;
+      return (
+        <>
+          <ValueField label="field.counterStart" value={spec.initial ?? 0} whole onChange={(initial) => update(spec.id, { ...spec, initial })} />
+          <ValueField label="field.counterUp" value={spec.up_by ?? 1} whole min={-1000000} max={1000000} onChange={(up_by) => update(spec.id, { ...spec, up_by })} />
+          <ValueField label="field.counterDown" value={spec.down_by ?? 1} whole min={-1000000} max={1000000} onChange={(down_by) => update(spec.id, { ...spec, down_by })} />
+        </>
+      );
+    case 'button':
+      return <PanelButton spec={spec} />;
+    case 'switch':
+      return <PanelSwitch spec={spec} />;
+    case 'slider':
+      return <PanelSlider spec={spec} />;
     case 'group':
       return <GroupBody spec={spec} />;
     case 'round':
@@ -298,13 +314,130 @@ function OperationField({ value, options, prefix, onChange }: { value: string; o
   );
 }
 
-function ValueField({ label, value, whole = false, onChange }: { label: string; value: number; whole?: boolean; onChange: (value: number) => void }) {
+function ValueField({ label, value, whole = false, min, max, onChange }: { label: string; value: number; whole?: boolean; min?: number; max?: number; onChange: (value: number) => void }) {
   const t = useT();
   return (
     <div className="field">
       <span>{t(label)}</span>
-      <NumberField value={value} whole={whole} step={whole ? 1 : 0.5} onChange={onChange} />
+      <NumberField value={value} whole={whole} min={min} max={max} step={whole ? 1 : 0.5} onChange={onChange} />
     </div>
+  );
+}
+
+/** Tells the running graph what was done to a block of the panel; the reason is shown under the block when it could not be done. */
+function useControl(id: string) {
+  const { control } = useEditor();
+  const t = useT();
+  const [problem, setProblem] = useState<string | null>(null);
+  const timer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+  const send = (action: ControlAction, persist = true) => {
+    void control(id, action, persist).then((error) => {
+      window.clearTimeout(timer.current);
+      // the reason is said in the interface's words, whatever the daemon answered
+      setProblem(error ? t('panel.notRunning') : null);
+      if (error) timer.current = window.setTimeout(() => setProblem(null), 4000);
+    });
+  };
+  return { send, problem };
+}
+
+/** A button of the panel, drawn as a key that goes down while it is pressed: it sends its action each time it is pressed. */
+function PanelButton({ spec }: { spec: Of<'button'> }) {
+  const t = useT();
+  const [down, setDown] = useState(false);
+  const { send, problem } = useControl(spec.id);
+  const press = () => {
+    setDown(true);
+    send({ type: 'press' });
+  };
+  return (
+    <div className="panel-control">
+      <button
+        type="button"
+        title={problem ?? undefined}
+        className={`panel-button nodrag${down ? ' down' : ''}${problem ? ' refused' : ''}`}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          press();
+        }}
+        onPointerUp={() => setDown(false)}
+        onPointerCancel={() => setDown(false)}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && !e.repeat) {
+            e.preventDefault();
+            press();
+          }
+        }}
+        onKeyUp={() => setDown(false)}
+      >
+        {t('panel.press')}
+      </button>
+    </div>
+  );
+}
+
+/** A switch of the panel, drawn as a lever on a rail with a lamp: where it is set is what the block gives. */
+function PanelSwitch({ spec }: { spec: Of<'switch'> }) {
+  const { update } = useEditor();
+  const t = useT();
+  const { send, problem } = useControl(spec.id);
+  const on = spec.on ?? false;
+  return (
+    <div className="panel-control">
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        aria-label={t('kind.switch')}
+        title={problem ?? undefined}
+        className={`panel-switch nodrag${on ? ' on' : ''}${problem ? ' refused' : ''}`}
+        onClick={() => {
+          update(spec.id, { ...spec, on: !on });
+          send({ type: 'switch', on: !on });
+        }}
+      >
+        <span className="lamp" />
+        <span className="rail">
+          <span className="lever" />
+        </span>
+        <span className="state">{t(on ? 'panel.on' : 'panel.off')}</span>
+      </button>
+    </div>
+  );
+}
+
+/** A slider of the panel between a minimum and a maximum that are typed in the block; the graph hears it as it moves. */
+function PanelSlider({ spec }: { spec: Of<'slider'> }) {
+  const { update } = useEditor();
+  const t = useT();
+  const { send, problem } = useControl(spec.id);
+  const min = spec.min ?? 0;
+  const max = spec.max ?? 100;
+  const value = Math.min(max, Math.max(min, spec.value ?? min));
+  // a step of about a hundredth of the range, in a round number
+  const span = Math.abs(max - min) || 1;
+  const step = Math.pow(10, Math.floor(Math.log10(span / 100)));
+  const place = (v: number, persist: boolean) => {
+    update(spec.id, { ...spec, value: v });
+    send({ type: 'slide', value: v }, persist);
+  };
+  return (
+    <>
+      <ValueField label="field.sliderMin" value={min} onChange={(v) => update(spec.id, { ...spec, min: v })} />
+      <ValueField label="field.sliderMax" value={max} onChange={(v) => update(spec.id, { ...spec, max: v })} />
+      <div className={`field${problem ? ' warned' : ''}`} title={problem ?? undefined}>
+        <span>
+          {problem && <Icon name="warning" size={12} />}
+          {t('field.sliderValue')}
+        </span>
+        <span className="field-pair">
+          <Slider value={value} min={min} max={Math.max(max, min + step)} step={step} label={t('field.sliderValue')} onChange={(v) => place(v, false)} onCommit={(v) => place(v, true)} />
+          <NumberField value={value} min={min} max={max} step={step} onChange={(v) => place(v, true)} />
+        </span>
+      </div>
+    </>
   );
 }
 
@@ -312,7 +445,7 @@ function ValueField({ label, value, whole = false, onChange }: { label: string; 
  * The buttons of a block that has as many inputs as it is asked for (a join, an expression): the "+" that adds one, and the "−" that
  * takes the last one away when nothing is linked to it.
  */
-function InputCount({ spec, max, handle, add, remove }: { spec: Of<'join'> | Of<'math_expr'> | Of<'cond_expr'>; max: number; handle: (n: number) => string; add: string; remove: string }) {
+function InputCount({ spec, max, handle, add, remove }: { spec: Of<'join'> | Of<'math_expr'> | Of<'cond_expr'> | Of<'text_expr'>; max: number; handle: (n: number) => string; add: string; remove: string }) {
   const { update } = useEditor();
   const t = useT();
   const edges = useEdges();
