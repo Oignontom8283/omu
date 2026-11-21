@@ -670,6 +670,7 @@ impl Inner {
                         meter: Arc::default(),
                         param: None,
                         net: None,
+                        muted: false,
                     });
                 }
                 let meter: Arc<Meter> = Arc::default();
@@ -704,6 +705,7 @@ impl Inner {
                     meter,
                     param,
                     net,
+                    muted: spec.muted,
                 });
             }
         }
@@ -872,6 +874,7 @@ fn sum_sounds(
             meter: Arc::default(),
             param: None,
             net: None,
+            muted: false,
         });
         out.push(Wire {
             from: nodes.len() - 1,

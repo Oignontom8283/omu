@@ -96,6 +96,10 @@ fn two() -> u32 {
     2
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
 fn nearest() -> RoundMode {
     RoundMode::Nearest
 }
@@ -709,6 +713,9 @@ pub struct NodeSpec {
     /// to the input wins over it. The settings that belong to the block's kind (a gain, a wait) are kept in the kind.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub inputs: std::collections::BTreeMap<String, InputValue>,
+    /// A muted block sends nothing (silence, no condition, no action): to listen to the rest of the graph without it.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub muted: bool,
     #[serde(flatten)]
     pub kind: NodeKind,
 }
@@ -720,6 +727,7 @@ impl NodeSpec {
             id: NodeId::from(id),
             display: None,
             inputs: Default::default(),
+            muted: false,
             kind,
         }
     }
@@ -746,6 +754,7 @@ mod tests {
                     id: "app".into(),
                     display: None,
                     inputs: Default::default(),
+                    muted: false,
                     kind: NodeKind::AppCapture {
                         target: AppTarget::ProcessName("chrome.exe".into()),
                     },
@@ -754,12 +763,14 @@ mod tests {
                     id: "vol".into(),
                     display: None,
                     inputs: Default::default(),
+                    muted: false,
                     kind: NodeKind::Gain { db: -6.0 },
                 },
                 NodeSpec {
                     id: "mic".into(),
                     display: None,
                     inputs: Default::default(),
+                    muted: false,
                     kind: NodeKind::VirtualMic {
                         name: "Stream".into(),
                     },
@@ -787,6 +798,7 @@ mod tests {
             id: "g".into(),
             display: None,
             inputs: Default::default(),
+            muted: false,
             kind: NodeKind::Gain { db: 3.5 },
         };
         let v: serde_json::Value = serde_json::to_value(&node).unwrap();
@@ -955,6 +967,7 @@ mod tests {
                 id: "x".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: k.clone(),
             };
             let back: NodeSpec =
@@ -1154,6 +1167,7 @@ mod tests {
             id: "m".into(),
             display: Some("Display".into()),
             inputs: Default::default(),
+            muted: false,
             kind: NodeKind::VirtualMic {
                 name: "Device".into(),
             },
@@ -1241,5 +1255,26 @@ mod inline_tests {
         .map(|p| p.name)
         .collect();
         assert_eq!(names, ["template", "arg1", "arg2", "out"]);
+    }
+}
+
+#[cfg(test)]
+mod muted_tests {
+    use super::*;
+
+    #[test]
+    fn muted_is_written_only_when_it_is_true() {
+        let mut spec = NodeSpec::new("g", NodeKind::Mixer);
+        assert!(!serde_json::to_string(&spec).unwrap().contains("muted"));
+        spec.muted = true;
+        let json = serde_json::to_string(&spec).unwrap();
+        assert!(json.contains("\"muted\":true"), "{json}");
+        assert_eq!(serde_json::from_str::<NodeSpec>(&json).unwrap(), spec);
+        assert!(
+            !serde_json::from_str::<NodeSpec>(r#"{"id":"m","type":"mixer"}"#)
+                .unwrap()
+                .muted,
+            "a graph written before has nothing muted"
+        );
     }
 }

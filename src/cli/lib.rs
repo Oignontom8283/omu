@@ -204,6 +204,7 @@ pub fn route_graph(args: &RouteArgs) -> GraphSpec {
         id: "app".into(),
         display: None,
         inputs: Default::default(),
+        muted: false,
         kind: NodeKind::AppCapture { target },
     }];
     let mut edges = vec![];
@@ -213,6 +214,7 @@ pub fn route_graph(args: &RouteArgs) -> GraphSpec {
             id: "gain".into(),
             display: None,
             inputs: Default::default(),
+            muted: false,
             kind: NodeKind::Gain { db },
         });
         edges.push(EdgeSpec {
@@ -225,6 +227,7 @@ pub fn route_graph(args: &RouteArgs) -> GraphSpec {
         id: "out".into(),
         display: None,
         inputs: Default::default(),
+        muted: false,
         kind: destination,
     });
     edges.push(EdgeSpec {

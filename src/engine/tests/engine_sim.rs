@@ -15,6 +15,7 @@ fn node(id: &str, kind: NodeKind) -> NodeSpec {
         id: id.into(),
         display: None,
         inputs: Default::default(),
+        muted: false,
         kind,
     }
 }
