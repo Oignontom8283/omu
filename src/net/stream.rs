@@ -50,6 +50,10 @@ pub fn input_args(url: &str, tls: &[String]) -> Vec<String> {
     .into();
     args.extend(tls.iter().cloned());
     let scheme = omu_types::stream_scheme(url);
+    if matches!(scheme.as_deref(), Some("http" | "https")) {
+        // a recording or a playlist that is not live is read at the speed it is played, not as fast as it can be decoded
+        args.push("-re".into());
+    }
     if matches!(scheme.as_deref(), Some("rtsp" | "rtsps")) {
         // over TCP: nothing is lost on the way, and it passes through firewalls
         args.extend(["-rtsp_transport", "tcp"].map(String::from));
@@ -229,6 +233,15 @@ impl CaptureStream for StreamCapture {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
         let child = Arc::new(Mutex::new(child));
+        // a stream that is connected but says nothing (a stalled server, a source that stopped) never ends by itself: a watchdog
+        // stops FFmpeg when no sound has come for a while, which fails the stream, which the engine then opens again
+        let watchdog = {
+            let (flag, child, health, last) = (stop.clone(), child.clone(), health.clone(), last.clone());
+            std::thread::Builder::new()
+                .name("stream-watchdog".into())
+                .spawn(move || watch(&flag, &child, &health, &last, STARTS_WITHIN, SILENT_FOR))
+                .map_err(|e| HalError::Backend(format!("cannot start the stream input: {e}")))?
+        };
         let reader = std::thread::Builder::new()
             .name("stream-in".into())
             .spawn(move || {
@@ -257,13 +270,51 @@ impl CaptureStream for StreamCapture {
                 }
             })
             .map_err(|e| HalError::Backend(format!("cannot start the stream input: {e}")))?;
-        let mut threads = vec![reader];
+        let mut threads = vec![reader, watchdog];
         threads.extend(errors);
         Ok(Box::new(Guard {
             stop,
             child,
             threads,
         }))
+    }
+}
+
+/// How long a stream may take to start (a connection to a server, a secure handshake, a playlist), and how long it may then be silent.
+const STARTS_WITHIN: Duration = Duration::from_secs(30);
+const SILENT_FOR: Duration = Duration::from_secs(15);
+
+/// Stops FFmpeg when it has produced nothing for too long (see the use in `StreamCapture::start`).
+fn watch(
+    stop: &AtomicBool,
+    child: &Mutex<Child>,
+    health: &StreamHealth,
+    last: &LastError,
+    starts_within: Duration,
+    silent_for: Duration,
+) {
+    let began = Instant::now();
+    let mut frames = health.frames();
+    let mut moved = Instant::now();
+    while !stop.load(Ordering::Relaxed) {
+        std::thread::sleep(Duration::from_millis(500));
+        let now = health.frames();
+        if now != frames {
+            frames = now;
+            moved = Instant::now();
+            continue;
+        }
+        let waiting = if frames == 0 { starts_within.saturating_sub(began.elapsed()) } else { silent_for.saturating_sub(moved.elapsed()) };
+        if waiting.is_zero() && !stop.load(Ordering::Relaxed) {
+            let message = if frames == 0 {
+                format!("no sound came in {} seconds", starts_within.as_secs().max(1))
+            } else {
+                format!("no sound for {} seconds", silent_for.as_secs().max(1))
+            };
+            health.fail(reason(last, &message));
+            let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
+            return;
+        }
     }
 }
 
@@ -372,6 +423,8 @@ mod tests {
             &args,
             &["-f", "f32le", "-ar", "48000", "-ac", "2", "pipe:1"]
         ));
+        assert!(has(&input_args("https://radio.example/live.m3u8", &[]), &["-re"]), "a web stream is read at its own speed");
+        assert!(!has(&args, &["-re"]), "a live protocol needs no pacing");
         let whitelist = args
             .iter()
             .position(|a| a == "-protocol_whitelist")
@@ -422,5 +475,28 @@ mod tests {
             &output_args("rtmps://x/y", &tls),
             &["-tls_verify", "1"]
         ));
+    }
+}
+
+#[cfg(all(test, windows))]
+mod watchdog_tests {
+    use super::*;
+
+    #[test]
+    fn a_stream_that_says_nothing_is_stopped_and_failed_instead_of_waited_for_for_ever() {
+        let child = Mutex::new(
+            std::process::Command::new("cmd")
+                .args(["/C", "ping -n 60 127.0.0.1 >nul"])
+                .spawn()
+                .unwrap(),
+        );
+        let (health, last, stop) = (StreamHealth::new(), LastError::default(), AtomicBool::new(false));
+        let started = Instant::now();
+        watch(&stop, &child, &health, &last, Duration::from_millis(900), Duration::from_millis(900));
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(health.has_failed());
+        assert!(health.error().unwrap().contains("no sound"), "{:?}", health.error());
+        let status = child.lock().unwrap().wait().unwrap();
+        assert!(!status.success(), "the program was stopped");
     }
 }
