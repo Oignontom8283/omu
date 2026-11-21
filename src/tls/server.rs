@@ -178,9 +178,11 @@ pub fn server_identity(
         })
         .collect::<Result<_, _>>()
         .map_err(|e: rcgen::Error| Error::Server(e.to_string()))?;
-    params
-        .distinguished_name
-        .push(rcgen::DnType::CommonName, "Omu local server");
+    // shown by a browser in its warning about the certificate: the product's name, whatever it is called
+    params.distinguished_name.push(
+        rcgen::DnType::CommonName,
+        format!("{} local server", omu_branding::DISPLAY_NAME),
+    );
     let now = time::OffsetDateTime::now_utc();
     params.not_before = now - time::Duration::days(1);
     params.not_after = now + time::Duration::days(VALID_DAYS);

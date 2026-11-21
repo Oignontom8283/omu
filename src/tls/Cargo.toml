@@ -11,6 +11,7 @@ publish = false
 path = "lib.rs"
 
 [dependencies]
+omu-branding = { path = "../branding" }
 omu-types = { path = "../types" }
 thiserror = "2.0"
 # the HTTP client, with the same pure-Rust TLS (rustls) on every system

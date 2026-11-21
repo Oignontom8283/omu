@@ -85,8 +85,9 @@ pub fn open_interface(panel_url: &str) -> Result<(), String> {
     }
     #[cfg(windows)]
     let command = {
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", "", panel_url]);
+        // not `cmd /C start`: it would read an `&` in the address as another command
+        let mut c = std::process::Command::new("rundll32");
+        c.args(["url.dll,FileProtocolHandler", panel_url]);
         c
     };
     #[cfg(target_os = "macos")]
