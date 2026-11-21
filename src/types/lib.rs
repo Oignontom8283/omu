@@ -19,10 +19,10 @@ pub use format::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
 pub use keys::{Key, KeyCombo, Modifiers};
 pub use modules::{ModuleInfo, Progress};
 pub use node::{
-    port_number, AppTarget, Category, CompareOp, DeviceRef, EdgeSpec, GraphSpec, InputValue,
-    LogicOp, MathOp, NodeId, NodeKind, NodeSpec, PortDirection, PortLimits, PortRef, PortSpec,
-    PortType, RoundMode, TextOp, MAX_BRANCHES, MAX_DELAY_MS, MAX_JOIN_ARGS, MAX_STREAM_NAME,
-    MAX_TEXT, MAX_WAIT_MS,
+    port_number, AppTarget, Category, CompareOp, DeviceRef, EdgeSpec, Exposed, GraphSpec,
+    InputValue, LogicOp, MathOp, NodeId, NodeKind, NodeSpec, PortDirection, PortLimits, PortRef,
+    PortSpec, PortType, RoundMode, TextOp, MAX_BRANCHES, MAX_DELAY_MS, MAX_JOIN_ARGS,
+    MAX_STREAM_NAME, MAX_TEXT, MAX_WAIT_MS,
 };
 pub use soundboard::{Board, HotkeyProblem, Pad, Settings, SoundInfo, SoundLibrary, SoundStatus};
 pub use status::{EngineStatus, Levels, NodeState, NodeStatus};

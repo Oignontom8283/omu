@@ -169,6 +169,16 @@ pub enum Category {
     Text,
     /// Changes one kind of flow into another (a sound into a number, a text into a number, a number into a yes/no...).
     Conversion,
+    /// Several blocks made into one.
+    Group,
+}
+
+/// A connection point of a block inside a group that the group shows as its own: `name` is what the group calls it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Exposed {
+    pub name: String,
+    pub node: NodeId,
+    pub port: String,
 }
 
 /// How a [`NodeKind::Round`] block makes a whole number from a decimal one.
@@ -423,6 +433,17 @@ pub enum NodeKind {
     FromCondition,
     /// Conversion: true while a number is not 0.
     ToCondition,
+    // ---- groups
+    /// Group: several blocks made into one, with the connection points of its inner blocks that `exposed` names. The engine never
+    /// sees a group: the graph is expanded into its blocks before it is checked and run (see `omu_graph::expand`).
+    Group {
+        graph: Box<GraphSpec>,
+        #[serde(default)]
+        exposed: Vec<Exposed>,
+        /// Where the inner blocks were drawn, by identifier, for an editor that takes the group apart again. Not read by the daemon.
+        #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+        layout: std::collections::BTreeMap<String, [f64; 2]>,
+    },
 }
 
 use PortDirection::{Input, Output};
@@ -596,6 +617,22 @@ impl NodeKind {
             ],
             NodeKind::FromCondition => vec![in_cond(false), port("out", Output, Int, false)],
             NodeKind::ToCondition => vec![port("in", Input, Float, false), out_cond()],
+            // the group shows the connection points of its inner blocks that it exposes, with their direction and type
+            NodeKind::Group { graph, exposed, .. } => exposed
+                .iter()
+                .filter_map(|e| {
+                    let inner = graph
+                        .nodes
+                        .iter()
+                        .find(|n| n.id == e.node)?
+                        .kind
+                        .port(&e.port)?;
+                    Some(PortSpec {
+                        name: e.name.clone(),
+                        ..inner
+                    })
+                })
+                .collect(),
         }
     }
 
@@ -669,6 +706,7 @@ impl NodeKind {
             | NodeKind::ToNumber
             | NodeKind::Round { .. }
             | NodeKind::FromCondition => Category::Conversion,
+            NodeKind::Group { .. } => Category::Group,
         }
     }
 
@@ -1024,6 +1062,7 @@ mod tests {
                 Category::Text => {
                     assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Text))
                 }
+                Category::Group => {}
                 Category::Conversion => assert!(
                     !outputs.is_empty()
                         && outputs

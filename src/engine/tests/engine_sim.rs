@@ -767,3 +767,56 @@ fn what_is_typed_in_a_block_feeds_its_unlinked_inputs() {
         "the block adds the two numbers typed in it"
     );
 }
+
+#[test]
+fn a_group_runs_as_the_blocks_it_is_made_of() {
+    use omu_types::Exposed;
+    let sim = SimBackend::new();
+    let engine = engine(&sim);
+    let inner = GraphSpec {
+        nodes: vec![node("vol", NodeKind::Gain { db: -6.0 })],
+        edges: vec![],
+    };
+    let group = node(
+        "g",
+        NodeKind::Group {
+            graph: Box::new(inner),
+            exposed: vec![
+                Exposed {
+                    name: "in".into(),
+                    node: "vol".into(),
+                    port: "in".into(),
+                },
+                Exposed {
+                    name: "out".into(),
+                    node: "vol".into(),
+                    port: "out".into(),
+                },
+            ],
+            layout: Default::default(),
+        },
+    );
+    let graph = validate(&GraphSpec {
+        nodes: vec![
+            node("app", app_node()),
+            group,
+            node(
+                "mic",
+                NodeKind::VirtualMic {
+                    name: "Grouped".into(),
+                },
+            ),
+        ],
+        edges: vec![edge("app", "g"), edge("g", "mic")],
+    })
+    .unwrap();
+    engine.apply(graph);
+    assert!(
+        wait_for(Duration::from_secs(5), || engine
+            .status()
+            .nodes
+            .iter()
+            .any(|n| n.id.0 == "g.vol" && n.state == NodeState::Running)),
+        "the block inside the group runs"
+    );
+}

@@ -11,8 +11,8 @@
 //! * two sinks may not use the same device, and two virtual microphones may not share a name.
 
 use omu_types::{
-    DeviceRef, Diagnostic, EdgeSpec, GraphSpec, KeyCombo, NodeId, NodeKind, PortDirection,
-    MAX_BRANCHES, MAX_DELAY_MS, MAX_JOIN_ARGS, MAX_TEXT, MAX_WAIT_MS,
+    DeviceRef, Diagnostic, EdgeSpec, GraphSpec, KeyCombo, NodeId, NodeKind, NodeSpec,
+    PortDirection, MAX_BRANCHES, MAX_DELAY_MS, MAX_JOIN_ARGS, MAX_TEXT, MAX_WAIT_MS,
 };
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -63,6 +63,8 @@ pub enum GraphError {
     SamePort(NodeId, NodeId, u16),
     #[error("block {0:?}: {1}")]
     BadValue(NodeId, String),
+    #[error("group {0:?}: {1}")]
+    BadGroup(NodeId, String),
 }
 
 impl GraphError {
@@ -113,6 +115,7 @@ impl GraphError {
             GraphError::BadNetwork(n, _) => d("bad_network").at(n),
             GraphError::SamePort(a, _, _) => d("same_port").at(a),
             GraphError::BadValue(n, _) => d("bad_value").at(n),
+            GraphError::BadGroup(n, _) => d("bad_group").at(n),
         }
     }
 }
@@ -157,8 +160,161 @@ fn port_name(node: &NodeId, port: &str) -> String {
     format!("{node}.{port}")
 }
 
+/// How many groups can be inside groups.
+const MAX_GROUP_DEPTH: usize = 8;
+
+/// The blocks of a graph with every group taken apart: the blocks of a group `g` become `g.<their id>` (and so on, inside
+/// groups inside groups), and a link to a connection point that a group exposes goes to the inner block's. A muted group mutes
+/// all its blocks. A graph with no group comes back as it is.
+pub fn expand(spec: &GraphSpec) -> Result<GraphSpec, Vec<GraphError>> {
+    if !spec
+        .nodes
+        .iter()
+        .any(|n| matches!(n.kind, NodeKind::Group { .. }))
+    {
+        return Ok(spec.clone());
+    }
+    let mut errors = vec![];
+    let flat = flatten(spec, "", false, 0, &mut errors);
+    if errors.is_empty() {
+        Ok(GraphSpec {
+            nodes: flat.nodes,
+            edges: flat.edges,
+        })
+    } else {
+        Err(errors)
+    }
+}
+
+struct Flat {
+    nodes: Vec<NodeSpec>,
+    edges: Vec<EdgeSpec>,
+    /// Where a connection point of a block of this graph really is: for a group, the inner block it exposes it from.
+    ports: HashMap<(String, String), (String, String)>,
+}
+
+fn flatten(
+    spec: &GraphSpec,
+    prefix: &str,
+    muted: bool,
+    depth: usize,
+    errors: &mut Vec<GraphError>,
+) -> Flat {
+    let mut nodes = vec![];
+    let mut edges = vec![];
+    // for each group of this graph: its exposed names and where they lead
+    let mut exposed: HashMap<String, HashMap<String, (String, String)>> = HashMap::new();
+    for node in &spec.nodes {
+        let NodeKind::Group {
+            graph,
+            exposed: names,
+            ..
+        } = &node.kind
+        else {
+            let mut n = node.clone();
+            n.id = NodeId(format!("{prefix}{}", node.id.0));
+            n.muted |= muted;
+            nodes.push(n);
+            continue;
+        };
+        if depth >= MAX_GROUP_DEPTH {
+            errors.push(GraphError::BadGroup(
+                node.id.clone(),
+                format!("groups are inside groups more than {MAX_GROUP_DEPTH} times"),
+            ));
+            continue;
+        }
+        let inner = flatten(
+            graph,
+            &format!("{prefix}{}.", node.id.0),
+            muted || node.muted,
+            depth + 1,
+            errors,
+        );
+        let mut leads = HashMap::new();
+        for e in names {
+            // the exposed point is a point of an inner block, which may itself be a group
+            match inner
+                .ports
+                .get(&(e.node.0.clone(), e.port.clone()))
+                .cloned()
+                .or_else(|| {
+                    graph
+                        .nodes
+                        .iter()
+                        .any(|n| n.id == e.node && !matches!(n.kind, NodeKind::Group { .. }))
+                        .then(|| {
+                            (
+                                format!("{prefix}{}.{}", node.id.0, e.node.0),
+                                e.port.clone(),
+                            )
+                        })
+                }) {
+                Some(to) => {
+                    leads.insert(e.name.clone(), to);
+                }
+                None => errors.push(GraphError::BadGroup(
+                    node.id.clone(),
+                    format!(
+                        "it exposes {:?}, which is not a connection point of its blocks",
+                        e.name
+                    ),
+                )),
+            }
+        }
+        exposed.insert(node.id.0.clone(), leads);
+        nodes.extend(inner.nodes);
+        edges.extend(inner.edges);
+    }
+    // a link of this graph: its ends are resolved through the groups
+    let resolve = |end: &omu_types::PortRef, errors: &mut Vec<GraphError>| -> omu_types::PortRef {
+        match exposed.get(&end.node.0) {
+            Some(leads) => match leads.get(&end.port) {
+                Some((node, port)) => omu_types::PortRef {
+                    node: NodeId(node.clone()),
+                    port: port.clone(),
+                },
+                None => {
+                    errors.push(GraphError::UnknownPort {
+                        node: NodeId(format!("{prefix}{}", end.node.0)),
+                        port: end.port.clone(),
+                    });
+                    end.clone()
+                }
+            },
+            None => omu_types::PortRef {
+                node: NodeId(format!("{prefix}{}", end.node.0)),
+                port: end.port.clone(),
+            },
+        }
+    };
+    for e in &spec.edges {
+        edges.push(EdgeSpec {
+            from: resolve(&e.from, errors),
+            to: resolve(&e.to, errors),
+        });
+    }
+    // where the connection points of this graph's blocks are, for the group that holds it
+    let mut ports = HashMap::new();
+    for (group, leads) in &exposed {
+        for (name, to) in leads {
+            ports.insert((group.clone(), name.clone()), to.clone());
+        }
+    }
+    Flat {
+        nodes,
+        edges,
+        ports,
+    }
+}
+
 /// Validates `spec`; returns every problem found (not only the first), so a client can show them all.
 pub fn validate(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
+    let expanded = expand(spec)?;
+    validate_flat(&expanded)
+}
+
+fn validate_flat(spec: &GraphSpec) -> Result<ValidGraph, Vec<GraphError>> {
     let mut errors = vec![];
     let mut index: HashMap<&NodeId, usize> = HashMap::new();
     for (i, node) in spec.nodes.iter().enumerate() {
@@ -643,6 +799,170 @@ mod tests {
         // the text is still the error's own
         assert!(found.iter().all(|d| !d.message.is_empty()));
         assert!(diagnose(&GraphSpec::default()).is_empty());
+    }
+
+    fn group_of(id: &str, inner: GraphSpec, exposed: &[(&str, &str, &str)]) -> NodeSpec {
+        use omu_types::Exposed;
+        node(
+            id,
+            NodeKind::Group {
+                graph: Box::new(inner),
+                exposed: exposed
+                    .iter()
+                    .map(|(name, n, p)| Exposed {
+                        name: (*name).into(),
+                        node: (*n).into(),
+                        port: (*p).into(),
+                    })
+                    .collect(),
+                layout: Default::default(),
+            },
+        )
+    }
+
+    /// `app -> [g: gain] -> mic`, with the gain in a group that exposes its input and its output.
+    fn grouped_chain() -> GraphSpec {
+        let inner = GraphSpec {
+            nodes: vec![node("vol", gain())],
+            edges: vec![],
+        };
+        GraphSpec {
+            nodes: vec![
+                node("app", app()),
+                group_of("g", inner, &[("in", "vol", "in"), ("out", "vol", "out")]),
+                node("mic", mic("M")),
+            ],
+            edges: vec![edge("app", "out", "g", "in"), edge("g", "out", "mic", "in")],
+        }
+    }
+
+    #[test]
+    fn a_group_is_taken_apart_before_the_graph_is_checked() {
+        let spec = grouped_chain();
+        let flat = expand(&spec).unwrap();
+        assert!(flat
+            .nodes
+            .iter()
+            .all(|n| !matches!(n.kind, NodeKind::Group { .. })));
+        assert!(
+            flat.nodes.iter().any(|n| n.id.0 == "g.vol"),
+            "the inner blocks are named after the group"
+        );
+        assert!(
+            flat.edges.contains(&edge("app", "out", "g.vol", "in")),
+            "a link to the group goes to the block inside"
+        );
+        assert!(flat.edges.contains(&edge("g.vol", "out", "mic", "in")));
+        let valid = validate(&spec).unwrap();
+        assert_eq!(
+            valid.spec.nodes.len(),
+            3,
+            "the engine gets the blocks, never the group"
+        );
+        // the group shows the connection points it exposes, with their types
+        let ports = spec.nodes[1].kind.ports();
+        assert_eq!(
+            ports
+                .iter()
+                .map(|p| (p.name.as_str(), p.direction))
+                .collect::<Vec<_>>(),
+            [("in", PortDirection::Input), ("out", PortDirection::Output)]
+        );
+    }
+
+    #[test]
+    fn groups_inside_groups_are_taken_apart_too_and_a_muted_group_mutes_what_is_in_it() {
+        let innermost = GraphSpec {
+            nodes: vec![node("vol", gain())],
+            edges: vec![],
+        };
+        let middle = GraphSpec {
+            nodes: vec![group_of(
+                "deep",
+                innermost,
+                &[("in", "vol", "in"), ("out", "vol", "out")],
+            )],
+            edges: vec![],
+        };
+        let mut outer = group_of(
+            "top",
+            middle,
+            &[("in", "deep", "in"), ("out", "deep", "out")],
+        );
+        outer.muted = true;
+        let spec = GraphSpec {
+            nodes: vec![node("app", app()), outer, node("mic", mic("M"))],
+            edges: vec![
+                edge("app", "out", "top", "in"),
+                edge("top", "out", "mic", "in"),
+            ],
+        };
+        let flat = expand(&spec).unwrap();
+        let vol = flat
+            .nodes
+            .iter()
+            .find(|n| n.id.0 == "top.deep.vol")
+            .expect("two levels down");
+        assert!(vol.muted);
+        assert!(flat
+            .edges
+            .contains(&edge("app", "out", "top.deep.vol", "in")));
+        assert!(validate(&spec).is_ok());
+    }
+
+    #[test]
+    fn a_problem_inside_a_group_is_found_and_named_after_the_block_inside() {
+        // a sound output linked into a number input of the block in the group
+        let inner = GraphSpec {
+            nodes: vec![node("vol", gain())],
+            edges: vec![],
+        };
+        let spec = GraphSpec {
+            nodes: vec![
+                node("app", app()),
+                group_of("g", inner, &[("level", "vol", "db"), ("in", "vol", "in")]),
+            ],
+            edges: vec![edge("app", "out", "g", "level")],
+        };
+        let found = diagnose(&spec);
+        let mismatch = found
+            .iter()
+            .find(|d| d.code == "type_mismatch")
+            .expect("a sound does not go into a number");
+        assert_eq!(mismatch.node, Some("g.vol".into()));
+    }
+
+    #[test]
+    fn a_group_that_exposes_what_does_not_exist_says_so_and_a_graph_without_groups_is_untouched() {
+        let inner = GraphSpec {
+            nodes: vec![node("vol", gain())],
+            edges: vec![],
+        };
+        let spec = GraphSpec {
+            nodes: vec![group_of("g", inner, &[("x", "nobody", "in")])],
+            edges: vec![],
+        };
+        assert!(diagnose(&spec)
+            .iter()
+            .any(|d| d.code == "bad_group" && d.node == Some("g".into())));
+        // a link to a name the group does not expose
+        let inner = GraphSpec {
+            nodes: vec![node("vol", gain())],
+            edges: vec![],
+        };
+        let spec = GraphSpec {
+            nodes: vec![
+                node("app", app()),
+                group_of("g", inner, &[("in", "vol", "in")]),
+            ],
+            edges: vec![edge("app", "out", "g", "other")],
+        };
+        assert!(diagnose(&spec).iter().any(|d| d.code == "unknown_port"));
+        let plain = GraphSpec {
+            nodes: vec![node("app", app())],
+            edges: vec![],
+        };
+        assert_eq!(expand(&plain).unwrap(), plain);
     }
 
     #[test]
