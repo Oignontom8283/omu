@@ -355,14 +355,18 @@ fn resolve(host: &str, port: u16) -> Result<SocketAddr, HalError> {
     let (tx, rx) = std::sync::mpsc::channel();
     let name = host.to_owned();
     std::thread::spawn(move || {
-        let found = (name.as_str(), port).to_socket_addrs().map(|mut a| a.next());
+        let found = (name.as_str(), port)
+            .to_socket_addrs()
+            .map(|mut a| a.next());
         let _ = tx.send(found);
     });
     match rx.recv_timeout(Duration::from_secs(3)) {
         Ok(Ok(Some(address))) => Ok(address),
         Ok(Ok(None)) => Err(HalError::NotFound(format!("cannot find {host}"))),
         Ok(Err(e)) => Err(HalError::NotFound(format!("cannot find {host}: {e}"))),
-        Err(_) => Err(HalError::NotFound(format!("cannot find {host}: no answer to the search for its address"))),
+        Err(_) => Err(HalError::NotFound(format!(
+            "cannot find {host}: no answer to the search for its address"
+        ))),
     }
 }
 

@@ -267,7 +267,13 @@ mod system_sounds_tests {
     #[test]
     fn only_s_ok_is_the_system_sounds_session() {
         assert!(is_system_sounds(HRESULT(0)), "S_OK: it is");
-        assert!(!is_system_sounds(HRESULT(1)), "S_FALSE: it is not, though it is a success");
-        assert!(!is_system_sounds(HRESULT(-2147467259)), "an error is not an answer");
+        assert!(
+            !is_system_sounds(HRESULT(1)),
+            "S_FALSE: it is not, though it is a success"
+        );
+        assert!(
+            !is_system_sounds(HRESULT(-2147467259)),
+            "an error is not an answer"
+        );
     }
 }

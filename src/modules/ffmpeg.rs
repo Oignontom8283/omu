@@ -152,7 +152,14 @@ pub fn import(
 fn run_import(ffmpeg: &Path, source: &Path, destination: &Path) -> Result<u64, String> {
     let mut child = command(ffmpeg)
         // a file of this computer and nothing else (a playlist inside it must not make FFmpeg read other files or the network)
-        .args(["-nostdin", "-v", "error", "-protocol_whitelist", "file", "-i"])
+        .args([
+            "-nostdin",
+            "-v",
+            "error",
+            "-protocol_whitelist",
+            "file",
+            "-i",
+        ])
         .arg(source)
         // the first sound track only: no picture, no subtitles, no data
         .args(["-map", "0:a:0", "-vn", "-sn", "-dn"])

@@ -771,8 +771,7 @@ impl Inner {
                     })?;
                 // the worker fails this when it dies, so that the block is opened again instead of staying silent
                 let health = StreamHealth::new();
-                let (endpoints, worker) =
-                    omu_deepfilter::start(&model, *limit_db, health.clone())?;
+                let (endpoints, worker) = omu_deepfilter::start(&model, *limit_db, health.clone())?;
                 Ok(Resource {
                     kind: kind.clone(),
                     io: Io::Filter(endpoints),

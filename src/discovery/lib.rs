@@ -90,7 +90,10 @@ mod tests {
         let live = record(listener.local_addr().unwrap().to_string());
         assert!(live.answers());
         drop(listener);
-        assert!(!live.answers(), "nobody there any more: the record is stale, whatever process has that number now");
+        assert!(
+            !live.answers(),
+            "nobody there any more: the record is stale, whatever process has that number now"
+        );
         assert!(!record("not an address".into()).answers());
     }
 

@@ -236,7 +236,8 @@ impl CaptureStream for StreamCapture {
         // a stream that is connected but says nothing (a stalled server, a source that stopped) never ends by itself: a watchdog
         // stops FFmpeg when no sound has come for a while, which fails the stream, which the engine then opens again
         let watchdog = {
-            let (flag, child, health, last) = (stop.clone(), child.clone(), health.clone(), last.clone());
+            let (flag, child, health, last) =
+                (stop.clone(), child.clone(), health.clone(), last.clone());
             std::thread::Builder::new()
                 .name("stream-watchdog".into())
                 .spawn(move || watch(&flag, &child, &health, &last, STARTS_WITHIN, SILENT_FOR))
@@ -304,10 +305,17 @@ fn watch(
             moved = Instant::now();
             continue;
         }
-        let waiting = if frames == 0 { starts_within.saturating_sub(began.elapsed()) } else { silent_for.saturating_sub(moved.elapsed()) };
+        let waiting = if frames == 0 {
+            starts_within.saturating_sub(began.elapsed())
+        } else {
+            silent_for.saturating_sub(moved.elapsed())
+        };
         if waiting.is_zero() && !stop.load(Ordering::Relaxed) {
             let message = if frames == 0 {
-                format!("no sound came in {} seconds", starts_within.as_secs().max(1))
+                format!(
+                    "no sound came in {} seconds",
+                    starts_within.as_secs().max(1)
+                )
             } else {
                 format!("no sound for {} seconds", silent_for.as_secs().max(1))
             };
@@ -423,7 +431,13 @@ mod tests {
             &args,
             &["-f", "f32le", "-ar", "48000", "-ac", "2", "pipe:1"]
         ));
-        assert!(has(&input_args("https://radio.example/live.m3u8", &[]), &["-re"]), "a web stream is read at its own speed");
+        assert!(
+            has(
+                &input_args("https://radio.example/live.m3u8", &[]),
+                &["-re"]
+            ),
+            "a web stream is read at its own speed"
+        );
         assert!(!has(&args, &["-re"]), "a live protocol needs no pacing");
         let whitelist = args
             .iter()
@@ -490,12 +504,27 @@ mod watchdog_tests {
                 .spawn()
                 .unwrap(),
         );
-        let (health, last, stop) = (StreamHealth::new(), LastError::default(), AtomicBool::new(false));
+        let (health, last, stop) = (
+            StreamHealth::new(),
+            LastError::default(),
+            AtomicBool::new(false),
+        );
         let started = Instant::now();
-        watch(&stop, &child, &health, &last, Duration::from_millis(900), Duration::from_millis(900));
+        watch(
+            &stop,
+            &child,
+            &health,
+            &last,
+            Duration::from_millis(900),
+            Duration::from_millis(900),
+        );
         assert!(started.elapsed() < Duration::from_secs(10));
         assert!(health.has_failed());
-        assert!(health.error().unwrap().contains("no sound"), "{:?}", health.error());
+        assert!(
+            health.error().unwrap().contains("no sound"),
+            "{:?}",
+            health.error()
+        );
         let status = child.lock().unwrap().wait().unwrap();
         assert!(!status.success(), "the program was stopped");
     }

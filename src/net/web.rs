@@ -201,7 +201,9 @@ impl Hub {
             .cloned()
             .ok_or_else(|| WebError::NoEndpoint(name.to_owned()))?;
         if ingest.sessions.load(Ordering::Relaxed) >= MAX_PER_NAME {
-            return Err(WebError::Internal(format!("too many connections to {name:?} already")));
+            return Err(WebError::Internal(format!(
+                "too many connections to {name:?} already"
+            )));
         }
         ingest.sessions.fetch_add(1, Ordering::Relaxed);
         let result = self.start_session(offer_sdp, Role::Ingest(ingest.clone()));
@@ -219,7 +221,9 @@ impl Hub {
             .cloned()
             .ok_or_else(|| WebError::NoEndpoint(name.to_owned()))?;
         if lock(&egress.listeners).len() >= MAX_PER_NAME {
-            return Err(WebError::Internal(format!("too many listeners to {name:?} already")));
+            return Err(WebError::Internal(format!(
+                "too many listeners to {name:?} already"
+            )));
         }
         // a few packets of room: a listener that falls behind loses sound instead of holding up the graph
         let (tx, rx) = mpsc::sync_channel(16);

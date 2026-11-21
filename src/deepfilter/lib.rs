@@ -333,7 +333,8 @@ mod tests {
     #[test]
     fn sound_comes_back_processed_in_order_after_one_hop_of_delay_whatever_the_cycle_length() {
         for frames in [480usize, 240, 960] {
-            let (endpoints, worker) = start_with(|| Ok(Half), omu_hal::StreamHealth::new()).unwrap();
+            let (endpoints, worker) =
+                start_with(|| Ok(Half), omu_hal::StreamHealth::new()).unwrap();
             let heard = run(
                 &endpoints,
                 frames,
@@ -389,7 +390,10 @@ mod tests {
         while !health.has_failed() && std::time::Instant::now() < end {
             std::thread::sleep(Duration::from_millis(10));
         }
-        assert!(health.has_failed(), "the block is reported as failed, so that the engine opens it again");
+        assert!(
+            health.has_failed(),
+            "the block is reported as failed, so that the engine opens it again"
+        );
         drop(worker);
     }
 

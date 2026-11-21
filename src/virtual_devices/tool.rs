@@ -140,8 +140,18 @@ fn run(
             text
         })
     };
-    let out = reader(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
-    let err = reader(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let out = reader(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let err = reader(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
     let end = std::time::Instant::now() + limit;
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -152,7 +162,10 @@ fn run(
             let _ = child.wait();
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                format!("it did not finish in {} seconds and was stopped", limit.as_secs()),
+                format!(
+                    "it did not finish in {} seconds and was stopped",
+                    limit.as_secs()
+                ),
             ));
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
@@ -193,7 +206,8 @@ impl UsbipTool for UsbipExe {
                 busid,
             ])
             .args(["--once", "--terse"]);
-        let output = run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        let output =
+            run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
         if !output.status.success() {
             return Err(format!(
                 "usbip attach failed: {}{}",
@@ -224,7 +238,8 @@ impl UsbipTool for UsbipExe {
         let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
         let mut command = Self::command(&path);
         command.arg("port");
-        let output = run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        let output =
+            run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
         Ok(parse_imported(&String::from_utf8_lossy(&output.stdout)))
     }
 
@@ -238,8 +253,11 @@ impl UsbipTool for UsbipExe {
         }
         let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
         let mut command = Self::command(&path);
-        command.args(["port", "--stash"]).args(ports.iter().map(|p| p.to_string()));
-        let output = run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        command
+            .args(["port", "--stash"])
+            .args(ports.iter().map(|p| p.to_string()));
+        let output =
+            run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
         output.status.success().then_some(()).ok_or_else(|| {
             format!(
                 "usbip port --stash failed: {}{}",
@@ -253,7 +271,8 @@ impl UsbipTool for UsbipExe {
         let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
         let mut command = Self::command(&path);
         command.args(["list", "--stashed"]);
-        let output = run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        let output =
+            run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
         Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
             .map(str::trim)
@@ -379,6 +398,9 @@ mod run_tests {
         let started = Instant::now();
         let e = run(cmd("ping -n 30 127.0.0.1 >nul"), Duration::from_millis(400)).unwrap_err();
         assert_eq!(e.kind(), std::io::ErrorKind::TimedOut, "{e}");
-        assert!(started.elapsed() < Duration::from_secs(5), "not waited for the whole of it");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "not waited for the whole of it"
+        );
     }
 }

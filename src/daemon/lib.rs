@@ -58,6 +58,9 @@ pub struct Daemon {
     /// What changes the running graph (apply, start, stop, restore) takes one at a time, from the engine to the file and the shortcuts:
     /// the engine, the saved state and the pad shortcuts then always describe the same graph. Taken before `state`, never after.
     ops: Mutex<()>,
+    /// When the saved graph was started again at launch, and how long the daemon must then live for that to count as having worked.
+    restoring: Mutex<Option<std::time::Instant>>,
+    restore_settles: std::time::Duration,
     /// Saving the layout: one at a time, so that what is on the disk is what the memory holds.
     layout_gate: Mutex<()>,
     /// What the secure server says about itself (written by the task that runs it).
@@ -106,11 +109,21 @@ fn params<M: Method>(value: Value) -> Result<M::Params, RpcError> {
     serde_json::from_value(value).map_err(|e| RpcError::invalid_params(format!("{}: {e}", M::NAME)))
 }
 
+/// The file that says the saved graph is being started again (see `Daemon::restore`).
+const RESTORING_MARKER: &str = "restoring";
+
 /// The event that tells the clients about something that went wrong without being the failure of a request.
 pub const EVENT_WARNING: &str = "daemon.warning";
 
 fn result<T: serde::Serialize>(v: T) -> Result<Value, RpcError> {
     serde_json::to_value(v).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+impl Drop for Daemon {
+    /// A daemon that ends properly was not brought down by the graph it restored: the next start may restore it again.
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.store.dir().join(RESTORING_MARKER));
+    }
 }
 
 impl Daemon {
@@ -149,6 +162,8 @@ impl Daemon {
             sounds,
             web,
             ops: Mutex::new(()),
+            restoring: Mutex::new(None),
+            restore_settles: std::time::Duration::from_secs(30),
             layout_gate: Mutex::new(()),
             remote: Mutex::default(),
             guest_token: Mutex::default(),
@@ -251,7 +266,20 @@ impl Daemon {
     pub fn restore(&self) {
         let _ops = lock(&self.ops);
         let saved = lock(&self.state).saved.clone();
+        // A graph that brings the daemon down as soon as it runs would bring it down again at every start (and at every logon, with the
+        // startup entry). The file `restoring` is written before the graph is started again and removed once the daemon has lived long
+        // enough, or ends properly: finding it means the last restore did not survive, so this time the graph is kept but not started.
+        let marker = self.store.dir().join(RESTORING_MARKER);
+        if saved.running && marker.exists() {
+            let _ = std::fs::remove_file(&marker);
+            tracing::warn!("the daemon did not survive starting the saved graph last time: it is kept, but not started again by itself");
+            self.warn("The last start with the saved graph did not go well, so the graph was not started again by itself. Start it when you are ready.".into());
+            return;
+        }
         if saved.running {
+            let _ = std::fs::create_dir_all(self.store.dir());
+            let _ = std::fs::write(&marker, b"");
+            *lock(&self.restoring) = Some(std::time::Instant::now());
             match validate(&saved.graph) {
                 Ok(valid) => {
                     tracing::info!("restoring the graph that was running at the last stop");
@@ -268,12 +296,17 @@ impl Daemon {
     /// From now on the startup list follows the setting "start at logon" (and is made to match it now).
     pub fn manage_autostart(&self) {
         // a daemon with another data folder (a test, a second set of settings) must not rewrite or remove the entry of the real one
-        let same = |a: &std::path::Path, b: &std::path::Path| match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        let same = |a: &std::path::Path, b: &std::path::Path| match (
+            std::fs::canonicalize(a),
+            std::fs::canonicalize(b),
+        ) {
             (Ok(a), Ok(b)) => a == b,
             _ => false,
         };
         if !same(self.store.dir(), &omu_discovery::data_dir()) {
-            tracing::info!("another data folder than the usual one: the startup list is left as it is");
+            tracing::info!(
+                "another data folder than the usual one: the startup list is left as it is"
+            );
             return;
         }
         self.manages_autostart
@@ -309,6 +342,14 @@ impl Daemon {
     /// Reads the engine's status (consuming the level meters, so only this method may do it), caches it for
     /// `engine.status` and publishes it. Called about four times a second by the server's timer.
     pub fn tick(&self) -> EngineStatus {
+        // the graph started again at launch has been running long enough: that start worked
+        {
+            let mut restoring = lock(&self.restoring);
+            if restoring.is_some_and(|at| at.elapsed() >= self.restore_settles) {
+                *restoring = None;
+                let _ = std::fs::remove_file(self.store.dir().join(RESTORING_MARKER));
+            }
+        }
         let status = self.engine.status();
         lock(&self.state).status = status.clone();
         if let Ok(v) = serde_json::to_value(&status) {
@@ -1164,6 +1205,64 @@ mod tests {
             serde_json::from_value(call(&d, "engine.status", Value::Null).result.unwrap()).unwrap();
         assert!(!st.running);
         drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_graph_that_took_the_daemon_down_at_its_last_start_is_kept_but_not_started_again_by_itself_once(
+    ) {
+        let sim = SimBackend::new();
+        sim.add_app(1, "a.exe", SimSource::tone(1000.0));
+        let dir = temp_dir("restoring");
+        {
+            let d = daemon_in(&dir, &sim);
+            assert!(
+                call(&d, "graph.set", serde_json::to_value(chain()).unwrap())
+                    .error
+                    .is_none()
+            );
+        }
+        // a start that ended properly leaves nothing behind: the graph comes back
+        {
+            let d = daemon_in(&dir, &sim);
+            d.restore();
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(d.tick().running);
+            assert!(
+                dir.join("restoring").exists(),
+                "while it has not lived long enough, the restore is marked"
+            );
+        }
+        assert!(
+            !dir.join("restoring").exists(),
+            "ending properly takes the mark away"
+        );
+        // a start that was cut short (crash, kill) leaves the mark: the next one keeps the graph and does not start it
+        std::fs::write(dir.join("restoring"), b"").unwrap();
+        {
+            let d = daemon_in(&dir, &sim);
+            d.restore();
+            std::thread::sleep(Duration::from_millis(200));
+            assert!(!d.tick().running, "not started again by itself");
+            let got: GraphSpec =
+                serde_json::from_value(call(&d, "graph.get", Value::Null).result.unwrap()).unwrap();
+            assert_eq!(got, chain(), "but kept");
+        }
+        // and only once: the one after that restores again
+        {
+            let d = daemon_in(&dir, &sim);
+            d.restore();
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(d.tick().running);
+        }
+        // living long enough counts as having worked
+        {
+            let mut d = daemon_in(&dir, &sim);
+            d.restore_settles = Duration::ZERO;
+            d.restore();
+            d.tick();
+            assert!(!dir.join("restoring").exists());
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
