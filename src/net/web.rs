@@ -440,6 +440,8 @@ fn drive(link: &mut Link, role: &Role, stop: &AtomicBool) {
             }
             // a UDP socket on Windows reports an earlier refused packet as an error of the next read: not the end
             Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
+            // a datagram bigger than the buffer (anyone may send one): lost, the connection goes on
+            Err(e) if crate::datagram_too_big(&e) => continue,
             Err(_) => return,
         };
         if link.rtc.handle_input(input).is_err() {

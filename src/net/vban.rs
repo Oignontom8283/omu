@@ -277,6 +277,7 @@ impl CaptureStream for VbanCapture {
                         {
                             continue
                         }
+                        Err(e) if crate::datagram_too_big(&e) => continue,
                         Err(e) => {
                             health.fail(format!("the network socket failed: {e}"));
                             return;
@@ -536,6 +537,26 @@ mod tests {
     fn send(port: u16, bytes: &[u8]) {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         socket.send_to(bytes, ("127.0.0.1", port)).unwrap();
+    }
+
+    #[test]
+    fn a_datagram_too_big_for_the_buffer_does_not_end_the_stream() {
+        let capture = VbanCapture::open(0, "Voice", "127.0.0.1").unwrap();
+        let health = capture.health();
+        let (running, heard, port) = collect(capture);
+        // anyone who can reach the port may send this: on Windows the read that meets it is an error
+        let stranger = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        stranger.send_to(&vec![0u8; 8000], ("127.0.0.1", port)).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!health.has_failed(), "{:?}", health.error());
+        // and the sound that comes next is heard
+        let render = VbanRender::open("127.0.0.1", port, "Voice").unwrap();
+        let sender = Box::new(render).start(Box::new(|out| out.fill(0.25))).unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        drop(sender);
+        drop(running);
+        assert!(!health.has_failed());
+        assert!(!heard.lock().unwrap().is_empty(), "the sound after the big datagram arrived");
     }
 
     #[test]
