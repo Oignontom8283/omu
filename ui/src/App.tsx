@@ -755,38 +755,38 @@ export function App() {
             {t('palette.open')} <kbd>F1</kbd>
           </button>
           {status?.running ? (
-            <button onClick={stopEngine} disabled={conn !== 'open'}>
+            <Button icon="stop" onClick={stopEngine} disabled={conn !== 'open'}>
               {t('app.stopEngine')}
-            </button>
+            </Button>
           ) : (
-            <button onClick={startEngine} disabled={conn !== 'open' || applied.nodes.length === 0} title={t('app.startEngineHint')}>
+            <Button icon="play" onClick={startEngine} disabled={conn !== 'open' || applied.nodes.length === 0} title={t('app.startEngineHint')}>
               {t('app.startEngine')}
-            </button>
+            </Button>
           )}
           {stale?.supported && (
-            <button onClick={cleanDevices} disabled={conn !== 'open' || cleaning || stale.stale.length === 0} title={stale.stale.map((s) => s.name).join(', ') || t('app.cleanDevicesHint')}>
+            <Button icon="broom" onClick={cleanDevices} disabled={conn !== 'open' || cleaning || stale.stale.length === 0} title={stale.stale.map((s) => s.name).join(', ') || t('app.cleanDevicesHint')}>
               {cleaning ? t('app.cleaning') : t('app.cleanDevices', { count: stale.stale.length })}
-            </button>
+            </Button>
           )}
-          <button className={confirmShutdown ? 'danger' : ''} onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
+          <Button variant={confirmShutdown ? 'danger' : 'secondary'} icon="power" onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
             {confirmShutdown ? t('app.stopDaemonConfirm') : t('app.stopDaemon')}
-          </button>
+          </Button>
         </header>
 
         {tab === 'nodes' && (
           <BlocksBar drag={dragIn}>
-            <button onClick={autoLayout} disabled={nodes.length === 0}>
+            <Button icon="grid" onClick={autoLayout} disabled={nodes.length === 0}>
               {t('app.tidy')}
-            </button>
-            <button onClick={() => setShowJson((v) => !v)} className={showJson ? 'on' : ''}>
+            </Button>
+            <Button icon="braces" onClick={() => setShowJson((v) => !v)} pressed={showJson}>
               {t('app.json')}
-            </button>
-            <button onClick={revert} disabled={conn !== 'open' || !dirty}>
+            </Button>
+            <Button icon="undo" onClick={revert} disabled={conn !== 'open' || !dirty}>
               {t('app.revert')}
-            </button>
-            <button className="primary" onClick={apply} disabled={conn !== 'open' || busy || !dirty}>
+            </Button>
+            <Button variant="primary" icon="check" onClick={apply} disabled={conn !== 'open' || busy || !dirty}>
               {busy ? t('app.applying') : dirty ? t('app.apply') : t('app.applied')}
-            </button>
+            </Button>
           </BlocksBar>
         )}
 
@@ -813,30 +813,28 @@ export function App() {
                     <li key={p}>{p}</li>
                   ))}
                 </ul>
-                <button className="plain" aria-label={t('app.close')} onClick={() => setProblems([])}>
-                  ×
-                </button>
+                <Button variant="flat" size="small" icon="close" className="banner-close" title={t('app.close')} onClick={() => setProblems([])} />
               </div>
             )}
             {IN_DESKTOP_WINDOW && conn === 'closed' && (
               <div className="banner warn" role="status">
                 {t('app.daemonDown')}{' '}
-                <button
-                  className="inline"
+                <Button
+                  size="small"
+                  variant="primary"
+                  icon="play"
                   onClick={() => {
                     startDaemon().catch((e) => setNotice(message(e)));
                   }}
                 >
                   {t('app.startDaemon')}
-                </button>
+                </Button>
               </div>
             )}
             {notice && (
               <div className="banner warn">
                 {notice.startsWith('app.') ? t(notice) : notice}
-                <button className="plain" aria-label={t('app.close')} onClick={() => setNotice(null)}>
-                  ×
-                </button>
+                <Button variant="flat" size="small" icon="close" className="banner-close" title={t('app.close')} onClick={() => setNotice(null)} />
               </div>
             )}
             {noProvider && <div className="banner info">{t('app.noProvider', { error: info?.virtual_microphones?.error ? ` (${info.virtual_microphones.error})` : '' })}</div>}

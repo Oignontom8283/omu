@@ -3,7 +3,7 @@ import type { api } from '../api.ts';
 import { LANGUAGES, languageName, useI18n } from '../i18n/index.tsx';
 import { SETTING_DECLS, SETTING_SECTIONS, type SettingDecl } from '../settingsRegistry.ts';
 import { applyThemeVars, loadThemeVars, useTheme, type ThemeChoice } from '../theme.tsx';
-import { TextInput } from '../kit/controls.tsx';
+import { Select, Switch, TextInput } from '../kit/controls.tsx';
 import type { Settings } from '../types.ts';
 import type { Overrides } from '../keybindings.ts';
 import { Shortcuts } from './Shortcuts.tsx';
@@ -94,23 +94,16 @@ export function SettingsPanel({ daemon, notify, focus, shortcuts }: Props) {
     if (!b) return null;
     if (decl.type === 'toggle') {
       return (
-        <label className="check" title={decl.hint ? t(decl.hint) : undefined}>
-          <input type="checkbox" checked={Boolean(b.value)} disabled={b.disabled} onChange={(e) => b.set(e.target.checked)} />
+        <Switch checked={Boolean(b.value)} disabled={b.disabled} title={decl.hint ? t(decl.hint) : undefined} onChange={b.set}>
           {t(decl.label)}
-        </label>
+        </Switch>
       );
     }
     return (
-      <label className="choice">
+      <div className="choice">
         <span>{t(decl.label)}</span>
-        <select value={String(b.value)} disabled={b.disabled} onChange={(e) => b.set(e.target.value)}>
-          {b.options?.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </label>
+        <Select value={String(b.value)} label={t(decl.label)} disabled={b.disabled} options={b.options ?? []} onChange={b.set} />
+      </div>
     );
   };
 

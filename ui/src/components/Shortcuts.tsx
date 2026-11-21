@@ -9,9 +9,9 @@ function KeyCapture({ value, onChange }: { value: string; onChange: (keys: strin
   const t = useT();
   const [listening, setListening] = useState(false);
   return (
-    <button
-      type="button"
-      className={`key-capture nodrag${listening ? ' listening' : ''}`}
+    <Button
+      className={`key-capture${listening ? ' listening' : ''}`}
+      icon="command"
       onClick={() => setListening(true)}
       onBlur={() => setListening(false)}
       onKeyDown={(e) => {
@@ -31,7 +31,7 @@ function KeyCapture({ value, onChange }: { value: string; onChange: (keys: strin
       }}
     >
       {listening ? t('keys.press') : value || t('keys.none')}
-    </button>
+    </Button>
   );
 }
 

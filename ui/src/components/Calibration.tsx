@@ -3,6 +3,7 @@ import type { api } from '../api.ts';
 import { analyse, type Problem, type Suggestion } from '../calibration.ts';
 import { useEditor } from '../context.ts';
 import { useT } from '../i18n/index.tsx';
+import { Button } from '../kit/controls.tsx';
 import type { NodeSpec } from '../types.ts';
 
 const QUIET_SECONDS = 4;
@@ -131,14 +132,16 @@ export function Calibration({ spec, daemon, running }: { spec: NodeSpec; daemon:
         {deep ? (
           <>
             <p>{t(result.limitDb >= 100 ? 'calibration.suggestNoLimit' : 'calibration.suggestLimit', { db: result.limitDb })}</p>
-            <button className="primary" onClick={() => update(spec.id, { type: 'deep_filter', limit_db: result.limitDb })}>
+            <Button variant="primary" icon="check" onClick={() => update(spec.id, { type: 'deep_filter', limit_db: result.limitDb })}>
               {t('calibration.apply')}
-            </button>{' '}
+            </Button>{' '}
           </>
         ) : (
           <p className="muted">{t('calibration.noSetting')}</p>
         )}
-        <button onClick={() => setPhase('intro')}>{t('calibration.again')}</button>
+        <Button icon="refresh" onClick={() => setPhase('intro')}>
+          {t('calibration.again')}
+        </Button>
       </div>
     );
   }
@@ -153,9 +156,9 @@ export function Calibration({ spec, daemon, running }: { spec: NodeSpec; daemon:
           {t('calibration.last', { date: new Date(saved.date).toLocaleString(), margin: saved.suggestion.margin })}
         </p>
       )}
-      <button className="primary" onClick={start} disabled={!running}>
+      <Button variant="primary" icon="record" onClick={start} disabled={!running}>
         {t('calibration.start')}
-      </button>
+      </Button>
     </div>
   );
 }

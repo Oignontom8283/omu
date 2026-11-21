@@ -1,5 +1,6 @@
 import { comboFromEvent } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
+import { Button } from '../kit/controls.tsx';
 
 /** A field that records a keyboard shortcut: click it, then press the keys. */
 export function ShortcutField({ value, onChange }: { value: string; onChange: (keys: string) => void }) {
@@ -7,6 +8,7 @@ export function ShortcutField({ value, onChange }: { value: string; onChange: (k
   return (
     <div className="shortcut nodrag">
       <input
+        className="kit-text code"
         value={value}
         readOnly
         placeholder={t('field.shortcutPlaceholder')}
@@ -18,9 +20,7 @@ export function ShortcutField({ value, onChange }: { value: string; onChange: (k
         }}
       />
       {value && (
-        <button type="button" className="plain" aria-label={t('app.close')} onClick={() => onChange('')}>
-          ×
-        </button>
+        <Button variant="flat" icon="close" title={t('app.close')} onClick={() => onChange('')} />
       )}
     </div>
   );

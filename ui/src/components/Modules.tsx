@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { api } from '../api.ts';
 import { useT } from '../i18n/index.tsx';
+import { Button } from '../kit/controls.tsx';
 import { moduleStatus } from '../modules.ts';
 import { formatBytes } from '../soundboard.ts';
 import type { ModuleInfo } from '../types.ts';
@@ -79,9 +80,9 @@ export function Modules({ daemon, notify }: Props) {
             )}
             {m.installing && (
               <div className="row">
-                <button disabled={busy} onClick={() => void run(() => daemon.cancelModule(m.id))}>
+                <Button icon="close" disabled={busy} onClick={() => void run(() => daemon.cancelModule(m.id))}>
                   {t('modules.cancel')}
-                </button>
+                </Button>
               </div>
             )}
             {m.error && <p className="warn">{m.error}</p>}
@@ -91,18 +92,19 @@ export function Modules({ daemon, notify }: Props) {
             )}
             <div className="row">
               {!m.installing && !m.enabled && m.supported !== false && (m.available || m.downloadable) && (
-                <button className="primary" disabled={busy} onClick={() => void run(() => daemon.installModule(m.id))}>
+                <Button variant="primary" icon={m.available ? 'power' : 'plus'} disabled={busy} onClick={() => void run(() => daemon.installModule(m.id))}>
                   {m.available ? t('modules.switchOn') : t('modules.install', { mb: m.download_mb })}
-                </button>
+                </Button>
               )}
               {m.enabled && !m.installing && (
-                <button disabled={busy} onClick={() => void run(() => daemon.enableModule(m.id, false))}>
+                <Button icon="power" disabled={busy} onClick={() => void run(() => daemon.enableModule(m.id, false))}>
                   {t('modules.switchOff')}
-                </button>
+                </Button>
               )}
               {m.source === 'local' && !m.installing && (
-                <button
-                  className={confirm === `remove:${m.id}` ? 'danger' : ''}
+                <Button
+                  variant={confirm === `remove:${m.id}` ? 'danger' : 'secondary'}
+                  icon="trash"
                   disabled={busy}
                   onClick={() => {
                     if (confirm !== `remove:${m.id}`) setConfirm(`remove:${m.id}`);
@@ -113,7 +115,7 @@ export function Modules({ daemon, notify }: Props) {
                   }}
                 >
                   {confirm === `remove:${m.id}` ? t('soundboards.deleteConfirm') : t('modules.remove')}
-                </button>
+                </Button>
               )}
             </div>
           </section>

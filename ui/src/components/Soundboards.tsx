@@ -3,6 +3,7 @@ import { IN_DESKTOP_WINDOW, RpcError, pickSoundFiles, uploadSound, type api } fr
 import { MODULE_NEEDED } from '../modules.ts';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
+import { Button, ColorField, NumberField, Select, Slider, Switch, TextInput } from '../kit/controls.tsx';
 import { ShortcutField } from './ShortcutField.tsx';
 import { partChange } from '../soundboard.ts';
 import {
@@ -321,21 +322,22 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       </header>
 
       <div className="row">
-        <select aria-label={t('soundboards.board')} value={current ?? ''} onChange={(e) => setBoardId(e.target.value)} disabled={library.boards.length === 0}>
-          {library.boards.length === 0 && <option value="">{t('soundboards.none')}</option>}
-          {library.boards.map((b) => (
-            <option key={b.id} value={b.id}>
-              {b.name}
-            </option>
-          ))}
-        </select>
-        <button onClick={() => void addBoard()}>{t('soundboards.newBoard')}</button>
+        <Select
+          label={t('soundboards.board')}
+          value={current ?? ''}
+          options={library.boards.length === 0 ? [{ value: '', label: t('soundboards.none') }] : library.boards.map((b) => ({ value: b.id, label: b.name }))}
+          disabled={library.boards.length === 0}
+          onChange={setBoardId}
+        />
+        <Button icon="plus" onClick={() => void addBoard()}>
+          {t('soundboards.newBoard')}
+        </Button>
         {board && (
           <>
-            <input className="grow" aria-label={t('soundboards.rename')} value={board.name} onChange={(e) => renameBoard(e.target.value)} />
-            <button className={confirm === `board:${board.id}` ? 'danger' : ''} onClick={() => void removeBoard()}>
+            <TextInput className="grow" code={false} title={t('soundboards.rename')} value={board.name} onChange={renameBoard} />
+            <Button variant={confirm === `board:${board.id}` ? 'danger' : 'secondary'} icon="trash" onClick={() => void removeBoard()}>
               {confirm === `board:${board.id}` ? t('soundboards.deleteConfirm') : t('soundboards.deleteBoard')}
-            </button>
+            </Button>
           </>
         )}
       </div>
@@ -344,9 +346,9 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
         <div className="banner info">
           {inShown ? t('soundboards.notAppliedYet') : t('soundboards.notInGraph')}{' '}
           {!inShown && (
-            <button className="inline" onClick={() => onAddBlock(board.id)}>
+            <Button size="small" icon="plus" onClick={() => onAddBlock(board.id)}>
               {t('soundboards.addBlock')}
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -356,22 +358,22 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
           <div className="row">
             {IN_DESKTOP_WINDOW ? (
               <>
-                <button className="primary" onClick={() => void pickSoundFiles().then((paths) => addPaths(paths)).catch((e) => notify(message(e)))}>
+                <Button variant="primary" icon="folder" onClick={() => void pickSoundFiles().then((paths) => addPaths(paths)).catch((e) => notify(message(e)))}>
                   {t('soundboards.addSounds')}
-                </button>
-                <input
+                </Button>
+                <TextInput
                   className="grow"
                   value={path}
                   placeholder={t('soundboards.pathPlaceholder')}
-                  onChange={(e) => setPath(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && path.trim()) {
-                      addPaths([path]);
-                      setPath('');
-                    }
+                  onChange={setPath}
+                  onEnter={() => {
+                    if (!path.trim()) return;
+                    addPaths([path]);
+                    setPath('');
                   }}
                 />
-                <button
+                <Button
+                  icon="plus"
                   disabled={!path.trim()}
                   onClick={() => {
                     addPaths([path]);
@@ -379,13 +381,13 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                   }}
                 >
                   {t('soundboards.addSound')}
-                </button>
+                </Button>
               </>
             ) : (
               <>
-                <button className="primary" onClick={() => fileInput.current?.click()}>
+                <Button variant="primary" icon="folder" onClick={() => fileInput.current?.click()}>
                   {t('soundboards.addSounds')}
-                </button>
+                </Button>
                 <input
                   ref={fileInput}
                   type="file"
@@ -399,11 +401,13 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                 />
               </>
             )}
-            <button onClick={() => current && void save(withPadsAdded(libraryRef.current.boards, current, [emptyPad(t('soundboards.padBase'))]))}>{t('soundboards.addPad')}</button>
+            <Button icon="plus" onClick={() => current && void save(withPadsAdded(libraryRef.current.boards, current, [emptyPad(t('soundboards.padBase'))]))}>
+              {t('soundboards.addPad')}
+            </Button>
             <span className="spacer" />
-            <button onClick={() => stop()} disabled={playing.length === 0}>
+            <Button icon="stop" onClick={() => stop()} disabled={playing.length === 0}>
               {t('soundboards.stopAll')}
-            </button>
+            </Button>
           </div>
           <p className="muted drop-hint">{IN_DESKTOP_WINDOW ? t('soundboards.dropHintDesktop') : t('soundboards.dropHint')}</p>
         </>
@@ -411,8 +415,9 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       {needModule && (
         <div className="banner warn" role="alert">
           {t('modules.needed', { name: needModule === 'ffmpeg' ? 'FFmpeg' : needModule })}{' '}
-          <button
-            className="inline primary"
+          <Button
+            size="small"
+            variant="primary"
             onClick={() => {
               const id = needModule;
               setNeedModule(null);
@@ -422,10 +427,10 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
             }}
           >
             {t('modules.neededInstall')}
-          </button>
-          <button className="inline" onClick={() => setNeedModule(null)}>
+          </Button>{' '}
+          <Button size="small" onClick={() => setNeedModule(null)}>
             {t('modules.neededLater')}
-          </button>
+          </Button>
         </div>
       )}
       {importing.length > 0 && (
@@ -439,36 +444,28 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
         {board?.pads.map((pad) => {
           const isPlaying = playing.includes(pad.id);
           return (
-            <div key={pad.id} className={`pad${isPlaying ? ' playing' : ''}${pad.sound ? '' : ' empty'}`} style={pad.color ? ({ '--pad': pad.color } as React.CSSProperties) : undefined}>
+            <div key={pad.id} className={`pad${isPlaying ? ' playing' : ''}${pad.sound ? '' : ' no-sound'}`} style={pad.color ? ({ '--pad': pad.color } as React.CSSProperties) : undefined}>
               <div className="pad-top">
-                <button className="pad-play" disabled={!pad.sound || !active} title={!active ? t('soundboards.cannotPlay') : (soundName(pad.sound) ?? '')} onClick={() => void play(pad)}>
-                  <span aria-hidden="true">▶</span> {pad.name || t('soundboards.unnamedPad')}
-                </button>
-                {isPlaying && (
-                  <button className="mini" title={t('soundboards.stopPad')} aria-label={t('soundboards.stopPad')} onClick={() => stop(pad)}>
-                    ■
-                  </button>
-                )}
-                <button className="mini" title={t('soundboards.removePad')} aria-label={t('soundboards.removePad')} onClick={() => removePad(pad)}>
-                  ×
-                </button>
+                <Button className="pad-play" icon="play" disabled={!pad.sound || !active} title={!active ? t('soundboards.cannotPlay') : (soundName(pad.sound) ?? '')} onClick={() => void play(pad)}>
+                  {pad.name || t('soundboards.unnamedPad')}
+                </Button>
+                {isPlaying && <Button icon="stop" title={t('soundboards.stopPad')} onClick={() => stop(pad)} />}
+                <Button icon="trash" title={t('soundboards.removePad')} onClick={() => removePad(pad)} />
               </div>
-              <input aria-label={t('soundboards.padName')} value={pad.name} onChange={(e) => change(pad, { name: e.target.value })} />
-              <select aria-label={t('soundboards.padSound')} value={pad.sound ?? ''} onChange={(e) => change(pad, { sound: e.target.value || null })}>
-                <option value="">{t('soundboards.noSound')}</option>
-                {library.sounds.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({formatDuration(s.frames)})
-                  </option>
-                ))}
-              </select>
-              <label className="field">
+              <TextInput code={false} title={t('soundboards.padName')} value={pad.name} onChange={(name) => change(pad, { name })} />
+              <Select
+                label={t('soundboards.padSound')}
+                value={pad.sound ?? ''}
+                options={[{ value: '', label: t('soundboards.noSound') }, ...library.sounds.map((s) => ({ value: s.id, label: `${s.name} (${formatDuration(s.frames)})` }))]}
+                onChange={(sound) => change(pad, { sound: sound || null })}
+              />
+              <div className="field">
                 <span>
                   {t('field.gain')}: {(pad.gain_db ?? 0) > 0 ? '+' : ''}
                   {pad.gain_db ?? 0} dB
                 </span>
-                <input type="range" min={-30} max={12} step={0.5} value={pad.gain_db ?? 0} onChange={(e) => change(pad, { gain_db: Number(e.target.value) })} />
-              </label>
+                <Slider label={t('field.gain')} min={-30} max={12} step={0.5} value={pad.gain_db ?? 0} onChange={(gain_db) => change(pad, { gain_db })} />
+              </div>
               <div className="field">
                 <span>{t('soundboards.padKey')}</span>
                 <ShortcutField value={pad.key ?? ''} onChange={(keys) => change(pad, { key: keys || null })} />
@@ -480,47 +477,40 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                     </small>
                   ))}
                 {pad.key && (
-                  <label className="check" title={t('soundboards.holdHint')}>
-                    <input type="checkbox" checked={pad.hold ?? false} onChange={(e) => change(pad, { hold: e.target.checked })} />
+                  <Switch checked={pad.hold ?? false} title={t('soundboards.holdHint')} onChange={(hold) => change(pad, { hold })}>
                     {t('soundboards.hold')}
-                  </label>
+                  </Switch>
                 )}
                 {pad.key && !active && <small className="muted">{t('soundboards.keyIdle')}</small>}
               </div>
               <div className="checks">
-                <label className="check" title={t('soundboards.loopHint')}>
-                  <input type="checkbox" checked={pad.looped ?? false} onChange={(e) => change(pad, { looped: e.target.checked })} />
+                <Switch checked={pad.looped ?? false} title={t('soundboards.loopHint')} onChange={(looped) => change(pad, { looped })}>
                   {t('soundboards.loop')}
-                </label>
-                <label className="check" title={t('soundboards.exclusiveHint')}>
-                  <input type="checkbox" checked={pad.exclusive ?? false} onChange={(e) => change(pad, { exclusive: e.target.checked })} />
+                </Switch>
+                <Switch checked={pad.exclusive ?? false} title={t('soundboards.exclusiveHint')} onChange={(exclusive) => change(pad, { exclusive })}>
                   {t('soundboards.exclusive')}
-                </label>
+                </Switch>
               </div>
-              <label className="field" title={t('soundboards.fadeHint')}>
+              <div className="field" title={t('soundboards.fadeHint')}>
                 <span>
                   {t('soundboards.fade')}: {pad.fade_ms ? `${pad.fade_ms} ms` : t('soundboards.fadeShort')}
                 </span>
-                <input type="range" min={0} max={5000} step={50} value={pad.fade_ms ?? 0} onChange={(e) => change(pad, { fade_ms: Number(e.target.value) })} />
-              </label>
+                <Slider label={t('soundboards.fade')} min={0} max={5000} step={50} value={pad.fade_ms ?? 0} onChange={(fade_ms) => change(pad, { fade_ms })} />
+              </div>
               <div className="range-row" title={t('soundboards.partHint')}>
-                <label>
+                <div>
                   <span>{t('soundboards.start')}</span>
-                  <input type="number" min={0} step={0.1} value={(pad.start_ms ?? 0) / 1000} onChange={(e) => change(pad, partChange(pad, 'start_ms', e.target.value))} />
-                </label>
-                <label>
+                  <NumberField min={0} step={0.1} unit="s" value={(pad.start_ms ?? 0) / 1000} onChange={(s) => change(pad, partChange(pad, 'start_ms', String(s)))} />
+                </div>
+                <div>
                   <span>{t('soundboards.end')}</span>
-                  <input type="number" min={0} step={0.1} value={(pad.end_ms ?? 0) / 1000} onChange={(e) => change(pad, partChange(pad, 'end_ms', e.target.value))} />
-                </label>
+                  <NumberField min={0} step={0.1} unit="s" value={(pad.end_ms ?? 0) / 1000} onChange={(s) => change(pad, partChange(pad, 'end_ms', String(s)))} />
+                </div>
               </div>
               <div className="color-row">
                 <span>{t('soundboards.color')}</span>
-                <input type="color" aria-label={t('soundboards.color')} value={pad.color ?? '#0f9d8a'} onChange={(e) => change(pad, { color: e.target.value })} />
-                {pad.color && (
-                  <button type="button" className="plain" aria-label={t('soundboards.colorReset')} title={t('soundboards.colorReset')} onClick={() => change(pad, { color: null })}>
-                    ×
-                  </button>
-                )}
+                <ColorField label={t('soundboards.color')} value={pad.color ?? '#0f9d8a'} onChange={(color) => change(pad, { color })} />
+                {pad.color && <Button variant="flat" icon="close" title={t('soundboards.colorReset')} onClick={() => change(pad, { color: null })} />}
               </div>
             </div>
           );
@@ -543,13 +533,13 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
                   {s.compressed ? ` · ${t('soundboards.compressed')}` : ''} · {t('soundboards.usedBy', { count: uses })}
                 </small>
                 {!s.compressed && (
-                  <button className="mini" disabled={compressing !== null} title={t('soundboards.compressNow')} onClick={() => void compressSound(s)}>
+                  <Button size="small" icon="stack" disabled={compressing !== null} title={t('soundboards.compressNow')} onClick={() => void compressSound(s)}>
                     {compressing === s.id ? t('soundboards.compressing') : t('soundboards.compress')}
-                  </button>
+                  </Button>
                 )}
-                <button className={`mini${confirm === `sound:${s.id}` ? ' danger' : ''}`} title={t('soundboards.removeSound')} aria-label={t('soundboards.removeSound')} onClick={() => void removeSound(s)}>
-                  {confirm === `sound:${s.id}` ? t('soundboards.deleteConfirm') : '×'}
-                </button>
+                <Button size="small" variant={confirm === `sound:${s.id}` ? 'danger' : 'secondary'} icon="trash" title={t('soundboards.removeSound')} onClick={() => void removeSound(s)}>
+                  {confirm === `sound:${s.id}` ? t('soundboards.deleteConfirm') : undefined}
+                </Button>
               </li>
             );
           })}
@@ -566,19 +556,19 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
         </p>
         {status && status.late_frames > 0 && <p className="warn">{t('soundboards.late')}</p>}
         <div className="row">
-          <label className="field grow">
+          <div className="field grow">
             <span>{t('soundboards.cacheLimit')}</span>
-            <input type="number" min={MIN_CACHE_MB} step={16} value={cacheText} onChange={(e) => setCacheText(e.target.value)} />
-          </label>
+            <NumberField whole min={MIN_CACHE_MB} step={16} value={Number(cacheText) || 0} onChange={(n) => setCacheText(String(n))} />
+          </div>
         </div>
         <div className="row">
-          <label className="field grow">
+          <div className="field grow">
             <span>{t('soundboards.compressAbove')}</span>
-            <input type="number" min={0} step={1} value={compressText} onChange={(e) => setCompressText(e.target.value)} />
-          </label>
-          <button onClick={() => void saveCache()} disabled={settings !== null && String(settings.sound_cache_mb) === cacheText && String(settings.compress_above_mb) === compressText}>
+            <NumberField whole min={0} step={1} value={Number(compressText) || 0} onChange={(n) => setCompressText(String(n))} />
+          </div>
+          <Button icon="save" onClick={() => void saveCache()} disabled={settings !== null && String(settings.sound_cache_mb) === cacheText && String(settings.compress_above_mb) === compressText}>
             {t('soundboards.cacheSave')}
-          </button>
+          </Button>
         </div>
         <small className="muted">{t('soundboards.compressHint')}</small>
         <small className="muted">{t('soundboards.cacheHint')}</small>
