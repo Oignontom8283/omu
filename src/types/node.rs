@@ -149,6 +149,23 @@ fn one() -> u32 {
     1
 }
 
+/// The ports of an expression block: the expression itself (so that a flow can give it), its inputs `a`, `b`, `c`... and its result.
+fn expression_ports(args: u32, result: PortSpec) -> Vec<PortSpec> {
+    let inputs = crate::expression::MAX_EXPRESSION_ARGS;
+    [port("expression", Input, TextFlow, false)]
+        .into_iter()
+        .chain((0..args.clamp(1, inputs) as usize).map(|k| {
+            port(
+                crate::expression::variable_name(k).to_string(),
+                Input,
+                Float,
+                false,
+            )
+        }))
+        .chain([result])
+        .collect()
+}
+
 fn two() -> u32 {
     2
 }
@@ -474,6 +491,20 @@ pub enum NodeKind {
         #[serde(default = "two")]
         args: u32,
     },
+    /// Value: a mathematical expression of its inputs (`a`, `b`, `c`... as many as `args`): `a + b`, `c * log(a)`. See
+    /// [`crate::expression`] for what can be written.
+    MathExpr {
+        expression: String,
+        #[serde(default = "two")]
+        args: u32,
+    },
+    /// Condition: true while a mathematical expression of its inputs is not 0: `a = b`, `a > 3 and b < 10` (a comparison is 1 when it is
+    /// true and 0 when it is not).
+    CondExpr {
+        expression: String,
+        #[serde(default = "two")]
+        args: u32,
+    },
     /// Value: two numbers combined (`a` and `b`).
     Math { op: MathOp },
     /// Condition: true while `a` compares to `b` the way `op` says (a number not linked counts as 0).
@@ -650,6 +681,10 @@ impl NodeKind {
                 )
                 .chain([port("out", Output, TextFlow, false)])
                 .collect(),
+            NodeKind::MathExpr { args, .. } => {
+                expression_ports(*args, port("out", Output, Float, false))
+            }
+            NodeKind::CondExpr { args, .. } => expression_ports(*args, out_cond()),
             NodeKind::Math { .. } => vec![
                 port("a", Input, Float, false),
                 port("b", Input, Float, false),
@@ -711,6 +746,7 @@ impl NodeKind {
     pub fn param_ports(&self) -> &'static [&'static str] {
         match self {
             NodeKind::Join { .. } => &["template"],
+            NodeKind::MathExpr { .. } | NodeKind::CondExpr { .. } => &["expression"],
             NodeKind::Gain { .. } => &["db"],
             NodeKind::Level { .. } => &["threshold_db"],
             NodeKind::Hold { .. } | NodeKind::After { .. } => &["ms"],
@@ -768,6 +804,7 @@ impl NodeKind {
             | NodeKind::Hold { .. }
             | NodeKind::After { .. }
             | NodeKind::Compare { .. }
+            | NodeKind::CondExpr { .. }
             | NodeKind::TextCompare { .. }
             | NodeKind::ToCondition => Category::Condition,
             NodeKind::Hotkey { .. } | NodeKind::Timer { .. } | NodeKind::Change => {
@@ -776,6 +813,7 @@ impl NodeKind {
             NodeKind::Integer { .. }
             | NodeKind::Number { .. }
             | NodeKind::Math { .. }
+            | NodeKind::MathExpr { .. }
             | NodeKind::Choose
             | NodeKind::Counter { .. } => Category::Number,
             NodeKind::Text { .. } | NodeKind::Join { .. } => Category::Text,
@@ -1128,6 +1166,14 @@ mod tests {
             NodeKind::Number { value: 1.5 },
             NodeKind::Join {
                 template: "$1-$2".into(),
+                args: 2,
+            },
+            NodeKind::MathExpr {
+                expression: "a + b".into(),
+                args: 2,
+            },
+            NodeKind::CondExpr {
+                expression: "a = b".into(),
                 args: 2,
             },
             NodeKind::Math { op: MathOp::Add },

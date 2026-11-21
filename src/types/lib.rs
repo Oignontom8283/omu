@@ -2,6 +2,7 @@
 
 mod devices;
 mod diagnostic;
+pub mod expression;
 mod format;
 mod keys;
 mod modules;

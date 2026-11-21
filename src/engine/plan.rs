@@ -187,12 +187,23 @@ pub enum Port {
     Template,
     /// The number a `choose` block sends while its condition is true.
     Then,
+    /// The input `c`, `d`... `p` of an expression block (`a` and `b` are [`Port::A`] and [`Port::B`]), counted from 2.
+    Var(u8),
     /// The flows that give the settings of a network block: `host` (0), `port` (1), `stream` (2), `from` (3).
     Net(u8),
     /// The actions that make a counter go up, go down, go back to its first value.
     Up,
     Down,
     Reset,
+}
+
+/// The input of an expression block that a letter from `c` to `p` names.
+fn variable(name: &str) -> Option<Port> {
+    let mut chars = name.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c @ 'c'..='p'), None) => Some(Port::Var(c as u8 - b'a')),
+        _ => None,
+    }
 }
 
 impl Port {
@@ -229,6 +240,7 @@ impl Port {
                     .or_else(|| numbered("in").map(Port::Pick))
                     .or_else(|| numbered("play").map(Port::Play))
                     .or_else(|| numbered("arg").map(Port::Arg))
+                    .or_else(|| variable(name))
             }
         })
     }
@@ -325,6 +337,14 @@ pub enum NodeOp {
         last_template: String,
         text: Arc<str>,
     },
+    /// A mathematical expression of the block's inputs `a`, `b`, `c`...: a number, or a condition (true while it is not 0).
+    Expr {
+        expression: String,
+        args: u32,
+        /// `None` when the expression is not valid: the block then gives 0 (the graph check says why).
+        compiled: Option<Box<omu_types::expression::Compiled>>,
+        condition: bool,
+    },
     /// Two numbers combined.
     Math(MathOp),
     /// A yes/no from two numbers, from two texts.
@@ -390,6 +410,10 @@ impl NodeOp {
                 | NodeOp::After { .. }
                 | NodeOp::Compare(_)
                 | NodeOp::TextCompare(_)
+                | NodeOp::Expr {
+                    condition: true,
+                    ..
+                }
                 | NodeOp::ToCondition
         )
     }
@@ -918,6 +942,39 @@ impl Plan {
                         .number()
                         .is_some_and(|n| n != 0.0);
                 }
+                NodeOp::Expr {
+                    expression,
+                    args,
+                    compiled,
+                    condition,
+                } => {
+                    // an expression that a flow gives wins over the one typed in the block, and is read again only when it changes
+                    if let Value::Text(t) = value_of(outs, &node.inputs, Port::Template) {
+                        if *t != **expression {
+                            *expression = t.to_string();
+                            *compiled = omu_types::expression::Compiled::new(expression, *args)
+                                .ok()
+                                .map(Box::new);
+                        }
+                    }
+                    let mut inputs = [0.0f64; omu_types::expression::MAX_EXPRESSION_ARGS as usize];
+                    for (k, slot) in inputs.iter_mut().enumerate().take(*args as usize) {
+                        let port = match k {
+                            0 => Port::A,
+                            1 => Port::B,
+                            _ => Port::Var(k as u8),
+                        };
+                        *slot = value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
+                    }
+                    let result = compiled
+                        .as_ref()
+                        .map_or(0.0, |c| c.eval(&inputs[..*args as usize]));
+                    if *condition {
+                        cond = result != 0.0;
+                    } else {
+                        value = Value::Float(result);
+                    }
+                }
                 NodeOp::Math(op) => {
                     let num =
                         |port: Port| value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
@@ -1018,6 +1075,10 @@ impl Plan {
                 NodeOp::Const(_)
                     | NodeOp::Join { .. }
                     | NodeOp::Math(_)
+                    | NodeOp::Expr {
+                        condition: false,
+                        ..
+                    }
                     | NodeOp::Choose
                     | NodeOp::Counter { .. }
                     | NodeOp::Volume
@@ -1800,6 +1861,77 @@ mod tests {
         let mut plan = Plan::new(vec![node("j", empty, vec![])], 480);
         plan.process();
         assert_eq!(plan.value(0), &Value::Text("[]".into()));
+    }
+
+    /// An expression block over `inputs` (the first is `a`, then `b`, `c`...).
+    fn expression(text: &str, inputs: &[Value], condition: bool) -> Plan {
+        let args = inputs.len() as u32;
+        let mut nodes: Vec<PlanNode> = inputs
+            .iter()
+            .enumerate()
+            .map(|(k, v)| node(&format!("i{k}"), NodeOp::Const(v.clone()), vec![]))
+            .collect();
+        let wires = (0..inputs.len())
+            .map(|k| {
+                wire_to(
+                    k,
+                    Port::from_name(&omu_types::expression::variable_name(k).to_string()).unwrap(),
+                )
+            })
+            .collect();
+        nodes.push(node(
+            "e",
+            NodeOp::Expr {
+                expression: text.into(),
+                args,
+                compiled: omu_types::expression::Compiled::new(text, args)
+                    .ok()
+                    .map(Box::new),
+                condition,
+            },
+            wires,
+        ));
+        let mut plan = Plan::new(nodes, 480);
+        plan.process();
+        plan
+    }
+
+    #[test]
+    fn an_expression_block_calculates_its_inputs_and_a_condition_block_compares_them() {
+        let math = |text: &str, inputs: &[Value]| {
+            expression(text, inputs, false).value(inputs.len()).clone()
+        };
+        assert_eq!(
+            math("a + b", &[Value::Int(2), Value::Float(0.5)]),
+            Value::Float(2.5)
+        );
+        assert_eq!(
+            math(
+                "c * log(a)",
+                &[Value::Int(100), Value::Int(0), Value::Int(3)]
+            ),
+            Value::Float(6.0),
+            "three inputs, the third one is c"
+        );
+        assert_eq!(
+            math("a / b", &[Value::Int(1), Value::Int(0)]),
+            Value::Float(0.0),
+            "never a number that is not one"
+        );
+        assert_eq!(
+            math("a +", &[Value::Int(1)]),
+            Value::Float(0.0),
+            "an expression that is wrong gives 0, the check says why"
+        );
+        // a condition
+        let cond = |text: &str, inputs: &[Value]| {
+            let plan = expression(text, inputs, true);
+            plan.condition(inputs.len())
+        };
+        assert!(cond("a = b", &[Value::Int(3), Value::Float(3.0)]));
+        assert!(!cond("a = b", &[Value::Int(3), Value::Int(4)]));
+        assert!(cond("a >= 3 and b < 10", &[Value::Int(3), Value::Int(9)]));
+        assert!(!cond("a >= 3 and b < 10", &[Value::Int(2), Value::Int(9)]));
     }
 
     #[test]

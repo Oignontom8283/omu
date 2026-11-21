@@ -191,3 +191,7 @@ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICUL
 ```
 
 - `if-addrs` (https://github.com/messense/if-addrs), to list the addresses of the computer's networks: MIT or BSD-3-Clause.
+
+## fasteval (mathematical expressions)
+
+The expression and condition blocks read what is typed in them (`a + b`, `c * log(a)`, `a = b`) with `fasteval` (https://github.com/likebike/fasteval, by Christopher Sebastian). Licence: MIT.

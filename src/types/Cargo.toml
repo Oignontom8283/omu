@@ -11,6 +11,8 @@ publish = false
 path = "lib.rs"
 
 [dependencies]
+# mathematical expressions typed in a block (a + b, c * log(a), a = b)
+fasteval = "0.2"
 omu-branding = { path = "../branding" }
 serde = { version = "1.0", features = ["derive"] }
 subst = { version = "0.3", default-features = false }

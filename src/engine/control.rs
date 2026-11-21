@@ -115,6 +115,19 @@ fn flow_port(v: &Value) -> Option<u16> {
     (1.0..=65535.0).contains(&n).then_some(n as u16)
 }
 
+/// The operation of an expression block: the expression read once, here, and calculated at each cycle.
+fn expression_op(expression: &str, args: u32, condition: bool) -> NodeOp {
+    let args = args.clamp(1, omu_types::expression::MAX_EXPRESSION_ARGS);
+    NodeOp::Expr {
+        expression: expression.to_owned(),
+        args,
+        compiled: omu_types::expression::Compiled::new(expression, args)
+            .ok()
+            .map(Box::new),
+        condition,
+    }
+}
+
 /// The kind of a block with the settings that flows give it (a flow that gives nothing usable changes nothing).
 fn with_flows(kind: &NodeKind, flows: Option<&[Value]>) -> NodeKind {
     let Some(v) = flows.filter(|v| v.len() == 4) else {
@@ -627,6 +640,12 @@ impl Inner {
                         last_template: String::new(),
                         text: "".into(),
                     },
+                    (NodeKind::MathExpr { expression, args }, _) => {
+                        expression_op(expression, *args, false)
+                    }
+                    (NodeKind::CondExpr { expression, args }, _) => {
+                        expression_op(expression, *args, true)
+                    }
                     (NodeKind::Math { op }, _) => NodeOp::Math(*op),
                     (NodeKind::Compare { op }, _) => NodeOp::Compare(*op),
                     (NodeKind::TextCompare { op }, _) => NodeOp::TextCompare(*op),
