@@ -527,5 +527,19 @@
   "modules.open": "Open the modules",
   "modules.notSupported": "This build of the program does not include the code that runs this module.",
   "app.startEngine": "Start engine",
-  "app.startEngineHint": "Starts again the graph that was last applied"
+  "app.startEngineHint": "Starts again the graph that was last applied",
+  "settings.section.security": "Security",
+  "settings.trust": "Secure connections trust",
+  "settings.trustHint": "Whose certificates are believed when the program connects to a website or a server securely (to download a module, for example).",
+  "settings.trustSystem": "The certificates of the system, plus the ones of my folder",
+  "settings.trustOwn": "Only the certificates of my folder (nothing from the system)",
+  "settings.certFolder": "Certificates folder",
+  "settings.certFolderHint": "Put certificate files here (.pem, .crt, .cer or .der). Leave empty to use the usual folder.",
+  "settings.certNoFolder": "The folder {folder} does not exist yet: create it and put certificates in it.",
+  "settings.certNone": "No certificate in the folder.",
+  "settings.certList": "Certificates found in the folder",
+  "settings.certIssuer": "issued by {issuer}",
+  "settings.certUntil": "valid until {date}",
+  "settings.certExpired": "expired on {date}",
+  "settings.certRefresh": "Read the folder again"
 }

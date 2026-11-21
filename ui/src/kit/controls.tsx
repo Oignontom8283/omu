@@ -53,10 +53,12 @@ export type TextInputProps = {
   /** Code font (identifiers, templates, values) rather than the interface's. */
   code?: boolean;
   className?: string;
+  /** Called with the text when the field is left or Enter is pressed (a value that is saved, not tried key by key). */
+  onCommit?: (text: string) => void;
 };
 
 /** A line of text: flat, with a frame that lights up when it has the focus. */
-export function TextInput({ value, onChange, placeholder, disabled, title, code = true, className }: TextInputProps) {
+export function TextInput({ value, onChange, placeholder, disabled, title, code = true, className, onCommit }: TextInputProps) {
   return (
     <input
       className={join('kit-text nodrag', code && 'code', className)}
@@ -67,6 +69,8 @@ export function TextInput({ value, onChange, placeholder, disabled, title, code 
       spellCheck={false}
       autoComplete="off"
       onChange={(e) => onChange(e.target.value)}
+      onBlur={onCommit ? (e) => onCommit(e.target.value) : undefined}
+      onKeyDown={onCommit ? (e) => e.key === 'Enter' && onCommit(e.currentTarget.value) : undefined}
     />
   );
 }

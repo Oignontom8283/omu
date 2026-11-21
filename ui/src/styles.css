@@ -2090,3 +2090,36 @@ button.ref:hover:not(:disabled) {
 .template-editor .cm-editor {
   height: 100%;
 }
+
+/* the certificates folder of the settings and what is in it */
+.certificates {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.certificates .setting {
+  align-self: stretch;
+}
+.cert-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: stretch;
+}
+.cert-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+.cert-list li.expired strong {
+  color: var(--warn);
+}

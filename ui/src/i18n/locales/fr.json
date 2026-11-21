@@ -527,5 +527,19 @@
   "modules.open": "Ouvrir les modules",
   "modules.notSupported": "Cette version du programme ne contient pas le code qui fait fonctionner ce module.",
   "app.startEngine": "Démarrer le moteur",
-  "app.startEngineHint": "Relance le dernier graphe appliqué"
+  "app.startEngineHint": "Relance le dernier graphe appliqué",
+  "settings.section.security": "Sécurité",
+  "settings.trust": "Confiance des connexions sécurisées",
+  "settings.trustHint": "Les certificats auxquels le programme fait confiance quand il se connecte à un site ou à un serveur de façon sécurisée (pour télécharger un module, par exemple).",
+  "settings.trustSystem": "Les certificats du système, plus ceux de mon dossier",
+  "settings.trustOwn": "Seulement les certificats de mon dossier (rien du système)",
+  "settings.certFolder": "Dossier des certificats",
+  "settings.certFolderHint": "Déposez-y des fichiers de certificats (.pem, .crt, .cer ou .der). Laissez vide pour utiliser le dossier habituel.",
+  "settings.certNoFolder": "Le dossier {folder} n’existe pas encore : créez-le et déposez-y des certificats.",
+  "settings.certNone": "Aucun certificat dans le dossier.",
+  "settings.certList": "Certificats trouvés dans le dossier",
+  "settings.certIssuer": "émis par {issuer}",
+  "settings.certUntil": "valable jusqu’au {date}",
+  "settings.certExpired": "expiré le {date}",
+  "settings.certRefresh": "Relire le dossier"
 }
