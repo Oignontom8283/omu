@@ -9,5 +9,6 @@
 //! why a receiving block can be told which computer it accepts sound from.
 
 pub mod opus;
+pub mod stream;
 pub mod vban;
 pub mod web;

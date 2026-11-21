@@ -135,6 +135,16 @@ fn with_flows(kind: &NodeKind, flows: Option<&[Value]>) -> NodeKind {
                 .filter(|s| s.is_ascii())
                 .unwrap_or_else(|| stream.clone()),
         },
+        NodeKind::StreamIn { url } => NodeKind::StreamIn {
+            url: flow_text(&v[0], omu_types::MAX_STREAM_URL)
+                .filter(|u| omu_types::stream_problem(u, false).is_none())
+                .unwrap_or_else(|| url.clone()),
+        },
+        NodeKind::StreamOut { url } => NodeKind::StreamOut {
+            url: flow_text(&v[0], omu_types::MAX_STREAM_URL)
+                .filter(|u| omu_types::stream_problem(u, true).is_none())
+                .unwrap_or_else(|| url.clone()),
+        },
         NodeKind::WebIn { name } => NodeKind::WebIn {
             name: flow_text(&v[2], omu_types::MAX_WEB_NAME)
                 .filter(|s| omu_types::is_web_name(s))
@@ -775,6 +785,24 @@ impl Inner {
                     omu_net::vban::VbanRender::open(host, *port, stream).map_err(describe)?;
                 self.start_sink(kind, Box::new(render))
             }
+            NodeKind::StreamIn { url } => {
+                if let Some(problem) = omu_types::stream_problem(url, false) {
+                    return Err(problem);
+                }
+                let (ffmpeg, tls) = self.ffmpeg_for_streams()?;
+                let capture =
+                    omu_net::stream::StreamCapture::open(&ffmpeg, url, &tls).map_err(describe)?;
+                self.start_source(kind, Box::new(capture))
+            }
+            NodeKind::StreamOut { url } => {
+                if let Some(problem) = omu_types::stream_problem(url, true) {
+                    return Err(problem);
+                }
+                let (ffmpeg, tls) = self.ffmpeg_for_streams()?;
+                let render =
+                    omu_net::stream::StreamRender::open(&ffmpeg, url, &tls).map_err(describe)?;
+                self.start_sink(kind, Box::new(render))
+            }
             NodeKind::WebIn { name } => {
                 let hub = self.web_hub()?;
                 let capture = hub.open_ingest(name).map_err(describe)?;
@@ -823,6 +851,18 @@ impl Inner {
             .web
             .as_ref()
             .ok_or_else(|| "sound through the web is not available here".to_string())
+    }
+
+    /// The FFmpeg a stream block runs, and the TLS settings it is given.
+    fn ffmpeg_for_streams(&self) -> Result<(std::path::PathBuf, Vec<String>), String> {
+        let modules = self.cfg.sounds.as_ref().map(|s| s.modules());
+        let ffmpeg = modules.as_ref().and_then(|m| m.ffmpeg()).ok_or_else(|| {
+            "FFmpeg is not installed or not switched on (see the Modules panel)".to_string()
+        })?;
+        Ok((
+            ffmpeg,
+            modules.map(|m| m.ffmpeg_tls_args()).unwrap_or_default(),
+        ))
     }
 
     fn start_source(
