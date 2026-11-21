@@ -157,7 +157,10 @@ export type SoundStatus = {
   streams: number;
   hotkey_problems?: HotkeyProblem[];
 };
-export type Settings = { sound_cache_mb: number; compress_above_mb: number; show_tray_icon: boolean; start_at_logon: boolean };
+export type TrustMode = 'system' | 'own';
+export type Settings = { sound_cache_mb: number; compress_above_mb: number; show_tray_icon: boolean; start_at_logon: boolean; trust: TrustMode; certificates_dir?: string };
+export type CertificateInfo = { file: string; subject: string; issuer: string; expires: string; expired: boolean };
+export type TrustReport = { mode: TrustMode; folder: string; folder_exists: boolean; certificates: CertificateInfo[]; problems: Diagnostic[] };
 
 /** How far a download is (`total` is 0 when the size is not known). */
 export type DownloadProgress = { done: number; total: number };

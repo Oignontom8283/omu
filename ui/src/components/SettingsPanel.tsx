@@ -7,6 +7,7 @@ import { TextInput } from '../kit/controls.tsx';
 import type { Settings } from '../types.ts';
 import type { Overrides } from '../keybindings.ts';
 import { Shortcuts } from './Shortcuts.tsx';
+import { Certificates } from './Certificates.tsx';
 
 type Props = {
   daemon: ReturnType<typeof api>;
@@ -75,6 +76,15 @@ export function SettingsPanel({ daemon, notify, focus, shortcuts }: Props) {
     },
     tray: { value: settings?.show_tray_icon ?? false, set: (v) => void change({ show_tray_icon: Boolean(v) }), disabled: !settings },
     logon: { value: settings?.start_at_logon ?? false, set: (v) => void change({ start_at_logon: Boolean(v) }), disabled: !settings },
+    trust: {
+      value: settings?.trust ?? 'system',
+      options: [
+        { value: 'system', label: t('settings.trustSystem') },
+        { value: 'own', label: t('settings.trustOwn') },
+      ],
+      set: (v) => void change({ trust: v === 'own' ? 'own' : 'system' }),
+      disabled: !settings,
+    },
   };
 
   const control = (decl: SettingDecl) => {
@@ -116,6 +126,7 @@ export function SettingsPanel({ daemon, notify, focus, shortcuts }: Props) {
               {decl.hint && <small className="muted">{t(decl.hint)}</small>}
             </div>
           ))}
+          {section.id === 'security' && <Certificates daemon={daemon} settings={settings} notify={notify} onFolder={(folder) => void change({ certificates_dir: folder || undefined })} />}
         </section>
       ))}
       <section>

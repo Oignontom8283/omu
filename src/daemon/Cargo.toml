@@ -26,6 +26,7 @@ omu-graph = { path = "../graph" }
 omu-hal = { path = "../hal" }
 omu-protocol = { path = "../protocol" }
 omu-soundboard = { path = "../soundboard" }
+omu-tls = { path = "../tls" }
 omu-types = { path = "../types" }
 omu-virtual-devices = { path = "../virtual_devices" }
 serde = { version = "1.0", features = ["derive"] }

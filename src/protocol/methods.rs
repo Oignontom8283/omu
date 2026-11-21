@@ -6,7 +6,7 @@
 use omu_diagnostics::Line;
 use omu_types::{
     AppInfo, Board, Capabilities, CleanOutcome, DeviceInfo, EngineStatus, GraphSpec, Levels,
-    ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices,
+    ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, StaleDevices, TrustReport,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -249,6 +249,10 @@ method!(
     SettingsSet, "settings.set", Settings => ()
 );
 method!(
+    /// Whose certificates the program trusts, and the certificates found in the user's folder.
+    CertificatesList, "certificates.list", () => TrustReport
+);
+method!(
     /// The applications known to the audio system, active ones first.
     AppsList, "apps.list", () => Vec<AppInfo>
 );
@@ -326,6 +330,7 @@ pub const ALL_METHODS: &[&str] = &[
     SoundboardsStatus::NAME,
     SettingsGet::NAME,
     SettingsSet::NAME,
+    CertificatesList::NAME,
     AppsList::NAME,
     GraphGet::NAME,
     GraphValidate::NAME,

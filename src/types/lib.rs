@@ -9,6 +9,7 @@ mod node;
 mod soundboard;
 mod status;
 pub mod template;
+mod trust;
 
 pub use devices::{
     AppInfo, Capabilities, CleanOutcome, DeviceInfo, Direction, KeptDevices, StaleDevice,
@@ -27,3 +28,4 @@ pub use node::{
 pub use soundboard::{Board, HotkeyProblem, Pad, Settings, SoundInfo, SoundLibrary, SoundStatus};
 pub use status::{EngineStatus, Levels, NodeState, NodeStatus};
 pub use template::TemplateError;
+pub use trust::{CertificateInfo, TrustMode, TrustReport};

@@ -156,3 +156,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
+
+## Certificates (secure connections)
+
+The choice of the certificates the program trusts, and the secure connections it makes, use these libraries, each offered under the
+MIT licence or the Apache-2.0 licence (at your choice); their full licence texts are in their source packages:
+
+- `rustls` (https://github.com/rustls/rustls) and `rustls-pki-types`, the TLS implementation and its certificate types;
+- `rustls-native-certs` (https://github.com/rustls/rustls-native-certs), to read the certificates the operating system trusts
+  (Apache-2.0, ISC or MIT);
+- `rustls-platform-verifier`, through `ureq` (https://github.com/algesten/ureq), the HTTP client;
+- `x509-parser` (https://github.com/rusticata/x509-parser), to read who a certificate is about and until when it is valid;
+- `rcgen` (https://github.com/rustls/rcgen), to make the certificates the tests use.

@@ -1,4 +1,4 @@
-//! Downloading a file for a module: a plain HTTPS client (rustls, the certificates the system trusts), pieces that resume,
+//! Downloading a file for a module: pieces that resume (the HTTPS client comes from `omu_tls`, with the certificates the user trusts),
 //! progress that can be shown, a way to stop, and the SHA-256 of what was written.
 
 use sha2::{Digest, Sha256};
@@ -17,24 +17,6 @@ pub struct Counters {
 
 /// What a download that was stopped by the user returns as its error (it is not a failure to report).
 pub const CANCELLED: &str = "cancelled";
-
-pub(crate) fn agent() -> ureq::Agent {
-    // rustls: the same pure-Rust TLS on every system (nothing to install on Linux), trusting the certificates the
-    // operating system trusts
-    ureq::Agent::config_builder()
-        .tls_config(
-            ureq::tls::TlsConfig::builder()
-                .provider(ureq::tls::TlsProvider::Rustls)
-                .root_certs(ureq::tls::RootCerts::PlatformVerifier)
-                .build(),
-        )
-        .timeout_global(None)
-        .timeout_connect(Some(std::time::Duration::from_secs(30)))
-        // the answer must start within a minute; the body then takes as long as the connection needs
-        .timeout_recv_response(Some(std::time::Duration::from_secs(60)))
-        .build()
-        .into()
-}
 
 /// How much is asked for at a time (a stalled connection then costs one piece, which is asked for again).
 const PIECE: u64 = 8 * 1024 * 1024;

@@ -77,6 +77,8 @@ pub struct Modules {
     model_source: Mutex<(String, String)>,
     /// Whether an FFmpeg the system already has may be used (tests turn it off).
     use_system: bool,
+    /// Whose certificates a download believes.
+    trust: Mutex<omu_tls::Trust>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -100,6 +102,10 @@ impl Modules {
             .unwrap_or_default();
         Modules {
             data_dir: data_dir.to_owned(),
+            trust: Mutex::new(omu_tls::Trust {
+                mode: omu_types::TrustMode::System,
+                folder: data_dir.join(omu_tls::FOLDER_NAME),
+            }),
             dir: data_dir.join("modules"),
             state: Mutex::new(State {
                 saved,
@@ -118,6 +124,11 @@ impl Modules {
     /// Where the modules are kept.
     pub fn dir(&self) -> &std::path::Path {
         &self.dir
+    }
+
+    /// Whose certificates the next downloads believe.
+    pub fn set_trust(&self, trust: omu_tls::Trust) {
+        *lock(&self.trust) = trust;
     }
 
     /// Never uses an FFmpeg the system has (tests).
@@ -333,14 +344,15 @@ impl Modules {
 
     /// The download of one module (on the download thread).
     fn download(&self, id: &str) -> Result<(), String> {
+        let agent = omu_tls::agent(&lock(&self.trust).clone()).map_err(|e| e.to_string())?;
         if id == DEEPFILTER {
             let (url, sha256) = lock(&self.model_source).clone();
-            deepfilter::download(&self.dir, &url, &sha256, &self.counters)
+            deepfilter::download(&self.dir, &url, &sha256, &self.counters, &agent)
         } else {
             let urls = lock(&self.urls)
                 .clone()
                 .ok_or("FFmpeg cannot be downloaded on this system")?;
-            ffmpeg::download(&self.dir, &urls, &self.counters)
+            ffmpeg::download(&self.dir, &urls, &self.counters, &agent)
         }
     }
 

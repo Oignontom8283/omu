@@ -34,6 +34,8 @@ pub enum Command {
     Devices,
     /// List the applications that have an audio session (the ones whose sound can be captured).
     Apps,
+    /// Show whose certificates the program trusts for secure connections, and the ones found in its certificates folder.
+    Certificates,
     /// Capture an application's sound and send it to a virtual microphone or a playback device.
     Route(RouteArgs),
     /// Show, check, apply or clear the whole graph.
@@ -348,6 +350,56 @@ where
                     fmt,
                     d.id
                 )?;
+            }
+        }
+        Command::Certificates => {
+            let report = client.call::<omu_protocol::methods::CertificatesList>(&())?;
+            if cli.json {
+                return print_json(out, &report);
+            }
+            let mode = match report.mode {
+                omu_types::TrustMode::System => {
+                    "the certificates of the system, and the ones of the folder"
+                }
+                omu_types::TrustMode::Own => "only the certificates of the folder",
+            };
+            writeln!(out, "trusted: {mode}")?;
+            writeln!(
+                out,
+                "folder:  {}{}",
+                report.folder,
+                if report.folder_exists {
+                    ""
+                } else {
+                    "  (does not exist yet)"
+                }
+            )?;
+            for c in &report.certificates {
+                writeln!(
+                    out,
+                    "  {}  {}  (from {}, until {}{})",
+                    c.file,
+                    c.subject,
+                    c.issuer,
+                    c.expires,
+                    if c.expired { ", EXPIRED" } else { "" }
+                )?;
+            }
+            for p in &report.problems {
+                writeln!(
+                    out,
+                    "  {}[{}] {}",
+                    if p.severity == omu_types::Severity::Error {
+                        "error"
+                    } else {
+                        "warning"
+                    },
+                    p.code,
+                    p.message
+                )?;
+                if let Some(hint) = &p.hint {
+                    writeln!(out, "      hint: {hint}")?;
+                }
             }
         }
         Command::Apps => {

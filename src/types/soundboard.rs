@@ -127,6 +127,12 @@ pub struct Settings {
     /// Start the daemon when the user logs in (an entry in the user's own startup list).
     #[serde(default)]
     pub start_at_logon: bool,
+    /// Whose certificates are believed when the program connects to a server over HTTPS.
+    #[serde(default)]
+    pub trust: crate::TrustMode,
+    /// Where the certificates of the user are kept (`None`: the `certificates` folder of the program's data).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub certificates_dir: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -148,6 +154,8 @@ impl Default for Settings {
             compress_above_mb: default_compress_mb(),
             show_tray_icon: true,
             start_at_logon: false,
+            trust: crate::TrustMode::System,
+            certificates_dir: None,
         }
     }
 }

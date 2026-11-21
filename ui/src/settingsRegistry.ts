@@ -4,7 +4,7 @@
  */
 export type SettingDecl = {
   id: string;
-  section: 'appearance' | 'system';
+  section: 'appearance' | 'system' | 'security';
   /** A yes/no, or one choice among several. */
   type: 'toggle' | 'choice';
   /** Translation keys of its name and of its explanation. */
@@ -15,6 +15,7 @@ export type SettingDecl = {
 export const SETTING_SECTIONS: { id: SettingDecl['section']; label: string }[] = [
   { id: 'appearance', label: 'settings.section.appearance' },
   { id: 'system', label: 'settings.section.system' },
+  { id: 'security', label: 'settings.section.security' },
 ];
 
 export const SETTING_DECLS: SettingDecl[] = [
@@ -22,4 +23,5 @@ export const SETTING_DECLS: SettingDecl[] = [
   { id: 'theme', section: 'appearance', type: 'choice', label: 'app.theme' },
   { id: 'tray', section: 'system', type: 'toggle', label: 'settings.tray', hint: 'settings.trayHint' },
   { id: 'logon', section: 'system', type: 'toggle', label: 'settings.logon', hint: 'settings.logonHint' },
+  { id: 'trust', section: 'security', type: 'choice', label: 'settings.trust', hint: 'settings.trustHint' },
 ];

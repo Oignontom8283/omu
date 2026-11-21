@@ -5,7 +5,7 @@
 //! megabytes, is what this module downloads. The address is fixed to one version of the model and its SHA-256 is
 //! written here, so what is installed is exactly what was checked.
 
-use super::download::{agent, fetch, Counters, CANCELLED};
+use super::download::{fetch, Counters, CANCELLED};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
 
@@ -29,6 +29,7 @@ pub fn download(
     url: &str,
     sha256: &str,
     counters: &Counters,
+    agent: &ureq::Agent,
 ) -> Result<(), String> {
     let target = model_path(modules_dir);
     let dir = target.parent().expect("the model has a folder");
@@ -36,7 +37,7 @@ pub fn download(
     counters.done.store(0, Ordering::Relaxed);
     counters.total.store(0, Ordering::Relaxed);
     let partial = target.with_extension("gz.part");
-    let result = fetch(&agent(), url, &partial, counters).and_then(|got| {
+    let result = fetch(agent, url, &partial, counters).and_then(|got| {
         if got.eq_ignore_ascii_case(sha256) {
             std::fs::rename(&partial, &target).map_err(|e| e.to_string())
         } else {
