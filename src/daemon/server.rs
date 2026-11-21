@@ -458,6 +458,7 @@ pub async fn serve_https(
     daemon: Arc<Daemon>,
     router: Router,
     mut wanted: tokio::sync::watch::Receiver<bool>,
+    mut stop: tokio::sync::oneshot::Receiver<()>,
 ) {
     loop {
         let on = *wanted.borrow_and_update();
@@ -477,7 +478,12 @@ pub async fn serve_https(
         } else {
             daemon.set_remote(omu_types::RemoteInfo::default());
         }
-        let ended = wanted.changed().await.is_err();
+        // the setting changed, or the daemon is ending (a signal of its own: the setting's sender is also held by the settings listener,
+        // which lives as long as the daemon, so it never closes)
+        let ended = tokio::select! {
+            changed = wanted.changed() => changed.is_err(),
+            _ = &mut stop => true,
+        };
         if let Some(handle) = running {
             handle.shutdown();
         }
