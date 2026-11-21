@@ -171,6 +171,16 @@ pub fn source_bridge(
     )
 }
 
+/// What is not a number (NaN, infinity) becomes silence. A sound that comes from the network can carry anything, and one such
+/// sample would stay for ever in the memory of a filter (the noise reduction, the resamplers) and in every sum after it.
+fn finite(samples: &mut [f32]) {
+    for s in samples {
+        if !s.is_finite() {
+            *s = 0.0;
+        }
+    }
+}
+
 impl SourceConsumer {
     /// Fills `out` (engine format) with the next frames; silence while priming or after an underrun.
     pub fn pull(&mut self, out: &mut [f32]) {
@@ -197,6 +207,7 @@ impl SourceConsumer {
         let need = (n_out as f64 * step).ceil() as usize + 4;
         let take = need.min(avail).min(MAX_FRAMES);
         let got = peek(&mut self.cons, take * self.dev_ch, &mut self.raw) / self.dev_ch;
+        finite(&mut self.raw[..got * self.dev_ch]);
         remix(
             &self.raw[..got * self.dev_ch],
             self.dev_ch,
@@ -341,6 +352,10 @@ impl SinkConsumer {
             out,
             self.dev_ch,
         );
+        // nothing louder than full scale or that is not a number reaches a device (a sum of loud sounds, a gain, a bad source)
+        for s in out.iter_mut() {
+            *s = if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 };
+        }
         if produced < n_dev {
             self.stats.underruns.fetch_add(1, Ordering::Relaxed);
             self.primed = false;
@@ -376,6 +391,34 @@ mod tests {
             "signal after priming"
         );
         assert_eq!(stats.underruns.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn what_is_not_a_number_never_gets_past_a_source_and_nothing_louder_than_full_scale_gets_to_a_device() {
+        let (mut prod, mut cons, _) = source_bridge(AudioFormat::ENGINE, 20.0);
+        let mut poisoned = vec![0.5f32; CYCLE * 2];
+        poisoned[10] = f32::NAN;
+        poisoned[11] = f32::INFINITY;
+        poisoned[12] = f32::NEG_INFINITY;
+        for _ in 0..3 {
+            prod.push(&poisoned);
+        }
+        let mut out = vec![0.0f32; CYCLE * 2];
+        for _ in 0..2 {
+            cons.pull(&mut out);
+            assert!(out.iter().all(|s| s.is_finite()), "silence instead of a number that is not one");
+        }
+
+        let (mut sink_prod, mut sink_cons, _) = sink_bridge(AudioFormat::ENGINE, 20.0);
+        let loud = vec![3.0f32; CYCLE * 2];
+        for _ in 0..4 {
+            sink_prod.push(&loud);
+        }
+        let mut dev = vec![0.0f32; CYCLE * 2];
+        for _ in 0..3 {
+            sink_cons.pull(&mut dev);
+        }
+        assert!(dev.iter().all(|s| s.abs() <= 1.0), "clipped to full scale: {:?}", &dev[..4]);
     }
 
     #[test]
