@@ -13,6 +13,8 @@ path = "lib.rs"
 [dependencies]
 # mathematical expressions typed in a block (a + b, c * log(a), a = b)
 fasteval = "0.2"
+# the tests of texts: a == b, a.contains(b), a.matches("^x[0-9]+$")
+cel = { version = "0.16", default-features = false, features = ["regex"] }
 omu-branding = { path = "../branding" }
 serde = { version = "1.0", features = ["derive"] }
 subst = { version = "0.3", default-features = false }

@@ -196,3 +196,7 @@ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICUL
 ## fasteval (mathematical expressions)
 
 The expression and condition blocks read what is typed in them (`a + b`, `c * log(a)`, `a = b`) with `fasteval` (https://github.com/likebike/fasteval, by Christopher Sebastian). Licence: MIT.
+
+## cel (tests on texts)
+
+The text test block reads what is typed in it (`a == b`, `a.contains(b)`, `a.matches("^[0-9]+$")`) with `cel` (https://github.com/cel-rust/cel-rust, by the cel-rust contributors), an interpreter of the Common Expression Language, and the `regex` library for the regular expressions. Licence: MIT.

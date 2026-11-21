@@ -10,6 +10,7 @@ mod node;
 mod soundboard;
 mod status;
 pub mod template;
+pub mod text_expression;
 mod trust;
 
 pub use devices::{

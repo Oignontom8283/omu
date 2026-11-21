@@ -646,6 +646,19 @@ impl Inner {
                     (NodeKind::CondExpr { expression, args }, _) => {
                         expression_op(expression, *args, true)
                     }
+                    (NodeKind::TextExpr { expression, args }, _) => {
+                        let args = (*args).clamp(1, omu_types::text_expression::MAX_TEXT_ARGS);
+                        NodeOp::TextTest {
+                            expression: expression.clone(),
+                            args,
+                            compiled: omu_types::text_expression::Compiled::new(expression, args)
+                                .ok()
+                                .map(Box::new),
+                            last: vec![],
+                            last_expression: expression.clone(),
+                            answer: false,
+                        }
+                    }
                     (NodeKind::Math { op }, _) => NodeOp::Math(*op),
                     (NodeKind::Compare { op }, _) => NodeOp::Compare(*op),
                     (NodeKind::TextCompare { op }, _) => NodeOp::TextCompare(*op),

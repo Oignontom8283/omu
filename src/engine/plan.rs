@@ -345,6 +345,16 @@ pub enum NodeOp {
         compiled: Option<Box<omu_types::expression::Compiled>>,
         condition: bool,
     },
+    /// A test of the block's text inputs `a`, `b`, `c`...: yes or no. Asked again only when a text, or the test, changed.
+    TextTest {
+        expression: String,
+        args: u32,
+        /// `None` when the test is not valid: the block then says no (the graph check says why).
+        compiled: Option<Box<omu_types::text_expression::Compiled>>,
+        last: Vec<Value>,
+        last_expression: String,
+        answer: bool,
+    },
     /// Two numbers combined.
     Math(MathOp),
     /// A yes/no from two numbers, from two texts.
@@ -414,6 +424,7 @@ impl NodeOp {
                     condition: true,
                     ..
                 }
+                | NodeOp::TextTest { .. }
                 | NodeOp::ToCondition
         )
     }
@@ -974,6 +985,43 @@ impl Plan {
                     } else {
                         value = Value::Float(result);
                     }
+                }
+                NodeOp::TextTest {
+                    expression,
+                    args,
+                    compiled,
+                    last,
+                    last_expression,
+                    answer,
+                } => {
+                    let now: Vec<Value> = (0..*args as u8)
+                        .map(|k| match k {
+                            0 => value_of(outs, &node.inputs, Port::A),
+                            1 => value_of(outs, &node.inputs, Port::B),
+                            k => value_of(outs, &node.inputs, Port::Var(k)),
+                        })
+                        .collect();
+                    // a test that a flow gives wins over the one typed in the block
+                    if let Value::Text(t) = value_of(outs, &node.inputs, Port::Template) {
+                        if *t != **expression {
+                            *expression = t.to_string();
+                        }
+                    }
+                    // asked again only when a text or the test changed (a regular expression is not free)
+                    if now != *last || *expression != *last_expression || last.len() != now.len() {
+                        if *expression != *last_expression {
+                            *compiled =
+                                omu_types::text_expression::Compiled::new(expression, *args)
+                                    .ok()
+                                    .map(Box::new);
+                            *last_expression = expression.clone();
+                        }
+                        let texts: Vec<String> = now.iter().map(Value::written).collect();
+                        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+                        *answer = compiled.as_ref().is_some_and(|c| c.eval(&refs));
+                        *last = now;
+                    }
+                    cond = *answer;
                 }
                 NodeOp::Math(op) => {
                     let num =
@@ -1932,6 +1980,60 @@ mod tests {
         assert!(!cond("a = b", &[Value::Int(3), Value::Int(4)]));
         assert!(cond("a >= 3 and b < 10", &[Value::Int(3), Value::Int(9)]));
         assert!(!cond("a >= 3 and b < 10", &[Value::Int(2), Value::Int(9)]));
+    }
+
+    #[test]
+    fn a_text_test_block_asks_its_texts_and_says_yes_or_no() {
+        let test = |text: &str, inputs: &[&str]| {
+            let args = inputs.len() as u32;
+            let mut nodes: Vec<PlanNode> = inputs
+                .iter()
+                .enumerate()
+                .map(|(k, v)| {
+                    node(
+                        &format!("i{k}"),
+                        NodeOp::Const(Value::Text((*v).into())),
+                        vec![],
+                    )
+                })
+                .collect();
+            let wires = (0..inputs.len())
+                .map(|k| {
+                    wire_to(
+                        k,
+                        Port::from_name(&omu_types::text_expression::variable_name(k).to_string())
+                            .unwrap(),
+                    )
+                })
+                .collect();
+            nodes.push(node(
+                "t",
+                NodeOp::TextTest {
+                    expression: text.into(),
+                    args,
+                    compiled: omu_types::text_expression::Compiled::new(text, args)
+                        .ok()
+                        .map(Box::new),
+                    last: vec![],
+                    last_expression: text.into(),
+                    answer: false,
+                },
+                wires,
+            ));
+            let mut plan = Plan::new(nodes, 480);
+            plan.process();
+            plan.condition(inputs.len())
+        };
+        assert!(test("a == b", &["x", "x"]));
+        assert!(!test("a == b", &["x", "y"]));
+        assert!(test("a.contains(b)", &["hello world", "o w"]));
+        assert!(test("a.matches(\"^[0-9]+$\")", &["12345", ""]));
+        assert!(!test("a.matches(\"^[0-9]+$\")", &["12a45", ""]));
+        assert!(test("a = b and c.startsWith(\"h\")", &["x", "x", "hi"]));
+        assert!(
+            !test("a ==", &["x"]),
+            "a test that is wrong says no, the check says why"
+        );
     }
 
     #[test]
