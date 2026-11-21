@@ -19,6 +19,7 @@ import { Doc, docKey, type DocRef } from './components/BlockHelp.tsx';
 import { Calibration } from './components/Calibration.tsx';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette.tsx';
 import { EXAMPLES, type Example } from './examples.ts';
+import { groupOf, owningBlock, ungroup as takeApart } from './grouping.ts';
 import { History } from './history.ts';
 import { Button } from './kit/controls.tsx';
 import { loadDraft, loadVersions, saveDraft, saveVersions, withVersion, type Version } from './versions.ts';
@@ -465,6 +466,23 @@ export function App() {
         return { ...n, data: { ...n.data, spec: rest as NodeSpec } };
       }),
     );
+  // several blocks made into one, and the other way round
+  const showEditor = (r: { nodes: ClipNode[]; edges: (ClipEdge & { id: string })[] }, select: string[]) => {
+    setNodes(r.nodes.map((n) => ({ id: n.id, type: 'omu', position: n.position, selected: select.includes(n.id), data: { spec: n.spec, inputs: n.inputs } })));
+    setEdges(r.edges.map((e) => ({ ...e })));
+  };
+  const groupSelection = () => {
+    const now = stepNow();
+    const ids = new Set(nodes.filter((n) => n.selected).map((n) => n.id));
+    const made = groupOf(now.nodes, now.edges, ids, newId);
+    if (made) showEditor(made as { nodes: ClipNode[]; edges: (ClipEdge & { id: string })[] }, [made.group]);
+  };
+  const ungroupBlock = (id?: string) => {
+    const now = stepNow();
+    const target = id ?? nodes.find((n) => n.selected && n.data.spec.type === 'group')?.id;
+    const apart = target ? takeApart(now.nodes, now.edges, target) : null;
+    if (apart) showEditor(apart as { nodes: ClipNode[]; edges: (ClipEdge & { id: string })[] }, apart.ids);
+  };
   const selectAll = () => setNodes((list) => list.map((n) => ({ ...n, selected: true })));
   const toggleDock = (panel: NonNullable<DockState['bottom']>) => setDock({ ...dock, bottom: dock.bottom === panel ? null : panel });
 
@@ -483,6 +501,10 @@ export function App() {
         return duplicate();
       case 'edit.selectAll':
         return selectAll();
+      case 'edit.group':
+        return groupSelection();
+      case 'edit.ungroup':
+        return ungroupBlock();
       case 'search.blocks':
         return openPalette('all', undefined, '@');
       case 'palette.open':
@@ -540,6 +562,7 @@ export function App() {
       },
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
       openHelp: (id: string, anchor: { x: number; y: number }) => openDoc({ kind: 'node', node: id }, anchor),
+      ungroup: (id: string) => ungroupBlock(id),
       openCalibration: (id: string, anchor: { x: number; y: number }) =>
         setCalibrations((list) => [...list.filter((c) => c.node !== id), list.find((c) => c.node === id) ?? { node: id, x: Math.max(4, Math.min(window.innerWidth - 420, anchor.x)), y: Math.max(4, Math.min(window.innerHeight - 320, anchor.y)) }]),
       removeNode: (id: string) => void flow.deleteElements({ nodes: [{ id }] }),
@@ -585,6 +608,8 @@ export function App() {
         ...EXAMPLES.map((ex): PaletteItem => ({ id: `example-${ex.id}`, kind: 'command', label: t('example.insert', { name: t(ex.name) }), keywords: t(ex.about), icon: 'grid', run: () => { setTab('nodes'); insertExample(ex); } })),
         { id: 'mute', kind: 'command', label: t('keys.mute'), icon: 'stop', run: () => toggleMute() },
         { id: 'unmuteAll', kind: 'command', label: t('keys.unmuteAll'), icon: 'play', run: unmuteAll },
+        { id: 'group', kind: 'command', label: t('group.make'), icon: 'panel', shortcut: keys['edit.group'], run: groupSelection },
+        { id: 'ungroup', kind: 'command', label: t('group.take'), icon: 'panel', shortcut: keys['edit.ungroup'], run: () => ungroupBlock() },
         { id: 'selectAll', kind: 'command', label: t('keys.selectAll'), icon: 'grid', shortcut: keys['edit.selectAll'], run: selectAll },
         ...nodes.map((n): PaletteItem => ({ id: `node-${n.id}`, kind: 'node', label: nameOf(n.data.spec) || t(`kind.${n.data.spec.type}`), family: categoryOf(n.data.spec.type), keywords: `${t(`kind.${n.data.spec.type}`)} ${n.id}`, run: () => goTo({ severity: 'info', code: 'go', message: '', node: n.id }) })),
         { id: 'problems', kind: 'command', label: t('dock.problems'), icon: 'error', run: () => setDock({ ...dock, bottom: dock.bottom === 'problems' ? null : 'problems' }) },
@@ -652,8 +677,8 @@ export function App() {
   const selected = nodes.find((n) => n.selected)?.data.spec;
   // a problem leads to the block it is about
   const goTo = (d: Diagnostic) => {
-    if (!d.node) return;
-    const id = d.node;
+    const id = d.node && owningBlock(d.node, nodes);
+    if (!id || !d.node) return;
     setTab('nodes');
     setNodes((list) => list.map((n) => ({ ...n, selected: n.id === id })));
     void flow.fitView({ nodes: [{ id }], duration: 300, maxZoom: 1, padding: 0.8 });
@@ -809,6 +834,9 @@ export function App() {
                   { label: t('block.help'), run: () => openDoc({ kind: 'node', node: node.id }, { x: e.clientX + 12, y: e.clientY }) },
                   { label: t('keys.copy'), run: () => { setNodes((list) => list.map((n) => ({ ...n, selected: n.selected || n.id === node.id }))); window.setTimeout(() => void copy(), 0); } },
                   { label: t(node.data.spec.muted ? 'keys.unmute' : 'keys.mute'), run: () => toggleMute([node.id]) },
+                  node.data.spec.type === 'group'
+                    ? { label: t('group.take'), run: () => ungroupBlock(node.id) }
+                    : { label: t('group.make'), run: () => { setNodes((list) => list.map((n) => ({ ...n, selected: n.selected || n.id === node.id }))); window.setTimeout(groupSelection, 0); } },
                   { label: t('keys.duplicate'), run: () => { setNodes((list) => list.map((n) => ({ ...n, selected: n.id === node.id }))); window.setTimeout(duplicate, 0); } },
                   { label: t('block.remove'), danger: true, run: () => void flow.deleteElements({ nodes: [{ id: node.id }] }) },
                 ],

@@ -57,11 +57,12 @@ export type NodeKind =
   | { type: 'to_number' }
   | { type: 'round'; mode: RoundMode }
   | { type: 'from_condition' }
-  | { type: 'to_condition' };
+  | { type: 'to_condition' }
+  | { type: 'group'; graph: GraphSpec; exposed: { name: string; node: string; port: string }[]; layout?: Record<string, [number, number]> };
 
 export type NodeType = NodeKind['type'];
 /** The eight families of blocks. */
-export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigger' | 'number' | 'text' | 'conversion';
+export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigger' | 'number' | 'text' | 'conversion' | 'group';
 /** The kinds of flow between blocks. */
 export type FlowType = 'audio' | 'condition' | 'action' | 'text' | 'int' | 'float';
 

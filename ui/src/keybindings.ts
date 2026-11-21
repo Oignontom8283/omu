@@ -11,6 +11,8 @@ export type CommandId =
   | 'edit.paste'
   | 'edit.duplicate'
   | 'edit.selectAll'
+  | 'edit.group'
+  | 'edit.ungroup'
   | 'search.blocks'
   | 'palette.open'
   | 'palette.openAlt'
@@ -28,6 +30,8 @@ export const COMMANDS: { id: CommandId; label: string; keys: string }[] = [
   { id: 'edit.paste', label: 'keys.paste', keys: 'Ctrl+V' },
   { id: 'edit.duplicate', label: 'keys.duplicate', keys: 'Ctrl+D' },
   { id: 'edit.selectAll', label: 'keys.selectAll', keys: 'Ctrl+A' },
+  { id: 'edit.group', label: 'group.make', keys: 'Ctrl+G' },
+  { id: 'edit.ungroup', label: 'group.take', keys: 'Ctrl+Shift+G' },
   { id: 'search.blocks', label: 'keys.searchBlocks', keys: 'Ctrl+F' },
   { id: 'palette.open', label: 'keys.palette', keys: 'F1' },
   { id: 'palette.openAlt', label: 'keys.palette', keys: 'Ctrl+Shift+P' },
