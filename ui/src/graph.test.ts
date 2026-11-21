@@ -9,6 +9,8 @@ import {
   inputValue,
   prunedInputs,
   KINDS_BY_CATEGORY,
+  MAX_EXPRESSION_ARGS,
+  RETIRED_KINDS,
   NODE_TYPES,
   PORTS,
   isGeneratedId,
@@ -25,6 +27,8 @@ import {
   layoutOf,
   canonical,
   categoryOf,
+  keepLive,
+  variableName,
   comboFromEvent,
   defaultKind,
   depths,
@@ -113,7 +117,7 @@ test('canonical ignores the order of the lists', () => {
 test('the families hold every kind exactly once, and each kind has ports', () => {
   assert.deepEqual(CATEGORIES, ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion', 'group']);
   assert.equal(new Set(NODE_TYPES).size, NODE_TYPES.length);
-  assert.equal(NODE_TYPES.length, Object.keys(PORTS).length);
+  assert.equal(NODE_TYPES.length + Object.keys(RETIRED_KINDS).length, Object.keys(PORTS).length);
   for (const t of NODE_TYPES) {
     assert.ok(PORTS[t].length > 0, t);
     assert.equal(defaultKind(t).type, t);
@@ -157,6 +161,9 @@ test('a setting that a flow can give has an input of its own, and a join has as 
     after: ['ms:int'],
     timer: ['interval_ms:int'],
     join: ['template:text'],
+    math_expr: ['expression:text'],
+    cond_expr: ['expression:text'],
+    text_expr: ['expression:text'],
     network_in: ['port:int', 'stream:text', 'from:text'],
     network_out: ['host:text', 'port:int', 'stream:text'],
     web_in: ['name:text'],
@@ -168,6 +175,43 @@ test('a setting that a flow can give has an input of its own, and a join has as 
   assert.deepEqual(names(3), ['arg1', 'arg2', 'arg3']);
   assert.deepEqual(names(0), ['arg1']);
   assert.equal(names(99).length, 16);
+});
+
+test('an expression block has as many inputs, named a, b, c..., as it asks, and a number or a condition for its result', () => {
+  const names = (kind: Parameters<typeof portsOf>[0], dir: 'in' | 'out' = 'in') => portsOf(kind).filter((q) => q.dir === dir && !q.param).map((q) => q.name);
+  assert.deepEqual(names({ type: 'math_expr', args: 3 }), ['a', 'b', 'c']);
+  assert.deepEqual(names({ type: 'math_expr' }), ['a', 'b'], 'two by default');
+  assert.deepEqual(names({ type: 'cond_expr', args: 0 }), ['a'], 'at least one');
+  assert.equal(names({ type: 'math_expr', args: 99 }).length, MAX_EXPRESSION_ARGS);
+  assert.equal(portsOf({ type: 'math_expr' }).find((q) => q.dir === 'out')?.flow, 'float');
+  assert.equal(portsOf({ type: 'cond_expr' }).find((q) => q.dir === 'out')?.flow, 'condition');
+  // the test of texts has text inputs and says yes or no
+  assert.deepEqual(portsOf({ type: 'text_expr', args: 3 }).filter((q) => q.dir === 'in' && !q.param).map((q) => `${q.name}:${q.flow}`), ['a:text', 'b:text', 'c:text']);
+  assert.equal(portsOf({ type: 'text_expr' }).find((q) => q.dir === 'out')?.flow, 'condition');
+  assert.equal(categoryOf('text_compare'), 'condition');
+  assert.equal(variableName(0), 'a');
+  assert.equal(variableName(15), 'p');
+  // the older blocks are not offered any more, but a graph that holds one keeps its family
+  assert.equal(categoryOf('math'), 'number');
+  assert.equal(categoryOf('compare'), 'condition');
+  assert.ok(!NODE_TYPES.includes('math') && !NODE_TYPES.includes('compare'));
+});
+
+test('the blocks of the panel send an action, a yes/no and a number, and are changed while the graph runs', () => {
+  assert.deepEqual(portsOf({ type: 'button' }).map((q) => `${q.name}:${q.dir}:${q.flow}`), ['pressed:out:action']);
+  assert.deepEqual(portsOf({ type: 'switch' }).map((q) => `${q.name}:${q.dir}:${q.flow}`), ['out:out:condition']);
+  assert.deepEqual(portsOf({ type: 'slider' }).map((q) => `${q.name}:${q.dir}:${q.flow}`), ['out:out:float']);
+  assert.equal(categoryOf('button'), 'trigger');
+  assert.equal(categoryOf('switch'), 'condition');
+  assert.equal(categoryOf('slider'), 'number');
+  // where a switch or a slider is set is not an edit: the graph is not "modified" when one moves
+  const graph = (on: boolean, value: number): GraphSpec => ({ nodes: [{ id: 's', type: 'switch', on }, { id: 'v', type: 'slider', min: 0, max: 10, value }], edges: [] });
+  assert.equal(canonical(graph(false, 1)), canonical(graph(true, 9)));
+  assert.notEqual(canonical(graph(false, 1)), canonical({ nodes: [{ id: 's', type: 'switch', on: false }, { id: 'v', type: 'slider', min: 0, max: 20, value: 1 }], edges: [] }), 'its limits are');
+  // and a step of the history keeps them where they are now
+  assert.deepEqual(keepLive({ id: 'v', type: 'slider', min: 0, max: 10, value: 1 }, { id: 'v', type: 'slider', min: 0, max: 10, value: 7 }), { id: 'v', type: 'slider', min: 0, max: 10, value: 7 });
+  assert.deepEqual(keepLive({ id: 's', type: 'switch', on: false }, { id: 's', type: 'switch', on: true }), { id: 's', type: 'switch', on: true });
+  assert.deepEqual(defaultKind('counter'), { type: 'counter', initial: 0, up_by: 1, down_by: 1 });
 });
 
 test('a branch draws one orange zone over its conditions and the else; a select one per sound and its condition', () => {

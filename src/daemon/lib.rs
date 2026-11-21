@@ -602,6 +602,11 @@ impl Daemon {
                     )),
                 }
             }
+            m::NodeControlMethod::NAME => {
+                let p = params::<m::NodeControlMethod>(p)?;
+                self.control_node(p)?;
+                result(())
+            }
             m::EngineStart::NAME => {
                 let graph = lock(&self.state).saved.graph.clone();
                 if graph.nodes.is_empty() {
@@ -842,6 +847,97 @@ impl Daemon {
     fn warn(&self, message: String) {
         tracing::warn!("{message}");
         self.publish(EVENT_WARNING, serde_json::json!({ "message": message }));
+    }
+
+    /// A button of the panel is pressed, a switch or a slider is set: the running graph hears it at its next cycle, and the new place
+    /// of a switch or a slider is kept with the graph when `persist` says so (the graph is not applied again for that).
+    fn control_node(&self, p: m::NodeControl) -> Result<(), RpcError> {
+        use omu_types::NodeKind;
+        let id = omu_types::NodeId(p.node.clone());
+        let _ops = lock(&self.ops);
+        let unavailable = || {
+            RpcError::new(
+                RpcError::UNAVAILABLE,
+                "this block is not in a running graph: apply the graph and start the engine",
+            )
+        };
+        let wrong = |what: &str| RpcError::invalid_params(format!("this block is not {what}"));
+        match p.action {
+            m::ControlAction::Press => {
+                if !matches!(self.kind_of(&id), Some(NodeKind::Button)) {
+                    return Err(wrong("a button"));
+                }
+                if !self.engine.press(&id) {
+                    return Err(unavailable());
+                }
+            }
+            m::ControlAction::Switch { on } => {
+                if !matches!(self.kind_of(&id), Some(NodeKind::Switch { .. })) {
+                    return Err(wrong("a switch"));
+                }
+                // the running graph hears it when there is one; the graph that is kept holds it either way
+                self.engine.set_switch(&id, on);
+                self.keep(&id, p.persist, |kind| {
+                    if let NodeKind::Switch { on: held } = kind {
+                        *held = on;
+                    }
+                });
+            }
+            m::ControlAction::Slide { value } => {
+                if !value.is_finite() {
+                    return Err(RpcError::invalid_params("the value is not a number"));
+                }
+                if !matches!(self.kind_of(&id), Some(NodeKind::Slider { .. })) {
+                    return Err(wrong("a slider"));
+                }
+                self.engine.set_slider(&id, value);
+                self.keep(&id, p.persist, |kind| {
+                    if let NodeKind::Slider {
+                        min,
+                        max,
+                        value: held,
+                    } = kind
+                    {
+                        *held = value.clamp(*min, *max);
+                    }
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// The kind of the block `id` in the graph that is kept.
+    fn kind_of(&self, id: &omu_types::NodeId) -> Option<omu_types::NodeKind> {
+        lock(&self.state)
+            .saved
+            .graph
+            .nodes
+            .iter()
+            .find(|n| &n.id == id)
+            .map(|n| n.kind.clone())
+    }
+
+    /// Changes the kind of the block `id` in the graph that is kept, and writes it to the disk when `persist`.
+    fn keep(
+        &self,
+        id: &omu_types::NodeId,
+        persist: bool,
+        change: impl FnOnce(&mut omu_types::NodeKind),
+    ) {
+        let saved = {
+            let mut st = lock(&self.state);
+            if let Some(node) = st.saved.graph.nodes.iter_mut().find(|n| &n.id == id) {
+                change(&mut node.kind);
+            }
+            st.saved.clone()
+        };
+        if persist {
+            if let Err(e) = self.store.save_state(&saved) {
+                self.warn(format!(
+                    "the place of a switch or a slider could not be saved: {e}"
+                ));
+            }
+        }
     }
 
     fn set_graph(&self, graph: GraphSpec) -> Result<(), RpcError> {
@@ -1163,6 +1259,82 @@ mod tests {
             warning.1.to_string().contains("could not be saved"),
             "{warning:?}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_button_a_switch_and_a_slider_are_pressed_and_set_while_the_graph_runs_and_kept_with_it() {
+        let sim = SimBackend::new();
+        let dir = temp_dir("panel-blocks");
+        let ok = |r: Response| r.result.expect("a result");
+        let d = daemon_in(&dir, &sim);
+        let node = |id: &str, kind: NodeKind| NodeSpec {
+            id: id.into(),
+            display: None,
+            inputs: Default::default(),
+            muted: false,
+            kind,
+        };
+        let graph = GraphSpec {
+            nodes: vec![
+                node("button", NodeKind::Button),
+                node("switch", NodeKind::Switch { on: false }),
+                node(
+                    "slider",
+                    NodeKind::Slider {
+                        min: 0.0,
+                        max: 10.0,
+                        value: 0.0,
+                    },
+                ),
+                node("mixer", NodeKind::Mixer),
+            ],
+            edges: vec![],
+        };
+        let control = |node: &str, action: Value| {
+            call(
+                &d,
+                "node.control",
+                json!({"node": node, "action": action, "persist": true}),
+            )
+        };
+        // nothing runs yet: a press has nowhere to go
+        assert!(control("button", json!({"type": "press"})).error.is_some());
+        ok(call(&d, "graph.set", serde_json::to_value(&graph).unwrap()));
+        assert!(control("button", json!({"type": "press"})).error.is_none());
+        assert!(control("switch", json!({"type": "switch", "on": true}))
+            .error
+            .is_none());
+        assert!(control("slider", json!({"type": "slide", "value": 99.0}))
+            .error
+            .is_none());
+        // the wrong sort of block, and what is not a block
+        assert!(control("switch", json!({"type": "press"})).error.is_some());
+        assert!(control("button", json!({"type": "slide", "value": 1.0}))
+            .error
+            .is_some());
+        assert!(control("nothing", json!({"type": "press"})).error.is_some());
+        // the graph that is kept holds where they were set (the slider kept inside its limits)
+        let got: GraphSpec =
+            serde_json::from_value(ok(call(&d, "graph.get", Value::Null))).unwrap();
+        let kind = |id: &str| {
+            got.nodes
+                .iter()
+                .find(|n| n.id == id.into())
+                .unwrap()
+                .kind
+                .clone()
+        };
+        assert_eq!(kind("switch"), NodeKind::Switch { on: true });
+        assert_eq!(
+            kind("slider"),
+            NodeKind::Slider {
+                min: 0.0,
+                max: 10.0,
+                value: 10.0
+            }
+        );
+        drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

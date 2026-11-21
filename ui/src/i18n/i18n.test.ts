@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { FALLBACK, pickLanguage, placeholders, sortedLanguages, translate, type Dictionaries } from './core.ts';
+import { FORMULA_FUNCTIONS, TEXT_METHODS, TEXT_SIZE } from '../formula.ts';
 import { KINDS_BY_CATEGORY, PORTS, CATEGORIES, portsOf } from '../graph.ts';
 
 const dir = join(import.meta.dirname, 'locales');
@@ -48,6 +49,12 @@ test('every block, family, port and flow the editor shows has a text', () => {
   const shown = [...Object.values(PORTS), portsOf({ type: 'branch', branches: 3 }), portsOf({ type: 'select', branches: 3 })];
   for (const ports of shown) for (const port of ports) needed.push(port.label, `flow.${port.flow}`);
   for (const key of needed) assert.ok(key in english, `missing in English: ${key}`);
+});
+
+test('every function of an expression and of a test on texts is explained, and every block with a long documentation has its examples', () => {
+  for (const f of FORMULA_FUNCTIONS) assert.ok(`formula.fn.${f.name}` in english, f.name);
+  for (const f of [...TEXT_METHODS, TEXT_SIZE]) assert.ok(`test.fn.${f.name}` in english, f.name);
+  for (const kind of ['math_expr', 'cond_expr', 'text_expr']) assert.ok(`kind.${kind}.examples` in english, kind);
 });
 
 test('lookup falls back to English, then to the key, and fills placeholders', () => {

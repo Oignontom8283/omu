@@ -509,6 +509,74 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
                     "the number is not a finite number".into(),
                 ));
             }
+            NodeKind::MathExpr { expression, args } | NodeKind::CondExpr { expression, args } => {
+                let fed = spec
+                    .edges
+                    .iter()
+                    .any(|e| e.to.node == node.id && e.to.port == "expression");
+                if !(1..=omu_types::expression::MAX_EXPRESSION_ARGS).contains(args) {
+                    errors.push(GraphError::BadValue(
+                        node.id.clone(),
+                        format!(
+                            "it has {args} inputs: use between 1 and {}",
+                            omu_types::expression::MAX_EXPRESSION_ARGS
+                        ),
+                    ));
+                } else if !(fed && expression.trim().is_empty()) {
+                    // an expression that is given by a flow may be left empty here
+                    if let Err(e) = omu_types::expression::Compiled::new(expression, *args) {
+                        errors.push(GraphError::BadValue(
+                            node.id.clone(),
+                            format!("the expression is not valid: {e}"),
+                        ));
+                    }
+                }
+            }
+            NodeKind::Counter { up_by, down_by, .. } => {
+                for (name, step) in [("up", up_by), ("down", down_by)] {
+                    if !(-1_000_000..=1_000_000).contains(step) {
+                        errors.push(GraphError::BadValue(
+                            node.id.clone(),
+                            format!("the step of {name} is {step}: use a number between -1000000 and 1000000"),
+                        ));
+                    }
+                }
+            }
+            NodeKind::Slider { min, max, value } => {
+                if !(min.is_finite() && max.is_finite() && value.is_finite()) {
+                    errors.push(GraphError::BadValue(
+                        node.id.clone(),
+                        "the slider has a number that is not a finite number".into(),
+                    ));
+                } else if min >= max {
+                    errors.push(GraphError::BadValue(
+                        node.id.clone(),
+                        format!("the minimum ({min}) must be less than the maximum ({max})"),
+                    ));
+                }
+            }
+            NodeKind::TextExpr { expression, args } => {
+                let fed = spec
+                    .edges
+                    .iter()
+                    .any(|e| e.to.node == node.id && e.to.port == "expression");
+                if !(1..=omu_types::text_expression::MAX_TEXT_ARGS).contains(args) {
+                    errors.push(GraphError::BadValue(
+                        node.id.clone(),
+                        format!(
+                            "it has {args} inputs: use between 1 and {}",
+                            omu_types::text_expression::MAX_TEXT_ARGS
+                        ),
+                    ));
+                } else if !(fed && expression.trim().is_empty()) {
+                    if let Err(e) = omu_types::text_expression::Compiled::new(expression, *args) {
+                        errors.push(GraphError::BadValue(
+                            node.id.clone(),
+                            format!("the test is not valid: {e}"),
+                        ));
+                    }
+                }
+            }
             NodeKind::Join { template, args } => {
                 if !(1..=MAX_JOIN_ARGS).contains(args) {
                     errors.push(GraphError::BadValue(
@@ -1090,6 +1158,117 @@ mod tests {
             vec!["file".into(), "web".into(), "none".into()],
             "{bad:?}"
         );
+    }
+
+    #[test]
+    fn a_text_test_is_checked_when_the_graph_is_and_the_mistake_is_said() {
+        let test = |id: &str, text: &str, args: u32| {
+            node(
+                id,
+                NodeKind::TextExpr {
+                    expression: text.into(),
+                    args,
+                },
+            )
+        };
+        let spec = GraphSpec {
+            nodes: vec![
+                test("good", "a.contains(b)", 2),
+                test("regex", "a.matches(\"^[0-9]+$\")", 1),
+                test("single", "a = b", 2),
+                test("unknown", "a == z", 2),
+                test("number", "a + b", 2),
+                test("function", "a.nothing(b)", 2),
+                test("empty", "", 2),
+                test("many", "a == a", 40),
+            ],
+            edges: vec![],
+        };
+        let bad: Vec<String> = diagnose(&spec)
+            .into_iter()
+            .filter(|d| d.code == "bad_value")
+            .filter_map(|d| d.node)
+            .map(|n| n.0)
+            .collect();
+        assert_eq!(
+            bad,
+            ["unknown", "number", "function", "empty", "many"],
+            "{bad:?}"
+        );
+    }
+
+    #[test]
+    fn an_expression_is_checked_when_the_graph_is_and_the_mistake_is_said() {
+        let expr = |id: &str, text: &str, args: u32| {
+            node(
+                id,
+                NodeKind::MathExpr {
+                    expression: text.into(),
+                    args,
+                },
+            )
+        };
+        let cond = |id: &str, text: &str| {
+            node(
+                id,
+                NodeKind::CondExpr {
+                    expression: text.into(),
+                    args: 2,
+                },
+            )
+        };
+        let spec = GraphSpec {
+            nodes: vec![
+                expr("good", "c * log(a)", 3),
+                expr("unknown", "a + z", 2),
+                expr("missing", "a +", 2),
+                expr("empty", "", 2),
+                expr("many", "a", 40),
+                cond("yes", "a = b and a >= 1"),
+                cond("no", "a = "),
+            ],
+            edges: vec![],
+        };
+        let bad: Vec<String> = diagnose(&spec)
+            .into_iter()
+            .filter(|d| d.code == "bad_value")
+            .filter_map(|d| d.node)
+            .map(|n| n.0)
+            .collect();
+        assert_eq!(
+            bad,
+            ["unknown", "missing", "empty", "many", "no"],
+            "{bad:?}"
+        );
+        let message = diagnose(&spec)
+            .into_iter()
+            .find(|d| d.node == Some("unknown".into()))
+            .unwrap()
+            .message;
+        assert!(
+            message.contains("\"z\"") && message.contains("a, b"),
+            "{message}"
+        );
+        // an empty expression is fine when a flow gives it
+        let mut fed = GraphSpec {
+            nodes: vec![
+                expr("fed", "", 2),
+                node(
+                    "text",
+                    NodeKind::Text {
+                        value: "a + b".into(),
+                    },
+                ),
+            ],
+            edges: vec![edge("text", "out", "fed", "expression")],
+        };
+        assert!(
+            diagnose(&fed).iter().all(|d| d.code != "bad_value"),
+            "{:?}",
+            diagnose(&fed)
+        );
+        fed.edges.clear();
+        assert!(diagnose(&fed).iter().any(|d| d.code == "bad_value"));
     }
 
     #[test]

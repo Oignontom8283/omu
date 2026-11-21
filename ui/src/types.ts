@@ -16,6 +16,8 @@ export type TextOp = 'equals' | 'contains' | 'starts_with' | 'ends_with';
 export type RoundMode = 'nearest' | 'down' | 'up';
 /** What is typed in a block for an input that nothing is linked to. */
 export type InputValue = boolean | number | string;
+/** What is done to a button, a switch or a slider of the panel (`node.control`). */
+export type ControlAction = { type: 'press' } | { type: 'switch'; on: boolean } | { type: 'slide'; value: number };
 
 export type NodeKind =
   | { type: 'app_capture'; target: AppTarget }
@@ -53,11 +55,17 @@ export type NodeKind =
   | { type: 'integer'; value: number }
   | { type: 'number'; value: number }
   | { type: 'join'; template: string; args?: number }
+  | { type: 'math_expr'; expression: string; args?: number }
+  | { type: 'text_expr'; expression: string; args?: number }
+  | { type: 'button' }
+  | { type: 'switch'; on?: boolean }
+  | { type: 'slider'; min?: number; max?: number; value?: number }
+  | { type: 'cond_expr'; expression: string; args?: number }
   | { type: 'math'; op: MathOp }
   | { type: 'compare'; op: CompareOp }
   | { type: 'text_compare'; op: TextOp }
   | { type: 'choose' }
-  | { type: 'counter'; initial?: number }
+  | { type: 'counter'; initial?: number; up_by?: number; down_by?: number }
   | { type: 'volume' }
   | { type: 'to_number' }
   | { type: 'round'; mode: RoundMode }

@@ -57,11 +57,13 @@ import {
   MAX_ENTRIES,
   prunedInputs,
   toFlow,
+  keepLive,
+  withoutLive,
 } from './graph.ts';
 import { useI18n } from './i18n/index.tsx';
 import { SETTING_DECLS } from './settingsRegistry.ts';
 import { useTheme } from './theme.tsx';
-import type { AppInfo, Category, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
+import type { AppInfo, Category, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
@@ -139,7 +141,8 @@ export function App() {
   const keys = useMemo(() => bindings(overrides), [overrides]);
   // the steps of the session (undo, redo) and what was copied
   type Step = { nodes: ClipNode[]; edges: (ClipEdge & { id: string })[] };
-  const history = useRef(new History<Step>((s) => JSON.stringify(s)));
+  // where a switch or a slider is set is not an edit: moving one is not a step to undo
+  const history = useRef(new History<Step>((s) => JSON.stringify({ nodes: s.nodes.map((n) => ({ ...n, spec: withoutLive(n.spec) })), edges: s.edges })));
   const clipboard = useRef<Clip | null>(null);
   const [settingFocus, setSettingFocus] = useState<{ id: string; nonce: number } | undefined>(undefined);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
@@ -426,7 +429,9 @@ export function App() {
     edges: edges.map((e) => ({ ...asEdge(e) })),
   });
   const restore = (step: Step) => {
-    setNodes(step.nodes.map((n) => ({ id: n.id, type: 'omu', position: n.position, data: { spec: n.spec, inputs: n.inputs } })));
+    // a switch or a slider stays where it is now (the running graph holds it), whatever the step says
+    const now = new Map(nodesRef.current.map((n) => [n.id, n.data.spec]));
+    setNodes(step.nodes.map((n) => ({ id: n.id, type: 'omu', position: n.position, data: { spec: keepLive(n.spec, now.get(n.id)), inputs: n.inputs } })));
     setEdges(step.edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, targetHandle: e.targetHandle })));
   };
   // each change of the graph is a step, a moment after the last one (typing in a field is one step, not one per letter)
@@ -585,6 +590,11 @@ export function App() {
       statusOf: (id) => status?.nodes.find((n) => n.id === id),
       openHelp: (id: string, anchor: { x: number; y: number }) => openDoc({ kind: 'node', node: id }, anchor),
       ungroup: (id: string) => ungroupBlock(id),
+      control: (id: string, action: ControlAction, persist = true) =>
+        daemon
+          .control(id, action, persist)
+          .then(() => null)
+          .catch((e: unknown) => message(e)),
       openCalibration: (id: string, anchor: { x: number; y: number }) =>
         setCalibrations((list) => [...list.filter((c) => c.node !== id), list.find((c) => c.node === id) ?? { node: id, x: Math.max(4, Math.min(window.innerWidth - 420, anchor.x)), y: Math.max(4, Math.min(window.innerHeight - 320, anchor.y)) }]),
       removeNode: (id: string) => void flow.deleteElements({ nodes: [{ id }] }),
@@ -755,38 +765,38 @@ export function App() {
             {t('palette.open')} <kbd>F1</kbd>
           </button>
           {status?.running ? (
-            <button onClick={stopEngine} disabled={conn !== 'open'}>
+            <Button icon="stop" onClick={stopEngine} disabled={conn !== 'open'}>
               {t('app.stopEngine')}
-            </button>
+            </Button>
           ) : (
-            <button onClick={startEngine} disabled={conn !== 'open' || applied.nodes.length === 0} title={t('app.startEngineHint')}>
+            <Button icon="play" onClick={startEngine} disabled={conn !== 'open' || applied.nodes.length === 0} title={t('app.startEngineHint')}>
               {t('app.startEngine')}
-            </button>
+            </Button>
           )}
           {stale?.supported && (
-            <button onClick={cleanDevices} disabled={conn !== 'open' || cleaning || stale.stale.length === 0} title={stale.stale.map((s) => s.name).join(', ') || t('app.cleanDevicesHint')}>
+            <Button icon="broom" onClick={cleanDevices} disabled={conn !== 'open' || cleaning || stale.stale.length === 0} title={stale.stale.map((s) => s.name).join(', ') || t('app.cleanDevicesHint')}>
               {cleaning ? t('app.cleaning') : t('app.cleanDevices', { count: stale.stale.length })}
-            </button>
+            </Button>
           )}
-          <button className={confirmShutdown ? 'danger' : ''} onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
+          <Button variant={confirmShutdown ? 'danger' : 'secondary'} icon="power" onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
             {confirmShutdown ? t('app.stopDaemonConfirm') : t('app.stopDaemon')}
-          </button>
+          </Button>
         </header>
 
         {tab === 'nodes' && (
           <BlocksBar drag={dragIn}>
-            <button onClick={autoLayout} disabled={nodes.length === 0}>
+            <Button icon="grid" onClick={autoLayout} disabled={nodes.length === 0}>
               {t('app.tidy')}
-            </button>
-            <button onClick={() => setShowJson((v) => !v)} className={showJson ? 'on' : ''}>
+            </Button>
+            <Button icon="braces" onClick={() => setShowJson((v) => !v)} pressed={showJson}>
               {t('app.json')}
-            </button>
-            <button onClick={revert} disabled={conn !== 'open' || !dirty}>
+            </Button>
+            <Button icon="undo" onClick={revert} disabled={conn !== 'open' || !dirty}>
               {t('app.revert')}
-            </button>
-            <button className="primary" onClick={apply} disabled={conn !== 'open' || busy || !dirty}>
+            </Button>
+            <Button variant="primary" icon="check" onClick={apply} disabled={conn !== 'open' || busy || !dirty}>
               {busy ? t('app.applying') : dirty ? t('app.apply') : t('app.applied')}
-            </button>
+            </Button>
           </BlocksBar>
         )}
 
@@ -813,30 +823,28 @@ export function App() {
                     <li key={p}>{p}</li>
                   ))}
                 </ul>
-                <button className="plain" aria-label={t('app.close')} onClick={() => setProblems([])}>
-                  ×
-                </button>
+                <Button variant="flat" size="small" icon="close" className="banner-close" title={t('app.close')} onClick={() => setProblems([])} />
               </div>
             )}
             {IN_DESKTOP_WINDOW && conn === 'closed' && (
               <div className="banner warn" role="status">
                 {t('app.daemonDown')}{' '}
-                <button
-                  className="inline"
+                <Button
+                  size="small"
+                  variant="primary"
+                  icon="play"
                   onClick={() => {
                     startDaemon().catch((e) => setNotice(message(e)));
                   }}
                 >
                   {t('app.startDaemon')}
-                </button>
+                </Button>
               </div>
             )}
             {notice && (
               <div className="banner warn">
                 {notice.startsWith('app.') ? t(notice) : notice}
-                <button className="plain" aria-label={t('app.close')} onClick={() => setNotice(null)}>
-                  ×
-                </button>
+                <Button variant="flat" size="small" icon="close" className="banner-close" title={t('app.close')} onClick={() => setNotice(null)} />
               </div>
             )}
             {noProvider && <div className="banner info">{t('app.noProvider', { error: info?.virtual_microphones?.error ? ` (${info.virtual_microphones.error})` : '' })}</div>}

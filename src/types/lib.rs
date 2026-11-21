@@ -2,6 +2,7 @@
 
 mod devices;
 mod diagnostic;
+pub mod expression;
 mod format;
 mod keys;
 mod modules;
@@ -9,6 +10,7 @@ mod node;
 mod soundboard;
 mod status;
 pub mod template;
+pub mod text_expression;
 mod trust;
 
 pub use devices::{

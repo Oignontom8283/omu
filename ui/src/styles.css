@@ -288,7 +288,7 @@ button.inline {
   margin: 4px 0 0;
   padding-left: 18px;
 }
-.banner .plain {
+.banner .banner-close {
   position: absolute;
   top: 6px;
   right: 8px;
@@ -373,6 +373,8 @@ button.inline {
 /* the measures of a block all come from these: the grid cell and the gap are set by the editor (--grid, --gap, --node-width) */
 .node {
   --radius: 6px;
+  /* the column of the names of the values typed next to the connection points: three cells */
+  --name-col: calc(3 * var(--grid));
   --bar: 18px;
   --trim: calc(var(--gap) / 2);
   /* two cells, counted from the cell edge: the block itself starts half a gap inside it */
@@ -418,7 +420,7 @@ button.inline {
   display: flex;
   align-items: flex-start;
 }
-.node-id {
+.kit-text.node-id {
   width: calc(100% + 8px);
   margin: 0 -4px;
   padding: 1px 4px;
@@ -435,13 +437,13 @@ button.inline {
   border-radius: 0;
 }
 /* an unnamed block still shows its title place, readable: it is the block's title */
-.node-id::placeholder {
+.kit-text.node-id::placeholder {
   color: var(--text);
   opacity: 1;
   font-weight: 700;
 }
-.node-id:hover,
-.node-id:focus {
+.kit-text.node-id:hover,
+.kit-text.node-id:focus {
   border-color: var(--line);
   border-radius: 4px;
   background: var(--field);
@@ -510,6 +512,10 @@ button.inline {
   gap: 6px;
   height: var(--grid);
 }
+/* the buttons that add a connection point are in the column of the rows, one cell high like them */
+.adders.in-ports {
+  padding: 0 10px;
+}
 .adders .mini.add {
   margin: 0;
 }
@@ -554,6 +560,41 @@ button.inline {
   align-items: center;
   min-height: var(--grid);
   color: var(--muted);
+}
+/* the settings of a block are rows of the grid like its connection points: the name in the same column, the value over the rest */
+.node .body .field {
+  display: grid;
+  grid-template-columns: var(--name-col) minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+  min-height: var(--grid);
+}
+.node .body .field > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.node .body .field > small {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-height: var(--grid);
+}
+.node .body > small {
+  display: flex;
+  align-items: center;
+  min-height: var(--grid);
+}
+/* what is wrong with a setting: a red frame and a mark by its name, never a line more */
+.node .body .field.warned > span:first-child {
+  color: var(--bad);
+  gap: 3px;
+}
+.node .body .field.warned .kit-text,
+.node .body .field.warned .kit-select,
+.node .body .field.warned .kit-number,
+.node .body .field.warned .code-input {
+  border-color: var(--bad);
 }
 .trigger-row {
   min-height: var(--grid);
@@ -743,7 +784,7 @@ button.inline {
   border-top: 3px solid var(--pad, var(--cat-input));
   border-radius: 6px;
 }
-.pad.empty {
+.pad.no-sound {
   border-top-color: var(--line);
 }
 .pad.playing {
@@ -888,26 +929,25 @@ button.inline {
   align-self: stretch;
   flex: none;
 }
-.bar-btn {
+.bar-actions .kit-button.bar {
+  flex: none;
   width: 24px;
-  height: 100%;
+  height: auto;
+  align-self: stretch;
   padding: 0;
-  display: grid;
-  place-items: center;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: inherit;
-  line-height: 0;
 }
-.bar-btn:hover:not(:disabled) {
+.bar-actions .kit-button.bar:hover:not(:disabled) {
   background: rgb(255 255 255 / 0.25);
   border: 0;
 }
-.bar-btn.close {
+.bar-actions .kit-button.bar.close {
   border-top-right-radius: calc(var(--radius) + 1px);
 }
-.bar-btn.close:hover:not(:disabled) {
+.bar-actions .kit-button.bar.close:hover:not(:disabled) {
   background: #c42b1c;
   color: #fff;
 }
@@ -954,17 +994,6 @@ button.inline {
 }
 .fwin-title:active {
   cursor: grabbing;
-}
-.fwin-close {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: none;
-  font-size: 16px;
-  line-height: 1;
 }
 .fwin-body {
   max-height: min(55vh, 340px);
@@ -1355,14 +1384,15 @@ button.ref:hover:not(:disabled) {
   width: 100%;
 }
 .port.inline {
-  gap: 6px;
+  /* a name column of the same width in every block, and the value over the rest of the row: values start and end at the same place */
+  display: grid;
+  grid-template-columns: var(--name-col) minmax(0, 1fr);
+  column-gap: 6px;
 }
 .port-name {
-  flex: none;
   white-space: nowrap;
 }
 .port.inline .port-name {
-  max-width: 42%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1466,6 +1496,26 @@ button.ref:hover:not(:disabled) {
   color: var(--bad);
   text-decoration: underline wavy var(--bad);
 }
+.tok-number {
+  color: var(--cat-number);
+}
+.tok-string {
+  color: var(--cat-input);
+}
+.tok-function {
+  color: var(--cat-processing);
+}
+.tok-keyword {
+  color: var(--cat-condition);
+  font-weight: 700;
+}
+.tok-operator {
+  color: var(--text);
+  font-weight: 600;
+}
+.tok-paren {
+  color: var(--muted);
+}
 
 /* ---------------------------------------------------------------------------------------------------------------
    The components of the program (kit/): flat, one height, the code font for what is a value. Nothing here is the
@@ -1530,10 +1580,18 @@ button.ref:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text) 10%, transparent);
   border-color: transparent;
 }
+.kit-button.danger {
+  border-color: var(--bad);
+  color: var(--bad);
+}
 .kit-button.danger:hover:not(:disabled) {
   background: var(--bad);
   border-color: var(--bad);
   color: #fff;
+}
+.kit-button .icon {
+  display: block;
+  flex: none;
 }
 .kit-button.pressed {
   background: color-mix(in srgb, var(--primary) 22%, var(--field));
@@ -1544,6 +1602,23 @@ button.ref:hover:not(:disabled) {
   cursor: default;
 }
 
+.kit-color {
+  box-sizing: border-box;
+  width: 32px;
+  height: var(--ctl-h);
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: var(--ctl-radius);
+  background: var(--field);
+  cursor: pointer;
+}
+.kit-color::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.kit-color::-webkit-color-swatch {
+  border: 0;
+  border-radius: 2px;
+}
 .kit-text,
 .kit-number {
   box-sizing: border-box;
@@ -2069,9 +2144,12 @@ button.ref:hover:not(:disabled) {
 }
 
 /* the editor of a template (CodeMirror), framed like the other fields */
-.template-editor {
+/* a text written like code: a line of editor with the button that opens it in a window at its side */
+.code-input {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: stretch;
   height: var(--ctl-h);
   box-sizing: border-box;
   overflow: hidden;
@@ -2079,16 +2157,144 @@ button.ref:hover:not(:disabled) {
   border: 1px solid var(--line);
   border-radius: var(--ctl-radius);
 }
-.template-editor:focus-within {
+.code-input:focus-within {
   border-color: var(--focus);
   outline: 1px solid var(--focus);
   outline-offset: -1px;
 }
-.template-editor.disabled {
+.code-editor {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+/* the pointer of a field is the one of its kind, not the one of the block it is on */
+.code-editor,
+.code-editor .cm-scroller,
+.code-editor .cm-content,
+.code-editor .cm-line,
+.react-flow__node .code-editor .cm-content,
+.react-flow__node .kit-text {
+  cursor: text;
+}
+.react-flow__node .kit-button,
+.react-flow__node .kit-select,
+.react-flow__node .kit-switch {
+  cursor: pointer;
+}
+.react-flow__node .kit-button:disabled {
+  cursor: default;
+}
+.code-editor.disabled {
   opacity: 0.5;
 }
-.template-editor .cm-editor {
+.code-editor .cm-editor {
   height: 100%;
+}
+.code-input .cm-scroller {
+  overflow: hidden;
+}
+.code-input .kit-button.code-expand {
+  flex: none;
+  height: auto;
+  width: 20px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  color: var(--muted);
+}
+.code-input .kit-button.code-expand:hover:not(:disabled),
+.code-input .kit-button.code-expand.pressed {
+  color: var(--text);
+}
+/* what replaces a line break in a field of one line */
+.cm-break {
+  padding: 0 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+/* the lists and hovers of the editors are drawn in the page, over everything */
+.cm-tooltip {
+  z-index: 100000 !important;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+  font: 12px var(--font-code);
+}
+:root .cm-tooltip-autocomplete > ul {
+  font-family: var(--font-code);
+  max-height: 15em;
+}
+:root .cm-tooltip-autocomplete > ul > li {
+  padding: 2px 8px;
+}
+:root .cm-tooltip-autocomplete > ul > li[aria-selected] {
+  background: color-mix(in srgb, var(--primary) 82%, #000);
+  color: #fff;
+}
+:root .cm-completionDetail {
+  margin-left: 12px;
+  opacity: 0.7;
+  font-style: normal;
+}
+:root .cm-completionIcon {
+  display: none;
+}
+.cm-completionInfo {
+  max-width: 280px;
+  padding: 4px 8px;
+  font-family: var(--font-ui);
+}
+.cm-hover {
+  padding: 2px 8px;
+}
+/* the window that edits a text like a file of a code editor */
+.fwin.code-window {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  height: 340px;
+  min-width: 320px;
+  min-height: 180px;
+  max-width: calc(100vw - 8px);
+  max-height: calc(100vh - 8px);
+  overflow: hidden;
+  resize: both;
+}
+.code-window .fwin-body {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.code-window-editor {
+  flex: 1;
+  min-height: 0;
+  background: var(--field);
+}
+.code-window .code-editor {
+  height: 100%;
+}
+.code-window .cm-scroller {
+  overflow: auto;
+}
+.code-window-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 3px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font: 11px var(--font-ui);
+}
+.code-window-status .spacer {
+  flex: 1;
 }
 
 /* the certificates folder of the settings and what is in it */
@@ -2163,4 +2369,105 @@ button.ref:hover:not(:disabled) {
   min-width: 240px;
   min-height: 80px;
   padding: 8px;
+}
+
+/* the blocks of the panel: a key, a lever, two cells high */
+.panel-control {
+  display: flex;
+  flex-direction: column;
+}
+.panel-button {
+  display: block;
+  width: 100%;
+  height: calc(2 * var(--grid) - 8px);
+  margin: 2px 0 6px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--cat-trigger) 55%, #000);
+  border-radius: 9px;
+  background: linear-gradient(color-mix(in srgb, #fff 28%, transparent), color-mix(in srgb, #000 12%, transparent)), var(--cat-trigger);
+  box-shadow: 0 3px 0 color-mix(in srgb, var(--cat-trigger) 50%, #000), 0 5px 7px rgb(0 0 0 / 0.25);
+  color: #fff;
+  font: 700 12px/1 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 60ms, box-shadow 60ms;
+}
+.panel-button:hover {
+  filter: brightness(1.06);
+}
+.panel-button:active,
+.panel-button.down {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 color-mix(in srgb, var(--cat-trigger) 50%, #000), 0 1px 2px rgb(0 0 0 / 0.3);
+}
+.panel-switch {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  height: calc(2 * var(--grid) - 4px);
+  margin: 2px 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: linear-gradient(color-mix(in srgb, #000 6%, transparent), transparent), var(--field);
+  color: var(--text);
+  font: 700 12px/1 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.panel-switch .lamp {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.4);
+}
+.panel-switch.on .lamp {
+  background: var(--cat-condition);
+  box-shadow: 0 0 6px 1px var(--cat-condition);
+}
+.panel-switch .rail {
+  position: relative;
+  justify-self: center;
+  width: 44px;
+  height: 20px;
+  border-radius: 10px;
+  background: color-mix(in srgb, #000 22%, var(--field));
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 0.4);
+}
+.panel-switch .lever {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(#fff, #c9ccd4);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.5);
+  transition: left 90ms;
+}
+.panel-switch.on .lever {
+  left: 26px;
+}
+.panel-switch.on .rail {
+  background: color-mix(in srgb, var(--cat-condition) 70%, #000);
+}
+.panel-switch .state {
+  min-width: 22px;
+  text-align: right;
+  color: var(--muted);
+}
+.panel-button.refused,
+.panel-switch.refused {
+  outline: 2px solid var(--bad);
+  outline-offset: 1px;
+}
+.panel-switch:focus-visible,
+.panel-button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }

@@ -2,7 +2,7 @@
 // The same endpoint serves a daemon on this machine or on another one: the page talks to whoever served it.
 
 import { DEV_TOKEN } from './types.ts';
-import type { AppInfo, Board, CleanOutcome, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, Layout, Levels, LogLine, ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, RemoteInfo, StaleDevices, SystemInfo, TrustReport, ValidateResult } from './types.ts';
+import type { AppInfo, Board, CleanOutcome, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, Layout, Levels, LogLine, ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, RemoteInfo, StaleDevices, SystemInfo, TrustReport, ValidateResult } from './types.ts';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -219,6 +219,8 @@ export const api = (rpc: Rpc) => ({
   status: () => rpc.request<EngineStatus>('engine.status'),
   stop: () => rpc.request<null>('engine.stop'),
   levels: (node: string) => rpc.request<Levels>('engine.levels', { node }),
+  /** Presses a button, or sets a switch or a slider, of the running graph (`persist`: keep where it is set with the graph). */
+  control: (node: string, action: ControlAction, persist = true) => rpc.request<void>('node.control', { node, action, persist }),
   logs: (after?: number) => rpc.request<LogLine[]>('logs.recent', { after, limit: 300 }),
   opens: () => rpc.opens,
   start: () => rpc.request<null>('engine.start'),

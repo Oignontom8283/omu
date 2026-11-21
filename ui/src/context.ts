@@ -1,5 +1,5 @@
 import { createContext, useContext } from 'react';
-import type { AppInfo, DeviceInfo, InputValue, NodeKind, NodeStatus, SoundLibrary } from './types.ts';
+import type { AppInfo, ControlAction, DeviceInfo, InputValue, NodeKind, NodeStatus, SoundLibrary } from './types.ts';
 
 /** What every block card needs from the editor. */
 export type EditorContext = {
@@ -21,6 +21,8 @@ export type EditorContext = {
   openCalibration: (id: string, anchor: { x: number; y: number }) => void;
   /** Types a value in an input of a block (the one that is used while nothing is linked to it). */
   setInput: (id: string, port: string, value: InputValue) => void;
+  /** Presses a button, or sets a switch or a slider, of the running graph. Says what went wrong, `null` when nothing did. `persist`: the place of a switch or slider is kept with the graph. */
+  control: (id: string, action: ControlAction, persist?: boolean) => Promise<string | null>;
   /** Takes a group apart: its blocks come back. */
   ungroup: (id: string) => void;
   /** Takes a block out of the graph, with its links. */

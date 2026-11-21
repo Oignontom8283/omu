@@ -15,7 +15,7 @@ use omu_types::{
     port_number, CompareOp, LogicOp, MathOp, NodeId, PortLimits, RoundMode, TextOp,
     ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES, MAX_DELAY_MS,
 };
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -187,12 +187,23 @@ pub enum Port {
     Template,
     /// The number a `choose` block sends while its condition is true.
     Then,
+    /// The input `c`, `d`... `p` of an expression block (`a` and `b` are [`Port::A`] and [`Port::B`]), counted from 2.
+    Var(u8),
     /// The flows that give the settings of a network block: `host` (0), `port` (1), `stream` (2), `from` (3).
     Net(u8),
     /// The actions that make a counter go up, go down, go back to its first value.
     Up,
     Down,
     Reset,
+}
+
+/// The input of an expression block that a letter from `c` to `p` names.
+fn variable(name: &str) -> Option<Port> {
+    let mut chars = name.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c @ 'c'..='p'), None) => Some(Port::Var(c as u8 - b'a')),
+        _ => None,
+    }
 }
 
 impl Port {
@@ -229,6 +240,7 @@ impl Port {
                     .or_else(|| numbered("in").map(Port::Pick))
                     .or_else(|| numbered("play").map(Port::Play))
                     .or_else(|| numbered("arg").map(Port::Arg))
+                    .or_else(|| variable(name))
             }
         })
     }
@@ -325,6 +337,24 @@ pub enum NodeOp {
         last_template: String,
         text: Arc<str>,
     },
+    /// A mathematical expression of the block's inputs `a`, `b`, `c`...: a number, or a condition (true while it is not 0).
+    Expr {
+        expression: String,
+        args: u32,
+        /// `None` when the expression is not valid: the block then gives 0 (the graph check says why).
+        compiled: Option<Box<omu_types::expression::Compiled>>,
+        condition: bool,
+    },
+    /// A test of the block's text inputs `a`, `b`, `c`...: yes or no. Asked again only when a text, or the test, changed.
+    TextTest {
+        expression: String,
+        args: u32,
+        /// `None` when the test is not valid: the block then says no (the graph check says why).
+        compiled: Option<Box<omu_types::text_expression::Compiled>>,
+        last: Vec<Value>,
+        last_expression: String,
+        answer: bool,
+    },
     /// Two numbers combined.
     Math(MathOp),
     /// A yes/no from two numbers, from two texts.
@@ -343,6 +373,16 @@ pub enum NodeOp {
     Counter {
         count: i64,
         initial: i64,
+        up_by: i64,
+        down_by: i64,
+    },
+    /// A switch of the panel: its condition is what the panel set it to.
+    Switch(Arc<ManualCell>),
+    /// A slider of the panel: its number is what the panel set it to, kept between `min` and `max`.
+    Slider {
+        cell: Arc<ManualCell>,
+        min: f64,
+        max: f64,
     },
     /// How loud the sound is, in decibels (rounded to half a decibel).
     Volume,
@@ -390,8 +430,34 @@ impl NodeOp {
                 | NodeOp::After { .. }
                 | NodeOp::Compare(_)
                 | NodeOp::TextCompare(_)
+                | NodeOp::Expr {
+                    condition: true,
+                    ..
+                }
+                | NodeOp::TextTest { .. }
+                | NodeOp::Switch(_)
                 | NodeOp::ToCondition
         )
+    }
+}
+
+/// What a block of the panel (a button, a switch, a slider) holds, shared between the panel's calls and the graph thread: the
+/// presses not yet sent, where the switch is, where the slider is.
+#[derive(Debug, Default)]
+pub struct ManualCell {
+    /// The presses of the button that the graph has not seen yet.
+    pub pulses: Arc<AtomicU32>,
+    pub on: AtomicBool,
+    value_bits: AtomicU64,
+}
+
+impl ManualCell {
+    pub fn value(&self) -> f64 {
+        f64::from_bits(self.value_bits.load(Ordering::Relaxed))
+    }
+
+    pub fn set_value(&self, value: f64) {
+        self.value_bits.store(value.to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -918,6 +984,76 @@ impl Plan {
                         .number()
                         .is_some_and(|n| n != 0.0);
                 }
+                NodeOp::Expr {
+                    expression,
+                    args,
+                    compiled,
+                    condition,
+                } => {
+                    // an expression that a flow gives wins over the one typed in the block, and is read again only when it changes
+                    if let Value::Text(t) = value_of(outs, &node.inputs, Port::Template) {
+                        if *t != **expression {
+                            *expression = t.to_string();
+                            *compiled = omu_types::expression::Compiled::new(expression, *args)
+                                .ok()
+                                .map(Box::new);
+                        }
+                    }
+                    let mut inputs = [0.0f64; omu_types::expression::MAX_EXPRESSION_ARGS as usize];
+                    for (k, slot) in inputs.iter_mut().enumerate().take(*args as usize) {
+                        let port = match k {
+                            0 => Port::A,
+                            1 => Port::B,
+                            _ => Port::Var(k as u8),
+                        };
+                        *slot = value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
+                    }
+                    let result = compiled
+                        .as_ref()
+                        .map_or(0.0, |c| c.eval(&inputs[..*args as usize]));
+                    if *condition {
+                        cond = result != 0.0;
+                    } else {
+                        value = Value::Float(result);
+                    }
+                }
+                NodeOp::TextTest {
+                    expression,
+                    args,
+                    compiled,
+                    last,
+                    last_expression,
+                    answer,
+                } => {
+                    let now: Vec<Value> = (0..*args as u8)
+                        .map(|k| match k {
+                            0 => value_of(outs, &node.inputs, Port::A),
+                            1 => value_of(outs, &node.inputs, Port::B),
+                            k => value_of(outs, &node.inputs, Port::Var(k)),
+                        })
+                        .collect();
+                    // a test that a flow gives wins over the one typed in the block
+                    if let Value::Text(t) = value_of(outs, &node.inputs, Port::Template) {
+                        if *t != **expression {
+                            *expression = t.to_string();
+                        }
+                    }
+                    // asked again only when a text or the test changed (a regular expression is not free)
+                    if now != *last || *expression != *last_expression || last.len() != now.len() {
+                        if *expression != *last_expression {
+                            *compiled =
+                                omu_types::text_expression::Compiled::new(expression, *args)
+                                    .ok()
+                                    .map(Box::new);
+                            *last_expression = expression.clone();
+                        }
+                        let texts: Vec<String> = now.iter().map(Value::written).collect();
+                        let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
+                        *answer = compiled.as_ref().is_some_and(|c| c.eval(&refs));
+                        *last = now;
+                    }
+                    cond = *answer;
+                }
                 NodeOp::Math(op) => {
                     let num =
                         |port: Port| value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
@@ -961,7 +1097,12 @@ impl Plan {
                         |port: Port| value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
                     value = Value::Float(if on { num(Port::Then) } else { num(Port::Else) });
                 }
-                NodeOp::Counter { count, initial } => {
+                NodeOp::Counter {
+                    count,
+                    initial,
+                    up_by,
+                    down_by,
+                } => {
                     let sum = |port: Port| -> i64 {
                         node.inputs
                             .iter()
@@ -972,9 +1113,13 @@ impl Plan {
                     if sum(Port::Reset) > 0 {
                         *count = *initial;
                     }
-                    *count = (*count + sum(Port::Up) - sum(Port::Down))
+                    *count = (*count + sum(Port::Up) * *up_by - sum(Port::Down) * *down_by)
                         .clamp(-1_000_000_000, 1_000_000_000);
                     value = Value::Int(*count);
+                }
+                NodeOp::Switch(cell) => cond = cell.on.load(Ordering::Relaxed),
+                NodeOp::Slider { cell, min, max } => {
+                    value = Value::Float(cell.value().clamp(*min, *max));
                 }
                 NodeOp::Volume => {
                     let input = input_audio(Port::In);
@@ -1018,8 +1163,13 @@ impl Plan {
                 NodeOp::Const(_)
                     | NodeOp::Join { .. }
                     | NodeOp::Math(_)
+                    | NodeOp::Expr {
+                        condition: false,
+                        ..
+                    }
                     | NodeOp::Choose
                     | NodeOp::Counter { .. }
+                    | NodeOp::Slider { .. }
                     | NodeOp::Volume
                     | NodeOp::ToNumber
                     | NodeOp::Round(_)
@@ -1802,6 +1952,131 @@ mod tests {
         assert_eq!(plan.value(0), &Value::Text("[]".into()));
     }
 
+    /// An expression block over `inputs` (the first is `a`, then `b`, `c`...).
+    fn expression(text: &str, inputs: &[Value], condition: bool) -> Plan {
+        let args = inputs.len() as u32;
+        let mut nodes: Vec<PlanNode> = inputs
+            .iter()
+            .enumerate()
+            .map(|(k, v)| node(&format!("i{k}"), NodeOp::Const(v.clone()), vec![]))
+            .collect();
+        let wires = (0..inputs.len())
+            .map(|k| {
+                wire_to(
+                    k,
+                    Port::from_name(&omu_types::expression::variable_name(k).to_string()).unwrap(),
+                )
+            })
+            .collect();
+        nodes.push(node(
+            "e",
+            NodeOp::Expr {
+                expression: text.into(),
+                args,
+                compiled: omu_types::expression::Compiled::new(text, args)
+                    .ok()
+                    .map(Box::new),
+                condition,
+            },
+            wires,
+        ));
+        let mut plan = Plan::new(nodes, 480);
+        plan.process();
+        plan
+    }
+
+    #[test]
+    fn an_expression_block_calculates_its_inputs_and_a_condition_block_compares_them() {
+        let math = |text: &str, inputs: &[Value]| {
+            expression(text, inputs, false).value(inputs.len()).clone()
+        };
+        assert_eq!(
+            math("a + b", &[Value::Int(2), Value::Float(0.5)]),
+            Value::Float(2.5)
+        );
+        assert_eq!(
+            math(
+                "c * log(a)",
+                &[Value::Int(100), Value::Int(0), Value::Int(3)]
+            ),
+            Value::Float(6.0),
+            "three inputs, the third one is c"
+        );
+        assert_eq!(
+            math("a / b", &[Value::Int(1), Value::Int(0)]),
+            Value::Float(0.0),
+            "never a number that is not one"
+        );
+        assert_eq!(
+            math("a +", &[Value::Int(1)]),
+            Value::Float(0.0),
+            "an expression that is wrong gives 0, the check says why"
+        );
+        // a condition
+        let cond = |text: &str, inputs: &[Value]| {
+            let plan = expression(text, inputs, true);
+            plan.condition(inputs.len())
+        };
+        assert!(cond("a = b", &[Value::Int(3), Value::Float(3.0)]));
+        assert!(!cond("a = b", &[Value::Int(3), Value::Int(4)]));
+        assert!(cond("a >= 3 and b < 10", &[Value::Int(3), Value::Int(9)]));
+        assert!(!cond("a >= 3 and b < 10", &[Value::Int(2), Value::Int(9)]));
+    }
+
+    #[test]
+    fn a_text_test_block_asks_its_texts_and_says_yes_or_no() {
+        let test = |text: &str, inputs: &[&str]| {
+            let args = inputs.len() as u32;
+            let mut nodes: Vec<PlanNode> = inputs
+                .iter()
+                .enumerate()
+                .map(|(k, v)| {
+                    node(
+                        &format!("i{k}"),
+                        NodeOp::Const(Value::Text((*v).into())),
+                        vec![],
+                    )
+                })
+                .collect();
+            let wires = (0..inputs.len())
+                .map(|k| {
+                    wire_to(
+                        k,
+                        Port::from_name(&omu_types::text_expression::variable_name(k).to_string())
+                            .unwrap(),
+                    )
+                })
+                .collect();
+            nodes.push(node(
+                "t",
+                NodeOp::TextTest {
+                    expression: text.into(),
+                    args,
+                    compiled: omu_types::text_expression::Compiled::new(text, args)
+                        .ok()
+                        .map(Box::new),
+                    last: vec![],
+                    last_expression: text.into(),
+                    answer: false,
+                },
+                wires,
+            ));
+            let mut plan = Plan::new(nodes, 480);
+            plan.process();
+            plan.condition(inputs.len())
+        };
+        assert!(test("a == b", &["x", "x"]));
+        assert!(!test("a == b", &["x", "y"]));
+        assert!(test("a.contains(b)", &["hello world", "o w"]));
+        assert!(test("a.matches(\"^[0-9]+$\")", &["12345", ""]));
+        assert!(!test("a.matches(\"^[0-9]+$\")", &["12a45", ""]));
+        assert!(test("a = b and c.startsWith(\"h\")", &["x", "x", "hi"]));
+        assert!(
+            !test("a ==", &["x"]),
+            "a test that is wrong says no, the check says why"
+        );
+    }
+
     #[test]
     fn math_combines_two_numbers_and_a_division_by_zero_gives_zero() {
         let result = |op: MathOp, a: Value, b: Value| {
@@ -2025,6 +2300,87 @@ mod tests {
     }
 
     #[test]
+    fn a_counter_goes_up_and_down_by_the_steps_it_was_given() {
+        let (up, down) = (Arc::new(AtomicU32::new(0)), Arc::new(AtomicU32::new(0)));
+        let mut plan = Plan::new(
+            vec![
+                node("up", NodeOp::Trigger(up.clone()), vec![]),
+                node("down", NodeOp::Trigger(down.clone()), vec![]),
+                node(
+                    "n",
+                    NodeOp::Counter {
+                        count: 0,
+                        initial: 0,
+                        up_by: 10,
+                        down_by: -2,
+                    },
+                    vec![wire_to(0, Port::Up), wire_to(1, Port::Down)],
+                ),
+            ],
+            480,
+        );
+        up.store(2, Ordering::Release);
+        plan.process();
+        assert_eq!(
+            plan.value(2),
+            &Value::Int(20),
+            "two presses of up, ten each"
+        );
+        down.store(3, Ordering::Release);
+        plan.process();
+        assert_eq!(
+            plan.value(2),
+            &Value::Int(26),
+            "a negative step of down adds"
+        );
+    }
+
+    #[test]
+    fn a_button_a_switch_and_a_slider_of_the_panel_send_what_the_panel_sets() {
+        let (button, switch, slider) = (
+            Arc::new(ManualCell::default()),
+            Arc::new(ManualCell::default()),
+            Arc::new(ManualCell::default()),
+        );
+        let mut plan = Plan::new(
+            vec![
+                node("button", NodeOp::Trigger(button.pulses.clone()), vec![]),
+                node("switch", NodeOp::Switch(switch.clone()), vec![]),
+                node(
+                    "slider",
+                    NodeOp::Slider {
+                        cell: slider.clone(),
+                        min: 10.0,
+                        max: 20.0,
+                    },
+                    vec![],
+                ),
+            ],
+            480,
+        );
+        plan.process();
+        assert_eq!(plan.actions(0), 0);
+        assert!(!plan.condition(1));
+        assert_eq!(
+            plan.value(2),
+            &Value::Float(10.0),
+            "never under its minimum"
+        );
+        button.pulses.fetch_add(1, Ordering::AcqRel);
+        switch.on.store(true, Ordering::Relaxed);
+        slider.set_value(15.5);
+        plan.process();
+        assert_eq!(plan.actions(0), 1);
+        assert!(plan.condition(1));
+        assert_eq!(plan.value(2), &Value::Float(15.5));
+        plan.process();
+        assert_eq!(plan.actions(0), 0, "a press is sent once");
+        slider.set_value(99.0);
+        plan.process();
+        assert_eq!(plan.value(2), &Value::Float(20.0), "never over its maximum");
+    }
+
+    #[test]
     fn a_counter_goes_up_and_down_and_back_to_where_it_started_and_keeps_its_count_in_a_new_plan() {
         let (up, down, reset) = (
             Arc::new(AtomicU32::new(0)),
@@ -2042,6 +2398,8 @@ mod tests {
                         NodeOp::Counter {
                             count: 5,
                             initial: 5,
+                            up_by: 1,
+                            down_by: 1,
                         },
                         vec![
                             wire_to(0, Port::Up),

@@ -5,7 +5,9 @@
 //! does not interrupt the audio of the other nodes.
 
 use super::bridge::{sink_bridge, source_bridge, BridgeStats, SinkProducer, SourceConsumer};
-use super::plan::{Meter, NetFlows, NodeOp, ParamKind, Plan, PlanNode, Port, Value, Wire};
+use super::plan::{
+    ManualCell, Meter, NetFlows, NodeOp, ParamKind, Plan, PlanNode, Port, Value, Wire,
+};
 use super::runtime::{GraphThread, RuntimeStats, ThreadInit};
 use omu_graph::ValidGraph;
 use omu_hal::{Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider};
@@ -85,6 +87,8 @@ struct State {
     meters: HashMap<NodeId, Arc<Meter>>,
     /// The flows that give the settings of the network blocks of the running plan.
     net_flows: HashMap<NodeId, Arc<NetFlows>>,
+    /// What the buttons, switches and sliders of the running plan hold (the panel changes it, the graph thread reads it).
+    manual: HashMap<NodeId, Arc<ManualCell>>,
 }
 
 /// How long the flows on a network block's settings stay the same before the stream is opened again with them.
@@ -113,6 +117,24 @@ fn flow_text(v: &Value, longest: usize) -> Option<String> {
 fn flow_port(v: &Value) -> Option<u16> {
     let n = v.number()?.round();
     (1.0..=65535.0).contains(&n).then_some(n as u16)
+}
+
+/// The operation of an expression block: the expression read once, here, and calculated at each cycle.
+fn expression_op(expression: &str, args: u32, condition: bool) -> NodeOp {
+    let args = args.clamp(1, omu_types::expression::MAX_EXPRESSION_ARGS);
+    NodeOp::Expr {
+        expression: expression.to_owned(),
+        args,
+        compiled: omu_types::expression::Compiled::new(expression, args)
+            .ok()
+            .map(Box::new),
+        condition,
+    }
+}
+
+/// What the block `id` of the panel holds, made when it is not there yet.
+fn manual_cell(manual: &mut HashMap<NodeId, Arc<ManualCell>>, id: &NodeId) -> Arc<ManualCell> {
+    manual.entry(id.clone()).or_default().clone()
 }
 
 /// The kind of a block with the settings that flows give it (a flow that gives nothing usable changes nothing).
@@ -270,6 +292,41 @@ impl Engine {
     pub fn levels(&self, id: &NodeId) -> Option<Vec<f32>> {
         let st = self.inner.lock();
         st.meters.get(id).map(|m| m.levels())
+    }
+
+    /// Presses the button `id` of the panel: its action goes out at the next cycle. `false` when no running graph has that button.
+    pub fn press(&self, id: &NodeId) -> bool {
+        let st = self.inner.lock();
+        match (st.graph_thread.is_some(), st.manual.get(id)) {
+            (true, Some(cell)) => {
+                // presses pile up only a little (a hand cannot press a thousand times between two cycles)
+                if cell.pulses.load(Ordering::Relaxed) < 1000 {
+                    cell.pulses.fetch_add(1, Ordering::AcqRel);
+                }
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Sets the switch `id` of the panel. `false` when no running graph has that switch.
+    pub fn set_switch(&self, id: &NodeId, on: bool) -> bool {
+        let st = self.inner.lock();
+        st.manual.get(id).is_some_and(|cell| {
+            cell.on.store(on, Ordering::Relaxed);
+            true
+        })
+    }
+
+    /// Sets the slider `id` of the panel (kept between its minimum and maximum by the block). `false` when no running graph has it.
+    pub fn set_slider(&self, id: &NodeId, value: f64) -> bool {
+        let st = self.inner.lock();
+        st.manual.get(id).is_some_and(|cell| {
+            if value.is_finite() {
+                cell.set_value(value);
+            }
+            true
+        })
     }
 
     pub fn status(&self) -> EngineStatus {
@@ -499,9 +556,11 @@ impl Inner {
             sounds.sync(&boards);
         }
         let mut flows = std::mem::take(&mut st.net_flows);
-        let (plan, meters) = self.build_plan(&desired, &st.resources, &mut flows);
+        let mut manual = std::mem::take(&mut st.manual);
+        let (plan, meters) = self.build_plan(&desired, &st.resources, &mut flows, &mut manual);
         flows.retain(|id, _| wanted.contains_key(id));
         st.net_flows = flows;
+        st.manual = manual;
         st.meters = meters;
         if st.graph_thread.as_ref().is_some_and(|t| t.is_finished()) {
             tracing::error!("the graph thread ended unexpectedly; starting a new one");
@@ -551,6 +610,7 @@ impl Inner {
         graph: &ValidGraph,
         resources: &HashMap<NodeId, Resource>,
         net_flows: &mut HashMap<NodeId, Arc<NetFlows>>,
+        manual: &mut HashMap<NodeId, Arc<ManualCell>>,
     ) -> (Plan, HashMap<NodeId, Arc<Meter>>) {
         // where each block of the graph is in the plan (a block can be preceded by a mixer the engine adds)
         let mut position = vec![0usize; graph.spec.nodes.len()];
@@ -627,13 +687,58 @@ impl Inner {
                         last_template: String::new(),
                         text: "".into(),
                     },
+                    (NodeKind::MathExpr { expression, args }, _) => {
+                        expression_op(expression, *args, false)
+                    }
+                    (NodeKind::CondExpr { expression, args }, _) => {
+                        expression_op(expression, *args, true)
+                    }
+                    (NodeKind::TextExpr { expression, args }, _) => {
+                        let args = (*args).clamp(1, omu_types::text_expression::MAX_TEXT_ARGS);
+                        NodeOp::TextTest {
+                            expression: expression.clone(),
+                            args,
+                            compiled: omu_types::text_expression::Compiled::new(expression, args)
+                                .ok()
+                                .map(Box::new),
+                            last: vec![],
+                            last_expression: expression.clone(),
+                            answer: false,
+                        }
+                    }
+                    (NodeKind::Button, _) => {
+                        NodeOp::Trigger(manual_cell(manual, &spec.id).pulses.clone())
+                    }
+                    (NodeKind::Switch { on }, _) => {
+                        let cell = manual_cell(manual, &spec.id);
+                        cell.on.store(*on, Ordering::Relaxed);
+                        NodeOp::Switch(cell)
+                    }
+                    (NodeKind::Slider { min, max, value }, _) => {
+                        let cell = manual_cell(manual, &spec.id);
+                        cell.set_value(*value);
+                        NodeOp::Slider {
+                            cell,
+                            min: *min,
+                            max: *max,
+                        }
+                    }
                     (NodeKind::Math { op }, _) => NodeOp::Math(*op),
                     (NodeKind::Compare { op }, _) => NodeOp::Compare(*op),
                     (NodeKind::TextCompare { op }, _) => NodeOp::TextCompare(*op),
                     (NodeKind::Choose, _) => NodeOp::Choose,
-                    (NodeKind::Counter { initial }, _) => NodeOp::Counter {
+                    (
+                        NodeKind::Counter {
+                            initial,
+                            up_by,
+                            down_by,
+                        },
+                        _,
+                    ) => NodeOp::Counter {
                         count: *initial,
                         initial: *initial,
+                        up_by: *up_by,
+                        down_by: *down_by,
                     },
                     (NodeKind::Volume, _) => NodeOp::Volume,
                     (NodeKind::ToNumber, _) => NodeOp::ToNumber,
@@ -737,6 +842,8 @@ impl Inner {
         }
         // a block whose links to its settings are gone goes back to what is typed in it
         net_flows.retain(|id, _| with_net.contains(id));
+        // a button, a switch or a slider that is not in the graph any more is forgotten
+        manual.retain(|id, _| graph.spec.nodes.iter().any(|n| &n.id == id));
         (Plan::new(nodes, self.cfg.cycle_frames), meters)
     }
 

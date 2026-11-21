@@ -13,7 +13,7 @@ const join = (...names: (string | false | undefined)[]) => names.filter(Boolean)
 export type ButtonProps = {
   children?: ReactNode;
   icon?: IconName;
-  variant?: 'secondary' | 'primary' | 'flat' | 'danger';
+  variant?: 'secondary' | 'primary' | 'flat' | 'danger' | 'bar';
   size?: 'normal' | 'small';
   disabled?: boolean;
   title?: string;
@@ -22,10 +22,12 @@ export type ButtonProps = {
   wide?: boolean;
   className?: string;
   onClick?: (e: React.MouseEvent) => void;
+  onKeyDown?: (e: KeyboardEvent) => void;
+  onBlur?: () => void;
 };
 
-/** A button: flat, one height, an optional icon. `nodrag` so that a block is not moved by pressing it. */
-export function Button({ children, icon, variant = 'secondary', size = 'normal', disabled, title, pressed, wide, className, onClick }: ButtonProps) {
+/** A button: flat, one height, an optional icon (`bar`: one of the buttons of the title bar of a block or a window). `nodrag` so that a block is not moved by pressing it. */
+export function Button({ children, icon, variant = 'secondary', size = 'normal', disabled, title, pressed, wide, className, onClick, onKeyDown, onBlur }: ButtonProps) {
   return (
     <button
       type="button"
@@ -35,8 +37,10 @@ export function Button({ children, icon, variant = 'secondary', size = 'normal',
       aria-label={!children ? title : undefined}
       aria-pressed={pressed}
       onClick={onClick}
+      onKeyDown={onKeyDown}
+      onBlur={onBlur}
     >
-      {icon && <Icon name={icon} size={size === 'small' ? 12 : 14} />}
+      {icon && <Icon name={icon} size={variant === 'bar' ? 14 : size === 'small' ? 12 : 14} />}
       {children}
     </button>
   );
@@ -55,10 +59,12 @@ export type TextInputProps = {
   className?: string;
   /** Called with the text when the field is left or Enter is pressed (a value that is saved, not tried key by key). */
   onCommit?: (text: string) => void;
+  /** Called with the text when Enter is pressed (not when the field is left). */
+  onEnter?: (text: string) => void;
 };
 
 /** A line of text: flat, with a frame that lights up when it has the focus. */
-export function TextInput({ value, onChange, placeholder, disabled, title, code = true, className, onCommit }: TextInputProps) {
+export function TextInput({ value, onChange, placeholder, disabled, title, code = true, className, onCommit, onEnter }: TextInputProps) {
   return (
     <input
       className={join('kit-text nodrag', code && 'code', className)}
@@ -70,9 +76,24 @@ export function TextInput({ value, onChange, placeholder, disabled, title, code 
       autoComplete="off"
       onChange={(e) => onChange(e.target.value)}
       onBlur={onCommit ? (e) => onCommit(e.target.value) : undefined}
-      onKeyDown={onCommit ? (e) => e.key === 'Enter' && onCommit(e.currentTarget.value) : undefined}
+      onKeyDown={
+        onCommit || onEnter
+          ? (e) => {
+              if (e.key !== 'Enter') return;
+              onCommit?.(e.currentTarget.value);
+              onEnter?.(e.currentTarget.value);
+            }
+          : undefined
+      }
     />
   );
+}
+
+// ---------------------------------------------------------------------------------------------------------- ColorField
+
+/** A colour: a flat swatch that opens the system's colour chooser. */
+export function ColorField({ value, onChange, title, label }: { value: string; onChange: (color: string) => void; title?: string; label?: string }) {
+  return <input type="color" className="kit-color nodrag" value={value} title={title} aria-label={label ?? title} onChange={(e) => onChange(e.target.value)} />;
 }
 
 // ---------------------------------------------------------------------------------------------------------- NumberField
@@ -188,6 +209,8 @@ export type SliderProps = {
   max: number;
   step?: number;
   onChange: (n: number) => void;
+  /** Called with the last value when the thumb is let go (or a key has moved it): what is kept, not tried step by step. */
+  onCommit?: (n: number) => void;
   disabled?: boolean;
   title?: string;
   label?: string;
@@ -195,14 +218,18 @@ export type SliderProps = {
 };
 
 /** A slider over an advised range; a value outside it (typed, or given by a flow) keeps the thumb at the end, outlined. */
-export function Slider({ value, min, max, step = 1, onChange, disabled, title, label, className }: SliderProps) {
+export function Slider({ value, min, max, step = 1, onChange, onCommit, disabled, title, label, className }: SliderProps) {
   const track = useRef<HTMLDivElement>(null);
+  const last = useRef(value);
   const inside = Math.min(max, Math.max(min, value));
   const at = max > min ? (inside - min) / (max - min) : 0;
   const snap = (n: number) => Math.min(max, Math.max(min, Math.round(n / step) * step));
   const fromPointer = (clientX: number) => {
     const r = track.current?.getBoundingClientRect();
-    if (r && r.width > 0) onChange(snap(min + ((clientX - r.left) / r.width) * (max - min)));
+    if (r && r.width > 0) {
+      last.current = snap(min + ((clientX - r.left) / r.width) * (max - min));
+      onChange(last.current);
+    }
   };
   const press = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || e.button !== 0) return;
@@ -212,6 +239,7 @@ export function Slider({ value, min, max, step = 1, onChange, disabled, title, l
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      onCommit?.(last.current);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
@@ -221,6 +249,7 @@ export function Slider({ value, min, max, step = 1, onChange, disabled, title, l
     const to = (n: number) => {
       e.preventDefault();
       onChange(snap(n));
+      onCommit?.(snap(n));
     };
     if (e.key === 'ArrowRight' || e.key === 'ArrowUp') to(value + step * big);
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') to(value - step * big);

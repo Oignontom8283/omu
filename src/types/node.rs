@@ -149,6 +149,32 @@ fn one() -> u32 {
     1
 }
 
+/// The ports of an expression block: the expression itself (so that a flow can give it), its inputs `a`, `b`, `c`... (numbers, or
+/// texts for the test of texts) and its result.
+fn expression_ports(args: u32, input: PortType, result: PortSpec) -> Vec<PortSpec> {
+    let inputs = crate::expression::MAX_EXPRESSION_ARGS;
+    [port("expression", Input, TextFlow, false)]
+        .into_iter()
+        .chain((0..args.clamp(1, inputs) as usize).map(|k| {
+            port(
+                crate::expression::variable_name(k).to_string(),
+                Input,
+                input,
+                false,
+            )
+        }))
+        .chain([result])
+        .collect()
+}
+
+fn one_step() -> i64 {
+    1
+}
+
+fn slider_max() -> f64 {
+    100.0
+}
+
 fn two() -> u32 {
     2
 }
@@ -474,6 +500,27 @@ pub enum NodeKind {
         #[serde(default = "two")]
         args: u32,
     },
+    /// Value: a mathematical expression of its inputs (`a`, `b`, `c`... as many as `args`): `a + b`, `c * log(a)`. See
+    /// [`crate::expression`] for what can be written.
+    MathExpr {
+        expression: String,
+        #[serde(default = "two")]
+        args: u32,
+    },
+    /// Condition: true while a mathematical expression of its inputs is not 0: `a = b`, `a > 3 and b < 10` (a comparison is 1 when it is
+    /// true and 0 when it is not).
+    CondExpr {
+        expression: String,
+        #[serde(default = "two")]
+        args: u32,
+    },
+    /// Condition: a test of its text inputs (`a`, `b`, `c`... as many as `args`): `a == b`, `a.contains(b)`, `a.matches("^[0-9]+$")`. See
+    /// [`crate::text_expression`] for what can be written.
+    TextExpr {
+        expression: String,
+        #[serde(default = "two")]
+        args: u32,
+    },
     /// Value: two numbers combined (`a` and `b`).
     Math { op: MathOp },
     /// Condition: true while `a` compares to `b` the way `op` says (a number not linked counts as 0).
@@ -482,10 +529,30 @@ pub enum NodeKind {
     TextCompare { op: TextOp },
     /// Value: the number at `then` while the condition `when` is true, the number at `else` otherwise.
     Choose,
-    /// Value: a whole number that actions change: `up` adds one, `down` takes one off, `reset` goes back to `initial`.
+    /// Value: a whole number that actions change: `up` adds `up_by`, `down` takes `down_by` off, `reset` goes back to `initial`.
     Counter {
         #[serde(default)]
         initial: i64,
+        #[serde(default = "one_step")]
+        up_by: i64,
+        #[serde(default = "one_step")]
+        down_by: i64,
+    },
+    /// Action: a button of the panel; the action goes out each time it is pressed there. Nothing else is linked to it.
+    Button,
+    /// Condition: a switch of the panel; the condition is what it is set to there (`on` is where it is now).
+    Switch {
+        #[serde(default)]
+        on: bool,
+    },
+    /// Value: a slider of the panel, between `min` and `max`; the number is where it is set there (`value`).
+    Slider {
+        #[serde(default)]
+        min: f64,
+        #[serde(default = "slider_max")]
+        max: f64,
+        #[serde(default)]
+        value: f64,
     },
     /// Conversion: how loud the sound at its input is, in decibels (0 is full scale; silence is -120).
     Volume,
@@ -629,7 +696,11 @@ impl NodeKind {
                 vec![in_cond(false), port("ms", Input, Int, false), out_cond()]
             }
             NodeKind::All | NodeKind::Any => vec![in_cond(true), out_cond()],
-            NodeKind::Hotkey { .. } => vec![port("pressed", Output, Action, false)],
+            NodeKind::Hotkey { .. } | NodeKind::Button => {
+                vec![port("pressed", Output, Action, false)]
+            }
+            NodeKind::Switch { .. } => vec![out_cond()],
+            NodeKind::Slider { .. } => vec![port("out", Output, Float, false)],
             NodeKind::Timer { .. } => vec![
                 port("interval_ms", Input, Int, false),
                 port("tick", Output, Action, false),
@@ -650,6 +721,11 @@ impl NodeKind {
                 )
                 .chain([port("out", Output, TextFlow, false)])
                 .collect(),
+            NodeKind::MathExpr { args, .. } => {
+                expression_ports(*args, Float, port("out", Output, Float, false))
+            }
+            NodeKind::CondExpr { args, .. } => expression_ports(*args, Float, out_cond()),
+            NodeKind::TextExpr { args, .. } => expression_ports(*args, TextFlow, out_cond()),
             NodeKind::Math { .. } => vec![
                 port("a", Input, Float, false),
                 port("b", Input, Float, false),
@@ -711,6 +787,9 @@ impl NodeKind {
     pub fn param_ports(&self) -> &'static [&'static str] {
         match self {
             NodeKind::Join { .. } => &["template"],
+            NodeKind::MathExpr { .. } | NodeKind::CondExpr { .. } | NodeKind::TextExpr { .. } => {
+                &["expression"]
+            }
             NodeKind::Gain { .. } => &["db"],
             NodeKind::Level { .. } => &["threshold_db"],
             NodeKind::Hold { .. } | NodeKind::After { .. } => &["ms"],
@@ -768,15 +847,21 @@ impl NodeKind {
             | NodeKind::Hold { .. }
             | NodeKind::After { .. }
             | NodeKind::Compare { .. }
+            | NodeKind::CondExpr { .. }
+            | NodeKind::TextExpr { .. }
+            | NodeKind::Switch { .. }
             | NodeKind::TextCompare { .. }
             | NodeKind::ToCondition => Category::Condition,
-            NodeKind::Hotkey { .. } | NodeKind::Timer { .. } | NodeKind::Change => {
-                Category::Trigger
-            }
+            NodeKind::Hotkey { .. }
+            | NodeKind::Timer { .. }
+            | NodeKind::Change
+            | NodeKind::Button => Category::Trigger,
             NodeKind::Integer { .. }
             | NodeKind::Number { .. }
             | NodeKind::Math { .. }
+            | NodeKind::MathExpr { .. }
             | NodeKind::Choose
+            | NodeKind::Slider { .. }
             | NodeKind::Counter { .. } => Category::Number,
             NodeKind::Text { .. } | NodeKind::Join { .. } => Category::Text,
             NodeKind::Volume
@@ -1130,6 +1215,18 @@ mod tests {
                 template: "$1-$2".into(),
                 args: 2,
             },
+            NodeKind::MathExpr {
+                expression: "a + b".into(),
+                args: 2,
+            },
+            NodeKind::CondExpr {
+                expression: "a = b".into(),
+                args: 2,
+            },
+            NodeKind::TextExpr {
+                expression: "a = b".into(),
+                args: 2,
+            },
             NodeKind::Math { op: MathOp::Add },
             NodeKind::Compare {
                 op: CompareOp::Greater,
@@ -1138,7 +1235,18 @@ mod tests {
                 op: TextOp::Contains,
             },
             NodeKind::Choose,
-            NodeKind::Counter { initial: 0 },
+            NodeKind::Counter {
+                initial: 0,
+                up_by: 1,
+                down_by: 1,
+            },
+            NodeKind::Button,
+            NodeKind::Switch { on: false },
+            NodeKind::Slider {
+                min: 0.0,
+                max: 100.0,
+                value: 0.0,
+            },
             NodeKind::Volume,
             NodeKind::ToNumber,
             NodeKind::Round {

@@ -45,7 +45,7 @@ export type PortMeta = {
   flow: FlowType;
   multi: boolean;
   label: string;
-  n?: number;
+  n?: number | string;
   gapBefore?: boolean;
   entries?: boolean;
   /** Gives a setting of the block from a flow. */
@@ -74,9 +74,20 @@ export type KindLike = { type: NodeType; branches?: number; triggers?: string[];
 export const MAX_BRANCHES = 16;
 /** The most arguments a join block can have (same as the daemon's). */
 export const MAX_JOIN_ARGS = 16;
+/** The most inputs an expression block can have: `a` to `p` (same as the daemon's). */
+export const MAX_EXPRESSION_ARGS = 16;
+
+/** The name of the `k`th input of an expression block (from 0): `a`, `b`, `c`... */
+export const variableName = (k: number): string => String.fromCharCode(97 + Math.max(0, Math.min(MAX_EXPRESSION_ARGS - 1, k)));
+
+/** How many inputs an expression block has: at least one, and what the daemon allows at most. */
+export function expressionArgs(kind: KindLike): number {
+  return Number.isInteger(kind.args) ? Math.max(1, Math.min(MAX_EXPRESSION_ARGS, kind.args as number)) : 2;
+}
 
 /** The input of a block that gives one of its settings from a flow (the flow wins over what is typed in the block). */
-const param = (name: string, flow: FlowType, help: string, unit?: string): PortMeta => p(name, 'in', flow, false, { param: true, field: name, limits: LIMITS[name], help, unit });
+const param = (name: string, flow: FlowType, help: string, unit?: string, extra: Partial<PortMeta> = {}): PortMeta =>
+  p(name, 'in', flow, false, { param: true, field: name, limits: LIMITS[name], help, unit, ...extra });
 
 /** Whether an input of flow `input` takes a flow of type `from` (the same as the daemon's rule). */
 export function accepts(input: FlowType, from: FlowType): boolean {
@@ -216,6 +227,22 @@ export function portsOf(kind: KindLike): PortMeta[] {
       const n = Number.isInteger(kind.args) ? Math.max(1, Math.min(MAX_JOIN_ARGS, kind.args as number)) : 2;
       return [param('template', 'text', 'field.template'), ...range(n).map((k) => p(`arg${k}`, 'in', 'text', false, { label: 'port.arg', n: k })), p('out', 'out', 'text')];
     }
+    case 'math_expr':
+    case 'cond_expr':
+    case 'text_expr': {
+      const texts = kind.type === 'text_expr';
+      return [
+        param('expression', 'text', texts ? 'field.test' : 'field.expression', undefined, { control: texts ? 'omu.test' : 'omu.expression', placeholder: texts ? 'field.test.placeholder' : 'field.expression.placeholder' }),
+        ...range(expressionArgs(kind)).map((k) => p(variableName(k - 1), 'in', texts ? 'text' : 'float', false, { label: 'port.variable', n: variableName(k - 1), help: 'port.variable' })),
+        p('out', 'out', kind.type === 'math_expr' ? 'float' : 'condition'),
+      ];
+    }
+    case 'button':
+      return [p('pressed', 'out', 'action')];
+    case 'switch':
+      return [p('out', 'out', 'condition')];
+    case 'slider':
+      return [p('out', 'out', 'float')];
     case 'math':
       return [p('a', 'in', 'float'), p('b', 'in', 'float'), p('out', 'out', 'float')];
     case 'compare':
@@ -253,9 +280,9 @@ export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   input: ['app_capture', 'device_capture', 'virtual_speaker', 'soundboard', 'network_in', 'web_in', 'stream_in'],
   output: ['virtual_mic', 'device_render', 'network_out', 'web_out', 'stream_out'],
   processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction', 'deep_filter'],
-  condition: ['variable', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'compare', 'text_compare', 'to_condition'],
-  trigger: ['hotkey', 'timer', 'change'],
-  number: ['integer', 'number', 'math', 'choose', 'counter'],
+  condition: ['variable', 'switch', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'cond_expr', 'text_expr', 'to_condition'],
+  trigger: ['hotkey', 'timer', 'change', 'button'],
+  number: ['integer', 'number', 'slider', 'math_expr', 'choose', 'counter'],
   text: ['text', 'join'],
   conversion: ['volume', 'to_number', 'round', 'from_condition'],
   // made by grouping blocks, not taken from a list
@@ -264,8 +291,15 @@ export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
 
 export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
 
+/**
+ * The blocks that are no longer offered (the expression blocks do their work and more) but that graphs made earlier hold, and
+ * that still work: they keep their family and their ports, and are not in the lists above.
+ */
+export const RETIRED_KINDS: Partial<Record<NodeType, Category>> = { math: 'number', compare: 'condition', text_compare: 'condition' };
+
 export function categoryOf(type: NodeType): Category {
   if (type === 'group') return 'group';
+  if (RETIRED_KINDS[type]) return RETIRED_KINDS[type] as Category;
   return CATEGORIES.find((c) => KINDS_BY_CATEGORY[c].includes(type)) as Category;
 }
 
@@ -424,6 +458,18 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, value: 0 };
     case 'join':
       return { type, template: '$arg1 $arg2', args: 2 };
+    case 'math_expr':
+      return { type, expression: 'a + b', args: 2 };
+    case 'text_expr':
+      return { type, expression: 'a = b', args: 2 };
+    case 'button':
+      return { type };
+    case 'switch':
+      return { type, on: false };
+    case 'slider':
+      return { type, min: 0, max: 100, value: 0 };
+    case 'cond_expr':
+      return { type, expression: 'a = b', args: 2 };
     case 'math':
       return { type, op: 'add' };
     case 'compare':
@@ -441,12 +487,12 @@ export function defaultKind(type: NodeType): NodeKind {
     case 'group':
       return { type, graph: { nodes: [], edges: [] }, exposed: [] };
     case 'counter':
-      return { type, initial: 0 };
+      return { type, initial: 0, up_by: 1, down_by: 1 };
   }
 }
 
 /** The ports of every kind of block, with the settings a new block starts with. */
-export const PORTS = Object.fromEntries(NODE_TYPES.map((t) => [t, portsOf(defaultKind(t))])) as Record<NodeType, PortMeta[]>;
+export const PORTS = Object.fromEntries([...NODE_TYPES, ...(Object.keys(RETIRED_KINDS) as NodeType[])].map((t) => [t, portsOf(defaultKind(t))])) as Record<NodeType, PortMeta[]>;
 
 /** A node id not used yet: `gain`, `gain-2`, `gain-3`... */
 export function uniqueId(base: string, taken: Iterable<string>): string {
@@ -592,8 +638,26 @@ export function fromFlow(nodes: { spec: NodeSpec }[], edges: FlowEdge[]): GraphS
 }
 
 /** A canonical text of a graph, to tell whether two graphs are the same whatever the order of their lists. */
+/**
+ * Where a switch or a slider is set is not something that is edited: the panel sets it while the graph runs, and the daemon keeps it. So it
+ * is left out of what is compared (a graph is not "modified" because a slider moved) and of what undo goes back over.
+ */
+export function withoutLive<T extends NodeSpec>(spec: T): T {
+  if (spec.type === 'switch') return { ...spec, on: undefined };
+  if (spec.type === 'slider') return { ...spec, value: undefined };
+  return spec;
+}
+
+/** `spec` with the place of the switch or slider that the block `current` holds now (the block it replaces is the same one). */
+export function keepLive<T extends NodeSpec>(spec: T, current: NodeSpec | undefined): T {
+  if (!current || current.type !== spec.type) return spec;
+  if (spec.type === 'switch' && current.type === 'switch') return { ...spec, on: current.on };
+  if (spec.type === 'slider' && current.type === 'slider') return { ...spec, value: current.value };
+  return spec;
+}
+
 export function canonical(graph: GraphSpec): string {
-  const nodes = [...graph.nodes].sort((a, b) => a.id.localeCompare(b.id));
+  const nodes = graph.nodes.map(withoutLive).sort((a, b) => a.id.localeCompare(b.id));
   const edges = [...graph.edges].sort((a, b) => edgeId(a).localeCompare(edgeId(b)));
   return JSON.stringify({ nodes, edges });
 }

@@ -128,10 +128,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-## CodeMirror (the editor of text templates)
+## CodeMirror (the editor of texts)
 
-The field of a text template is a CodeMirror editor (https://codemirror.net, by Marijn Haverbeke and contributors), through the
-packages `@codemirror/state`, `@codemirror/view` and `@codemirror/autocomplete`. Licence: MIT.
+Every text field of a block (and the window that edits it) is a CodeMirror editor (https://codemirror.net, by Marijn Haverbeke and
+contributors), through the packages `@codemirror/state`, `@codemirror/view`, `@codemirror/autocomplete`, `@codemirror/commands`
+and `@codemirror/language`. Licence: MIT.
 
 ```
 MIT License
@@ -191,3 +192,11 @@ LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICUL
 ```
 
 - `if-addrs` (https://github.com/messense/if-addrs), to list the addresses of the computer's networks: MIT or BSD-3-Clause.
+
+## fasteval (mathematical expressions)
+
+The expression and condition blocks read what is typed in them (`a + b`, `c * log(a)`, `a = b`) with `fasteval` (https://github.com/likebike/fasteval, by Christopher Sebastian). Licence: MIT.
+
+## cel (tests on texts)
+
+The text test block reads what is typed in it (`a == b`, `a.contains(b)`, `a.matches("^[0-9]+$")`) with `cel` (https://github.com/cel-rust/cel-rust, by the cel-rust contributors), an interpreter of the Common Expression Language, and the `regex` library for the regular expressions. Licence: MIT.
