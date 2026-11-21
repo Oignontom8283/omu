@@ -15,7 +15,7 @@ use omu_types::{
     port_number, CompareOp, LogicOp, MathOp, NodeId, PortLimits, RoundMode, TextOp,
     ENGINE_CHANNELS, ENGINE_SAMPLE_RATE, MAX_BRANCHES, MAX_DELAY_MS,
 };
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -373,6 +373,16 @@ pub enum NodeOp {
     Counter {
         count: i64,
         initial: i64,
+        up_by: i64,
+        down_by: i64,
+    },
+    /// A switch of the panel: its condition is what the panel set it to.
+    Switch(Arc<ManualCell>),
+    /// A slider of the panel: its number is what the panel set it to, kept between `min` and `max`.
+    Slider {
+        cell: Arc<ManualCell>,
+        min: f64,
+        max: f64,
     },
     /// How loud the sound is, in decibels (rounded to half a decibel).
     Volume,
@@ -425,8 +435,29 @@ impl NodeOp {
                     ..
                 }
                 | NodeOp::TextTest { .. }
+                | NodeOp::Switch(_)
                 | NodeOp::ToCondition
         )
+    }
+}
+
+/// What a block of the panel (a button, a switch, a slider) holds, shared between the panel's calls and the graph thread: the
+/// presses not yet sent, where the switch is, where the slider is.
+#[derive(Debug, Default)]
+pub struct ManualCell {
+    /// The presses of the button that the graph has not seen yet.
+    pub pulses: Arc<AtomicU32>,
+    pub on: AtomicBool,
+    value_bits: AtomicU64,
+}
+
+impl ManualCell {
+    pub fn value(&self) -> f64 {
+        f64::from_bits(self.value_bits.load(Ordering::Relaxed))
+    }
+
+    pub fn set_value(&self, value: f64) {
+        self.value_bits.store(value.to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -1066,7 +1097,12 @@ impl Plan {
                         |port: Port| value_of(outs, &node.inputs, port).number().unwrap_or(0.0);
                     value = Value::Float(if on { num(Port::Then) } else { num(Port::Else) });
                 }
-                NodeOp::Counter { count, initial } => {
+                NodeOp::Counter {
+                    count,
+                    initial,
+                    up_by,
+                    down_by,
+                } => {
                     let sum = |port: Port| -> i64 {
                         node.inputs
                             .iter()
@@ -1077,9 +1113,13 @@ impl Plan {
                     if sum(Port::Reset) > 0 {
                         *count = *initial;
                     }
-                    *count = (*count + sum(Port::Up) - sum(Port::Down))
+                    *count = (*count + sum(Port::Up) * *up_by - sum(Port::Down) * *down_by)
                         .clamp(-1_000_000_000, 1_000_000_000);
                     value = Value::Int(*count);
+                }
+                NodeOp::Switch(cell) => cond = cell.on.load(Ordering::Relaxed),
+                NodeOp::Slider { cell, min, max } => {
+                    value = Value::Float(cell.value().clamp(*min, *max));
                 }
                 NodeOp::Volume => {
                     let input = input_audio(Port::In);
@@ -1129,6 +1169,7 @@ impl Plan {
                     }
                     | NodeOp::Choose
                     | NodeOp::Counter { .. }
+                    | NodeOp::Slider { .. }
                     | NodeOp::Volume
                     | NodeOp::ToNumber
                     | NodeOp::Round(_)
@@ -2259,6 +2300,87 @@ mod tests {
     }
 
     #[test]
+    fn a_counter_goes_up_and_down_by_the_steps_it_was_given() {
+        let (up, down) = (Arc::new(AtomicU32::new(0)), Arc::new(AtomicU32::new(0)));
+        let mut plan = Plan::new(
+            vec![
+                node("up", NodeOp::Trigger(up.clone()), vec![]),
+                node("down", NodeOp::Trigger(down.clone()), vec![]),
+                node(
+                    "n",
+                    NodeOp::Counter {
+                        count: 0,
+                        initial: 0,
+                        up_by: 10,
+                        down_by: -2,
+                    },
+                    vec![wire_to(0, Port::Up), wire_to(1, Port::Down)],
+                ),
+            ],
+            480,
+        );
+        up.store(2, Ordering::Release);
+        plan.process();
+        assert_eq!(
+            plan.value(2),
+            &Value::Int(20),
+            "two presses of up, ten each"
+        );
+        down.store(3, Ordering::Release);
+        plan.process();
+        assert_eq!(
+            plan.value(2),
+            &Value::Int(26),
+            "a negative step of down adds"
+        );
+    }
+
+    #[test]
+    fn a_button_a_switch_and_a_slider_of_the_panel_send_what_the_panel_sets() {
+        let (button, switch, slider) = (
+            Arc::new(ManualCell::default()),
+            Arc::new(ManualCell::default()),
+            Arc::new(ManualCell::default()),
+        );
+        let mut plan = Plan::new(
+            vec![
+                node("button", NodeOp::Trigger(button.pulses.clone()), vec![]),
+                node("switch", NodeOp::Switch(switch.clone()), vec![]),
+                node(
+                    "slider",
+                    NodeOp::Slider {
+                        cell: slider.clone(),
+                        min: 10.0,
+                        max: 20.0,
+                    },
+                    vec![],
+                ),
+            ],
+            480,
+        );
+        plan.process();
+        assert_eq!(plan.actions(0), 0);
+        assert!(!plan.condition(1));
+        assert_eq!(
+            plan.value(2),
+            &Value::Float(10.0),
+            "never under its minimum"
+        );
+        button.pulses.fetch_add(1, Ordering::AcqRel);
+        switch.on.store(true, Ordering::Relaxed);
+        slider.set_value(15.5);
+        plan.process();
+        assert_eq!(plan.actions(0), 1);
+        assert!(plan.condition(1));
+        assert_eq!(plan.value(2), &Value::Float(15.5));
+        plan.process();
+        assert_eq!(plan.actions(0), 0, "a press is sent once");
+        slider.set_value(99.0);
+        plan.process();
+        assert_eq!(plan.value(2), &Value::Float(20.0), "never over its maximum");
+    }
+
+    #[test]
     fn a_counter_goes_up_and_down_and_back_to_where_it_started_and_keeps_its_count_in_a_new_plan() {
         let (up, down, reset) = (
             Arc::new(AtomicU32::new(0)),
@@ -2276,6 +2398,8 @@ mod tests {
                         NodeOp::Counter {
                             count: 5,
                             initial: 5,
+                            up_by: 1,
+                            down_by: 1,
                         },
                         vec![
                             wire_to(0, Port::Up),

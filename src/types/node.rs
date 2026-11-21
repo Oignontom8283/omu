@@ -167,6 +167,14 @@ fn expression_ports(args: u32, input: PortType, result: PortSpec) -> Vec<PortSpe
         .collect()
 }
 
+fn one_step() -> i64 {
+    1
+}
+
+fn slider_max() -> f64 {
+    100.0
+}
+
 fn two() -> u32 {
     2
 }
@@ -521,10 +529,30 @@ pub enum NodeKind {
     TextCompare { op: TextOp },
     /// Value: the number at `then` while the condition `when` is true, the number at `else` otherwise.
     Choose,
-    /// Value: a whole number that actions change: `up` adds one, `down` takes one off, `reset` goes back to `initial`.
+    /// Value: a whole number that actions change: `up` adds `up_by`, `down` takes `down_by` off, `reset` goes back to `initial`.
     Counter {
         #[serde(default)]
         initial: i64,
+        #[serde(default = "one_step")]
+        up_by: i64,
+        #[serde(default = "one_step")]
+        down_by: i64,
+    },
+    /// Action: a button of the panel; the action goes out each time it is pressed there. Nothing else is linked to it.
+    Button,
+    /// Condition: a switch of the panel; the condition is what it is set to there (`on` is where it is now).
+    Switch {
+        #[serde(default)]
+        on: bool,
+    },
+    /// Value: a slider of the panel, between `min` and `max`; the number is where it is set there (`value`).
+    Slider {
+        #[serde(default)]
+        min: f64,
+        #[serde(default = "slider_max")]
+        max: f64,
+        #[serde(default)]
+        value: f64,
     },
     /// Conversion: how loud the sound at its input is, in decibels (0 is full scale; silence is -120).
     Volume,
@@ -668,7 +696,11 @@ impl NodeKind {
                 vec![in_cond(false), port("ms", Input, Int, false), out_cond()]
             }
             NodeKind::All | NodeKind::Any => vec![in_cond(true), out_cond()],
-            NodeKind::Hotkey { .. } => vec![port("pressed", Output, Action, false)],
+            NodeKind::Hotkey { .. } | NodeKind::Button => {
+                vec![port("pressed", Output, Action, false)]
+            }
+            NodeKind::Switch { .. } => vec![out_cond()],
+            NodeKind::Slider { .. } => vec![port("out", Output, Float, false)],
             NodeKind::Timer { .. } => vec![
                 port("interval_ms", Input, Int, false),
                 port("tick", Output, Action, false),
@@ -817,16 +849,19 @@ impl NodeKind {
             | NodeKind::Compare { .. }
             | NodeKind::CondExpr { .. }
             | NodeKind::TextExpr { .. }
+            | NodeKind::Switch { .. }
             | NodeKind::TextCompare { .. }
             | NodeKind::ToCondition => Category::Condition,
-            NodeKind::Hotkey { .. } | NodeKind::Timer { .. } | NodeKind::Change => {
-                Category::Trigger
-            }
+            NodeKind::Hotkey { .. }
+            | NodeKind::Timer { .. }
+            | NodeKind::Change
+            | NodeKind::Button => Category::Trigger,
             NodeKind::Integer { .. }
             | NodeKind::Number { .. }
             | NodeKind::Math { .. }
             | NodeKind::MathExpr { .. }
             | NodeKind::Choose
+            | NodeKind::Slider { .. }
             | NodeKind::Counter { .. } => Category::Number,
             NodeKind::Text { .. } | NodeKind::Join { .. } => Category::Text,
             NodeKind::Volume
@@ -1200,7 +1235,18 @@ mod tests {
                 op: TextOp::Contains,
             },
             NodeKind::Choose,
-            NodeKind::Counter { initial: 0 },
+            NodeKind::Counter {
+                initial: 0,
+                up_by: 1,
+                down_by: 1,
+            },
+            NodeKind::Button,
+            NodeKind::Switch { on: false },
+            NodeKind::Slider {
+                min: 0.0,
+                max: 100.0,
+                value: 0.0,
+            },
             NodeKind::Volume,
             NodeKind::ToNumber,
             NodeKind::Round {

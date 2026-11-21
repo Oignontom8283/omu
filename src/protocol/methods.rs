@@ -157,6 +157,32 @@ pub struct NodeRef {
     pub node: String,
 }
 
+/// What is done to a button, a switch or a slider of the panel.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ControlAction {
+    /// The button is pressed: its action goes out.
+    Press,
+    /// The switch is set.
+    Switch { on: bool },
+    /// The slider is set (it keeps the value between its minimum and maximum).
+    Slide { value: f64 },
+}
+
+/// A button, a switch or a slider of the panel and what is done to it (`node.control`). `persist` says whether the new place of the
+/// switch or slider is kept with the graph: a slider that is being dragged does not ask for it at each step, only at its end.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeControl {
+    pub node: String,
+    pub action: ControlAction,
+    #[serde(default = "yes")]
+    pub persist: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
 /// A soundboard by its id (`soundboard.playing`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardRef {
@@ -236,6 +262,10 @@ method!(
 method!(
     /// The ids of the pads of a soundboard that are playing now.
     SoundboardPlaying, "soundboard.playing", BoardRef => Vec<String>
+);
+method!(
+    /// Presses a button, or sets a switch or a slider, of the running graph.
+    NodeControlMethod, "node.control", NodeControl => ()
 );
 method!(
     /// How the soundboards' memory is used.
@@ -343,6 +373,7 @@ pub const ALL_METHODS: &[&str] = &[
     GraphSet::NAME,
     EngineStatusMethod::NAME,
     EngineLevels::NAME,
+    NodeControlMethod::NAME,
     EngineStop::NAME,
     EngineStart::NAME,
     SystemShutdown::NAME,

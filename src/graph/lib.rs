@@ -532,6 +532,29 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
                     }
                 }
             }
+            NodeKind::Counter { up_by, down_by, .. } => {
+                for (name, step) in [("up", up_by), ("down", down_by)] {
+                    if !(-1_000_000..=1_000_000).contains(step) {
+                        errors.push(GraphError::BadValue(
+                            node.id.clone(),
+                            format!("the step of {name} is {step}: use a number between -1000000 and 1000000"),
+                        ));
+                    }
+                }
+            }
+            NodeKind::Slider { min, max, value } => {
+                if !(min.is_finite() && max.is_finite() && value.is_finite()) {
+                    errors.push(GraphError::BadValue(
+                        node.id.clone(),
+                        "the slider has a number that is not a finite number".into(),
+                    ));
+                } else if min >= max {
+                    errors.push(GraphError::BadValue(
+                        node.id.clone(),
+                        format!("the minimum ({min}) must be less than the maximum ({max})"),
+                    ));
+                }
+            }
             NodeKind::TextExpr { expression, args } => {
                 let fed = spec
                     .edges
