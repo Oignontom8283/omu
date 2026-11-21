@@ -168,3 +168,24 @@ MIT licence or the Apache-2.0 licence (at your choice); their full licence texts
 - `rustls-platform-verifier`, through `ureq` (https://github.com/algesten/ureq), the HTTP client;
 - `x509-parser` (https://github.com/rusticata/x509-parser), to read who a certificate is about and until when it is valid;
 - `rcgen` (https://github.com/rustls/rcgen), to make the certificates the tests use.
+
+## WebRTC and Opus (sound through the web)
+
+- `str0m` (https://github.com/algesten/str0m), the WebRTC implementation (ICE, DTLS, SRTP), with the cryptography of the RustCrypto
+  project: MIT or Apache-2.0, at your choice.
+- `unsafe-libopus` (https://github.com/DCNick3/unsafe-libopus), the Opus codec, which is `libopus` of the Xiph.Org Foundation
+  translated to Rust. Licence of libopus (BSD-3-Clause):
+
+```
+Copyright 2001-2011 Xiph.Org, Skype Limited, Octasic, Jean-Marc Valin, Timothy B. Terriberry, CSIRO, Gregory Maxwell,
+Mark Borgerding, Erik de Castro Lopo. Redistribution and use in source and binary forms, with or without modification, are
+permitted provided that the following conditions are met: redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer; redistributions in binary form must reproduce the above
+copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided
+with the distribution; neither the name of Internet Society, IETF or IETF Trust, nor the names of specific contributors, may
+be used to endorse or promote products derived from this software without specific prior written permission. THIS SOFTWARE
+IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+```
+
+- `if-addrs` (https://github.com/messense/if-addrs), to list the addresses of the computer's networks: MIT or BSD-3-Clause.
