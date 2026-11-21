@@ -276,7 +276,8 @@ impl Hub {
                     port,
                     locals,
                 };
-                drive(&mut link, &role, &stop);
+                // a panic in the WebRTC code or the codec (fed by a stranger's packets) ends this connection, not the daemon; the cleanup below still runs
+                let _ = omu_diagnostics::crash::contained(|| drive(&mut link, &role, &stop));
                 match &role {
                     Role::Ingest(ingest) => {
                         ingest.sessions.fetch_sub(1, Ordering::Relaxed);

@@ -3835,6 +3835,7 @@ name = "omu-net"
 version = "0.22.1"
 dependencies = [
  "if-addrs",
+ "omu-diagnostics",
  "omu-dsp",
  "omu-hal",
  "omu-types",

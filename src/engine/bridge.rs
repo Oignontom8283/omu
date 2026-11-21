@@ -354,7 +354,11 @@ impl SinkConsumer {
         );
         // nothing louder than full scale or that is not a number reaches a device (a sum of loud sounds, a gain, a bad source)
         for s in out.iter_mut() {
-            *s = if s.is_finite() { s.clamp(-1.0, 1.0) } else { 0.0 };
+            *s = if s.is_finite() {
+                s.clamp(-1.0, 1.0)
+            } else {
+                0.0
+            };
         }
         if produced < n_dev {
             self.stats.underruns.fetch_add(1, Ordering::Relaxed);
@@ -394,7 +398,8 @@ mod tests {
     }
 
     #[test]
-    fn what_is_not_a_number_never_gets_past_a_source_and_nothing_louder_than_full_scale_gets_to_a_device() {
+    fn what_is_not_a_number_never_gets_past_a_source_and_nothing_louder_than_full_scale_gets_to_a_device(
+    ) {
         let (mut prod, mut cons, _) = source_bridge(AudioFormat::ENGINE, 20.0);
         let mut poisoned = vec![0.5f32; CYCLE * 2];
         poisoned[10] = f32::NAN;
@@ -406,7 +411,10 @@ mod tests {
         let mut out = vec![0.0f32; CYCLE * 2];
         for _ in 0..2 {
             cons.pull(&mut out);
-            assert!(out.iter().all(|s| s.is_finite()), "silence instead of a number that is not one");
+            assert!(
+                out.iter().all(|s| s.is_finite()),
+                "silence instead of a number that is not one"
+            );
         }
 
         let (mut sink_prod, mut sink_cons, _) = sink_bridge(AudioFormat::ENGINE, 20.0);
@@ -418,7 +426,11 @@ mod tests {
         for _ in 0..3 {
             sink_cons.pull(&mut dev);
         }
-        assert!(dev.iter().all(|s| s.abs() <= 1.0), "clipped to full scale: {:?}", &dev[..4]);
+        assert!(
+            dev.iter().all(|s| s.abs() <= 1.0),
+            "clipped to full scale: {:?}",
+            &dev[..4]
+        );
     }
 
     #[test]

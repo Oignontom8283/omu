@@ -370,7 +370,9 @@ fn is_slow(request: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(request)
         .ok()
         .and_then(|v| v.get("method").and_then(|m| m.as_str()).map(str::to_owned))
-        .is_some_and(|m| m == "devices.clean" || m.starts_with("modules.") || m.starts_with("sounds."))
+        .is_some_and(|m| {
+            m == "devices.clean" || m.starts_with("modules.") || m.starts_with("sounds.")
+        })
 }
 
 /// One WebSocket. Requests are answered in the order they came (a client sets a graph, then starts the engine), except the slow ones
@@ -389,7 +391,10 @@ async fn socket_loop(state: AppState, socket: WebSocket) {
                 let slow = is_slow(&text);
                 let (daemon, replies) = (daemon.clone(), replies.clone());
                 let run = async move {
-                    let reply = tokio::task::spawn_blocking(move || daemon.handle_text(&text)).await.ok().flatten();
+                    let reply = tokio::task::spawn_blocking(move || daemon.handle_text(&text))
+                        .await
+                        .ok()
+                        .flatten();
                     if let Some(reply) = reply {
                         let _ = replies.send(reply);
                     }
@@ -530,11 +535,31 @@ mod tests {
 
     #[test]
     fn only_the_methods_that_wait_for_a_person_or_the_network_are_slow() {
-        for slow in ["devices.clean", "modules.install", "sounds.import", "sounds.compress"] {
-            assert!(is_slow(&format!(r#"{{"jsonrpc":"2.0","id":1,"method":"{slow}","params":null}}"#)), "{slow}");
+        for slow in [
+            "devices.clean",
+            "modules.install",
+            "sounds.import",
+            "sounds.compress",
+        ] {
+            assert!(
+                is_slow(&format!(
+                    r#"{{"jsonrpc":"2.0","id":1,"method":"{slow}","params":null}}"#
+                )),
+                "{slow}"
+            );
         }
-        for fast in ["graph.set", "engine.status", "graph.validate", "apps.list", "devices.list", "settings.get"] {
-            assert!(!is_slow(&format!(r#"{{"jsonrpc":"2.0","id":1,"method":"{fast}"}}"#)), "{fast}");
+        for fast in [
+            "graph.set",
+            "engine.status",
+            "graph.validate",
+            "apps.list",
+            "devices.list",
+            "settings.get",
+        ] {
+            assert!(
+                !is_slow(&format!(r#"{{"jsonrpc":"2.0","id":1,"method":"{fast}"}}"#)),
+                "{fast}"
+            );
         }
         assert!(!is_slow("not json"));
     }

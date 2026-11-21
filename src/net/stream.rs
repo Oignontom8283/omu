@@ -232,21 +232,28 @@ impl CaptureStream for StreamCapture {
         let reader = std::thread::Builder::new()
             .name("stream-in".into())
             .spawn(move || {
-                let mut bytes = vec![0u8; FRAMES * 2 * 4];
-                let mut samples = vec![0f32; FRAMES * 2];
-                while !flag.load(Ordering::Relaxed) {
-                    if out.read_exact(&mut bytes).is_err() {
-                        if !flag.load(Ordering::Relaxed) {
-                            health.fail(reason(&last, "the stream ended"));
+                // a panic in this thread (the data it reads comes from outside) ends this stream, not the daemon
+                let on_panic = health.clone();
+                let outcome = omu_diagnostics::crash::contained(move || {
+                    let mut bytes = vec![0u8; FRAMES * 2 * 4];
+                    let mut samples = vec![0f32; FRAMES * 2];
+                    while !flag.load(Ordering::Relaxed) {
+                        if out.read_exact(&mut bytes).is_err() {
+                            if !flag.load(Ordering::Relaxed) {
+                                health.fail(reason(&last, "the stream ended"));
+                            }
+                            return;
                         }
-                        return;
+                        let (floats, _) = bytes.as_chunks::<4>();
+                        for (s, b) in samples.iter_mut().zip(floats) {
+                            *s = f32::from_le_bytes(*b);
+                        }
+                        health.add_frames(FRAMES as u64);
+                        callback(&samples);
                     }
-                    let (floats, _) = bytes.as_chunks::<4>();
-                    for (s, b) in samples.iter_mut().zip(floats) {
-                        *s = f32::from_le_bytes(*b);
-                    }
-                    health.add_frames(FRAMES as u64);
-                    callback(&samples);
+                });
+                if outcome.is_err() {
+                    on_panic.fail("the stream stopped unexpectedly (see the logs)");
                 }
             })
             .map_err(|e| HalError::Backend(format!("cannot start the stream input: {e}")))?;
@@ -298,36 +305,43 @@ impl RenderStream for StreamRender {
         let writer = std::thread::Builder::new()
             .name("stream-out".into())
             .spawn(move || {
-                let mut frame = vec![0f32; FRAMES * 2];
-                let mut bytes = Vec::with_capacity(FRAMES * 2 * 4);
-                let mut next = Instant::now();
-                while !flag.load(Ordering::Relaxed) {
-                    callback(&mut frame);
-                    bytes.clear();
-                    bytes.extend(frame.iter().flat_map(|s| s.to_le_bytes()));
-                    if input.write_all(&bytes).is_err() {
-                        if !flag.load(Ordering::Relaxed) {
-                            health.fail(reason(&last, "the stream was closed"));
+                // a panic in this thread (the data it reads comes from outside) ends this stream, not the daemon
+                let on_panic = health.clone();
+                let outcome = omu_diagnostics::crash::contained(move || {
+                    let mut frame = vec![0f32; FRAMES * 2];
+                    let mut bytes = Vec::with_capacity(FRAMES * 2 * 4);
+                    let mut next = Instant::now();
+                    while !flag.load(Ordering::Relaxed) {
+                        callback(&mut frame);
+                        bytes.clear();
+                        bytes.extend(frame.iter().flat_map(|s| s.to_le_bytes()));
+                        if input.write_all(&bytes).is_err() {
+                            if !flag.load(Ordering::Relaxed) {
+                                health.fail(reason(&last, "the stream was closed"));
+                            }
+                            return;
                         }
-                        return;
-                    }
-                    health.add_frames(FRAMES as u64);
-                    // FFmpeg stopped (the server refused the connection...) without our pipe noticing yet
-                    if let Ok(Some(status)) =
-                        watched.lock().unwrap_or_else(|e| e.into_inner()).try_wait()
-                    {
-                        if !flag.load(Ordering::Relaxed) {
-                            health.fail(reason(&last, &format!("FFmpeg stopped ({status})")));
+                        health.add_frames(FRAMES as u64);
+                        // FFmpeg stopped (the server refused the connection...) without our pipe noticing yet
+                        if let Ok(Some(status)) =
+                            watched.lock().unwrap_or_else(|e| e.into_inner()).try_wait()
+                        {
+                            if !flag.load(Ordering::Relaxed) {
+                                health.fail(reason(&last, &format!("FFmpeg stopped ({status})")));
+                            }
+                            return;
                         }
-                        return;
+                        next += Duration::from_millis(10);
+                        let now = Instant::now();
+                        if next > now {
+                            std::thread::sleep(next - now);
+                        } else if now - next > Duration::from_millis(200) {
+                            next = now;
+                        }
                     }
-                    next += Duration::from_millis(10);
-                    let now = Instant::now();
-                    if next > now {
-                        std::thread::sleep(next - now);
-                    } else if now - next > Duration::from_millis(200) {
-                        next = now;
-                    }
+                });
+                if outcome.is_err() {
+                    on_panic.fail("the stream stopped unexpectedly (see the logs)");
                 }
             })
             .map_err(|e| HalError::Backend(format!("cannot start the stream output: {e}")))?;
