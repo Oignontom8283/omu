@@ -3,8 +3,9 @@
 
 declare const __OMU_DEV_TOKEN__: string;
 declare const __PRODUCT_NAME__: string;
-export const DEV_TOKEN: string = __OMU_DEV_TOKEN__;
-export const PRODUCT_NAME: string = __PRODUCT_NAME__;
+export const DEV_TOKEN: string = typeof __OMU_DEV_TOKEN__ === 'string' ? __OMU_DEV_TOKEN__ : '';
+// the build defines it; without it (the tests, run by node) a neutral word stands in
+export const PRODUCT_NAME: string = typeof __PRODUCT_NAME__ === 'string' ? __PRODUCT_NAME__ : 'Product';
 
 export type AppTarget = { pid: number } | { process_name: string };
 export type DeviceRef = 'default' | { id: string } | { name: string };

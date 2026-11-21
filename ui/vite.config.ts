@@ -43,13 +43,15 @@ const asDaemonOrigin: NonNullable<ProxyOptions['configure']> = (proxy) => {
   proxy.on('proxyReqWs', rewrite);
 };
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
     { name: 'product-name', transformIndexHtml: (html: string) => html.replaceAll('%PRODUCT_NAME%', product) },
   ],
   define: {
-    __OMU_DEV_TOKEN__: JSON.stringify(daemon?.token ?? ''),
+    // the key of the running daemon is for the development server only: a built panel is embedded in the daemon and served to
+    // anyone, so it must never carry a key
+    __OMU_DEV_TOKEN__: JSON.stringify(command === 'serve' ? (daemon?.token ?? '') : ''),
     __PRODUCT_NAME__: JSON.stringify(product),
   },
   server: {
@@ -60,4 +62,4 @@ export default defineConfig({
     },
   },
   build: { outDir: 'dist', emptyOutDir: true, sourcemap: false },
-});
+}));

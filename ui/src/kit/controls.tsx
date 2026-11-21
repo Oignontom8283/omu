@@ -96,6 +96,8 @@ export type NumberFieldProps = {
  */
 export function NumberField({ value, onChange, min = -1e9, max = 1e9, step = 1, whole = false, unit, disabled, title, className }: NumberFieldProps) {
   const input = useRef<HTMLInputElement>(null);
+  // set by Escape: the blur that follows leaves the field without saving what was typed
+  const gaveUp = useRef(false);
   const [editing, setEditing] = useState(false);
   const [typed, setTyped] = useState(written(value, whole));
   const crop = (n: number) => Math.min(max, Math.max(min, whole ? Math.round(n) : n));
@@ -157,7 +159,8 @@ export function NumberField({ value, onChange, min = -1e9, max = 1e9, step = 1, 
         onFocus={() => setEditing(true)}
         onBlur={() => {
           setEditing(false);
-          commit(typed);
+          if (gaveUp.current) gaveUp.current = false;
+          else commit(typed);
         }}
         onChange={(e) => setTyped(e.target.value)}
         onKeyDown={(e) => {
@@ -166,6 +169,7 @@ export function NumberField({ value, onChange, min = -1e9, max = 1e9, step = 1, 
           else if (e.key === 'Enter') input.current?.blur();
           else if (e.key === 'Escape') {
             setTyped(written(value, whole));
+            gaveUp.current = true;
             input.current?.blur();
           }
         }}
@@ -305,7 +309,8 @@ export function Select<T extends string>({ value, options, onChange, disabled, t
     else if (e.key === 'End') setActive(options.length - 1);
     else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      pick(options[active]);
+      // an empty list (no device found...) has nothing to pick
+      if (options[active]) pick(options[active]);
     } else if (e.key.length === 1) {
       // the first letters of an option, typed one after the other
       const now = Date.now();

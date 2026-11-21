@@ -2,6 +2,7 @@
 // the editor's nodes and edges, layout, change detection, connection rules. No React here: it is unit-tested with Node.
 // The ports mirror src/types/node.rs of the daemon (the daemon validates again when a graph is applied).
 
+import { PRODUCT_NAME } from './types.ts';
 import type { Category, DeviceRef, EdgeSpec, FlowType, GraphSpec, InputValue, Layout, NodeKind, NodeLayout, NodeSpec, NodeType } from './types.ts';
 
 /** The gap of the editor's grid, in pixels: blocks snap to it and the rows of their ports are as high. */
@@ -368,9 +369,9 @@ export function defaultKind(type: NodeType): NodeKind {
     case 'device_render':
       return { type, device: 'default' };
     case 'virtual_mic':
-      return { type, name: 'Omu' };
+      return { type, name: PRODUCT_NAME };
     case 'virtual_speaker':
-      return { type, name: 'Omu' };
+      return { type, name: PRODUCT_NAME };
     case 'soundboard':
       return { type, board: '' };
     case 'network_in':
