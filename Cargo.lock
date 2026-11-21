@@ -3700,6 +3700,7 @@ version = "0.22.1"
 dependencies = [
  "deep_filter",
  "ndarray",
+ "omu-diagnostics",
  "omu-hal",
  "rtrb",
  "tracing",

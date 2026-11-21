@@ -94,8 +94,13 @@ impl Drop for Worker {
 }
 
 /// Starts a worker around the processor `make` builds (on the worker's own thread); returns the graph thread's end and the
-/// worker's guard once the processor is ready, or why it could not be made.
-pub fn start_with<P, F>(make: F) -> Result<(Arc<Mutex<Endpoints>>, Worker), String>
+/// worker's guard once the processor is ready, or why it could not be made. A panic of the processor (the model is third-party code
+/// that reads what the network sent) ends the worker and fails `health`: the engine then opens the block again, instead of the whole
+/// program ending.
+pub fn start_with<P, F>(
+    make: F,
+    health: Arc<omu_hal::StreamHealth>,
+) -> Result<(Arc<Mutex<Endpoints>>, Worker), String>
 where
     P: HopProcessor + 'static,
     F: FnOnce() -> Result<P, String> + Send + 'static,
@@ -122,48 +127,54 @@ where
     let thread = std::thread::Builder::new()
         .name("deepfilter".into())
         .spawn(move || {
-            let mut processor = match make() {
-                Ok(p) => {
-                    let _ = ready_tx.send(Ok(()));
-                    p
-                }
-                Err(e) => {
-                    let _ = ready_tx.send(Err(e));
-                    return;
-                }
-            };
-            let mut input = vec![0.0f32; HOP * CHANNELS];
-            let mut output = vec![0.0f32; HOP * CHANNELS];
-            while !flag.load(Ordering::Relaxed) {
-                let Ok(chunk) = from_graph.read_chunk(HOP * CHANNELS) else {
-                    std::thread::sleep(Duration::from_millis(1));
-                    continue;
+            let on_panic = health;
+            let outcome = omu_diagnostics::crash::contained(move || {
+                let mut processor = match make() {
+                    Ok(p) => {
+                        let _ = ready_tx.send(Ok(()));
+                        p
+                    }
+                    Err(e) => {
+                        let _ = ready_tx.send(Err(e));
+                        return;
+                    }
                 };
-                let (a, b) = chunk.as_slices();
-                input[..a.len()].copy_from_slice(a);
-                input[a.len()..].copy_from_slice(b);
-                chunk.commit_all();
-                let started = std::time::Instant::now();
-                if let Err(e) = processor.process(&input, &mut output) {
-                    // a model that fails lets the sound through as it is rather than going silent
-                    tracing::warn!("DeepFilterNet: {e}");
-                    output.copy_from_slice(&input);
-                }
-                s2.worst_us
-                    .fetch_max(started.elapsed().as_micros() as u64, Ordering::Relaxed);
-                // wait for room rather than lose a finished hop: the graph thread takes one every cycle
+                let mut input = vec![0.0f32; HOP * CHANNELS];
+                let mut output = vec![0.0f32; HOP * CHANNELS];
                 while !flag.load(Ordering::Relaxed) {
-                    match to_graph.write_chunk(HOP * CHANNELS) {
-                        Ok(mut out) => {
-                            let (a, b) = out.as_mut_slices();
-                            a.copy_from_slice(&output[..a.len()]);
-                            b.copy_from_slice(&output[a.len()..]);
-                            out.commit_all();
-                            break;
+                    let Ok(chunk) = from_graph.read_chunk(HOP * CHANNELS) else {
+                        std::thread::sleep(Duration::from_millis(1));
+                        continue;
+                    };
+                    let (a, b) = chunk.as_slices();
+                    input[..a.len()].copy_from_slice(a);
+                    input[a.len()..].copy_from_slice(b);
+                    chunk.commit_all();
+                    let started = std::time::Instant::now();
+                    if let Err(e) = processor.process(&input, &mut output) {
+                        // a model that fails lets the sound through as it is rather than going silent
+                        tracing::warn!("DeepFilterNet: {e}");
+                        output.copy_from_slice(&input);
+                    }
+                    s2.worst_us
+                        .fetch_max(started.elapsed().as_micros() as u64, Ordering::Relaxed);
+                    // wait for room rather than lose a finished hop: the graph thread takes one every cycle
+                    while !flag.load(Ordering::Relaxed) {
+                        match to_graph.write_chunk(HOP * CHANNELS) {
+                            Ok(mut out) => {
+                                let (a, b) = out.as_mut_slices();
+                                a.copy_from_slice(&output[..a.len()]);
+                                b.copy_from_slice(&output[a.len()..]);
+                                out.commit_all();
+                                break;
+                            }
+                            Err(_) => std::thread::sleep(Duration::from_millis(1)),
                         }
-                        Err(_) => std::thread::sleep(Duration::from_millis(1)),
                     }
                 }
+            });
+            if outcome.is_err() {
+                on_panic.fail("the noise reduction stopped unexpectedly (see the logs)");
             }
         })
         .map_err(|e| format!("cannot start the noise reduction thread: {e}"))?;
@@ -256,9 +267,10 @@ pub use model::Model;
 pub fn start(
     archive: &std::path::Path,
     limit_db: f32,
+    health: Arc<omu_hal::StreamHealth>,
 ) -> Result<(Arc<Mutex<Endpoints>>, Worker), String> {
     let archive = archive.to_owned();
-    start_with(move || Model::load(&archive, limit_db))
+    start_with(move || Model::load(&archive, limit_db), health)
 }
 
 /// Without the model's code in the program there is nothing to start.
@@ -266,6 +278,7 @@ pub fn start(
 pub fn start(
     _archive: &std::path::Path,
     _limit_db: f32,
+    _health: Arc<omu_hal::StreamHealth>,
 ) -> Result<(Arc<Mutex<Endpoints>>, Worker), String> {
     Err("this build of the program does not include DeepFilterNet".into())
 }
@@ -320,7 +333,7 @@ mod tests {
     #[test]
     fn sound_comes_back_processed_in_order_after_one_hop_of_delay_whatever_the_cycle_length() {
         for frames in [480usize, 240, 960] {
-            let (endpoints, worker) = start_with(|| Ok(Half)).unwrap();
+            let (endpoints, worker) = start_with(|| Ok(Half), omu_hal::StreamHealth::new()).unwrap();
             let heard = run(
                 &endpoints,
                 frames,
@@ -359,10 +372,31 @@ mod tests {
         }
     }
 
+    /// A model that panics (third-party code, fed by whatever came in).
+    struct Panics;
+    impl HopProcessor for Panics {
+        fn process(&mut self, _: &[f32], _: &mut [f32]) -> Result<(), String> {
+            panic!("a bug in the model");
+        }
+    }
+
+    #[test]
+    fn a_model_that_panics_fails_its_block_and_does_not_end_the_program() {
+        let health = omu_hal::StreamHealth::new();
+        let (endpoints, worker) = start_with(|| Ok(Panics), health.clone()).unwrap();
+        let _ = run(&endpoints, 480, 20, Duration::from_millis(11));
+        let end = std::time::Instant::now() + Duration::from_secs(5);
+        while !health.has_failed() && std::time::Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(health.has_failed(), "the block is reported as failed, so that the engine opens it again");
+        drop(worker);
+    }
+
     #[test]
     fn a_model_that_fails_lets_the_sound_through_and_a_model_that_is_too_slow_costs_silence_not_time(
     ) {
-        let (endpoints, worker) = start_with(|| Ok(Broken)).unwrap();
+        let (endpoints, worker) = start_with(|| Ok(Broken), omu_hal::StreamHealth::new()).unwrap();
         let heard = run(&endpoints, 480, 20, Duration::from_millis(11));
         let left: Vec<f32> = heard.iter().step_by(2).copied().collect();
         // unprocessed, but there: the sound at its original level
@@ -383,7 +417,7 @@ mod tests {
                 Ok(())
             }
         }
-        let (endpoints, worker) = start_with(|| Ok(Stuck)).unwrap();
+        let (endpoints, worker) = start_with(|| Ok(Stuck), omu_hal::StreamHealth::new()).unwrap();
         let started = std::time::Instant::now();
         let mut out = vec![0.0f32; 960];
         for _ in 0..300 {

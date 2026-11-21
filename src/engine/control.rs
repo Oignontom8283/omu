@@ -766,11 +766,14 @@ impl Inner {
                     .ok_or_else(|| {
                         "the DeepFilterNet module is not installed or not switched on (see the Modules panel)".to_string()
                     })?;
-                let (endpoints, worker) = omu_deepfilter::start(&model, *limit_db)?;
+                // the worker fails this when it dies, so that the block is opened again instead of staying silent
+                let health = StreamHealth::new();
+                let (endpoints, worker) =
+                    omu_deepfilter::start(&model, *limit_db, health.clone())?;
                 Ok(Resource {
                     kind: kind.clone(),
                     io: Io::Filter(endpoints),
-                    health: StreamHealth::new(),
+                    health,
                     stats: Arc::default(),
                     _running: Box::new(worker),
                 })
