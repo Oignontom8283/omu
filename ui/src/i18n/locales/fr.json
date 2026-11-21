@@ -560,5 +560,14 @@
   "settings.remoteFingerprint": "Empreinte :",
   "settings.remoteWarning": "La première fois, le navigateur avertit que la connexion n’est pas fiable, car personne ne garantit ce certificat. Comparez l’empreinte qu’il affiche avec celle-ci, puis continuez.",
   "settings.remoteError": "Le serveur sécurisé n’a pas pu démarrer : {error}",
-  "port.name": "Nom"
+  "port.name": "Nom",
+  "kind.stream_in": "Flux (entrée)",
+  "kind.stream_in.hint": "Un flux en direct lu avec FFmpeg : RTMP, RTSP, SRT, RTP, UDP, ou une adresse web (radio Icecast, HLS).",
+  "kind.stream_in.warning": "Demande le module FFmpeg (voir la page Modules). Un flux qui s’arrête est rouvert après quelques secondes.",
+  "kind.stream_out": "Flux (sortie)",
+  "kind.stream_out.hint": "Envoie le son comme un flux en direct avec FFmpeg : RTMP, RTSP, SRT, RTP, UDP ou Icecast.",
+  "kind.stream_out.warning": "Demande le module FFmpeg (voir la page Modules). L’adresse peut contenir un mot de passe : ne partagez pas le fichier du graphe. Certains services (YouTube, Twitch) attendent aussi une vidéo.",
+  "field.streamUrl": "Adresse",
+  "field.streamUrl.help": "L’adresse du flux, qui commence par son protocole : rtmp://, rtmps://, rtsp://, srt://, rtp://, udp://, icecast:// (sortie) ou http(s):// (entrée).",
+  "port.url": "Adresse"
 }

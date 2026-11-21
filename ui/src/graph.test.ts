@@ -161,6 +161,8 @@ test('a setting that a flow can give has an input of its own, and a join has as 
     network_out: ['host:text', 'port:int', 'stream:text'],
     web_in: ['name:text'],
     web_out: ['name:text'],
+    stream_in: ['url:text'],
+    stream_out: ['url:text'],
   });
   const names = (args?: number) => portsOf({ type: 'join', args }).filter((q) => q.dir === 'in' && !q.param).map((q) => q.name);
   assert.deepEqual(names(3), ['arg1', 'arg2', 'arg3']);

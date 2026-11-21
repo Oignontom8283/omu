@@ -560,5 +560,14 @@
   "settings.remoteFingerprint": "Fingerprint:",
   "settings.remoteWarning": "The first time, the browser warns that the connection is not trusted, because nobody vouches for this certificate. Compare the fingerprint it shows with this one, then continue.",
   "settings.remoteError": "The secure server could not start: {error}",
-  "port.name": "Name"
+  "port.name": "Name",
+  "kind.stream_in": "Stream in",
+  "kind.stream_in.hint": "A live stream read through FFmpeg: RTMP, RTSP, SRT, RTP, UDP, or a web address (Icecast radio, HLS).",
+  "kind.stream_in.warning": "Needs the FFmpeg module (see the Modules page). A stream that stops is opened again after a few seconds.",
+  "kind.stream_out": "Stream out",
+  "kind.stream_out.hint": "Sends the sound as a live stream through FFmpeg: RTMP, RTSP, SRT, RTP, UDP or Icecast.",
+  "kind.stream_out.warning": "Needs the FFmpeg module (see the Modules page). The address may hold a password: do not share the graph file. Some services (YouTube, Twitch) expect a video as well.",
+  "field.streamUrl": "Address",
+  "field.streamUrl.help": "The address of the stream, starting with its protocol: rtmp://, rtmps://, rtsp://, srt://, rtp://, udp://, icecast:// (output) or http(s):// (input).",
+  "port.url": "Address"
 }

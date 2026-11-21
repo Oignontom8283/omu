@@ -242,6 +242,8 @@ export function Params({ spec }: { spec: NodeSpec }) {
     case 'network_out':
     case 'web_in':
     case 'web_out':
+    case 'stream_in':
+    case 'stream_out':
     case 'gain':
     case 'level':
     case 'hold':
