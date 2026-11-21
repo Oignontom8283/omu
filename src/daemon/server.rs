@@ -26,7 +26,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
 pub struct ServerConfig {
     pub listen: SocketAddr,
@@ -364,27 +364,61 @@ async fn ws(
     upgrade.on_upgrade(move |socket| socket_loop(state, socket))
 }
 
+/// The methods that can take very long (a person's answer to a prompt, a download, a conversion): they run apart, so that the
+/// requests that follow on the same socket, and the events, do not wait behind them.
+fn is_slow(request: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(request)
+        .ok()
+        .and_then(|v| v.get("method").and_then(|m| m.as_str()).map(str::to_owned))
+        .is_some_and(|m| m == "devices.clean" || m.starts_with("modules.") || m.starts_with("sounds."))
+}
+
+/// One WebSocket. Requests are answered in the order they came (a client sets a graph, then starts the engine), except the slow ones
+/// (see [`is_slow`]), which are answered when they are done; meanwhile the events keep flowing. A client that was too slow to read the
+/// events and missed some is told to read the graph again, since a "graph changed" may have been among them.
 async fn socket_loop(state: AppState, socket: WebSocket) {
     tracing::info!("WebSocket client connected");
     let (mut tx, mut rx) = socket.split();
     let mut events = state.events.subscribe();
+    let (jobs, mut queue) = mpsc::channel::<String>(256);
+    let (replies, mut answers) = mpsc::unbounded_channel::<String>();
+    let worker = {
+        let daemon = state.daemon.clone();
+        tokio::spawn(async move {
+            while let Some(text) = queue.recv().await {
+                let slow = is_slow(&text);
+                let (daemon, replies) = (daemon.clone(), replies.clone());
+                let run = async move {
+                    let reply = tokio::task::spawn_blocking(move || daemon.handle_text(&text)).await.ok().flatten();
+                    if let Some(reply) = reply {
+                        let _ = replies.send(reply);
+                    }
+                };
+                if slow {
+                    tokio::spawn(run);
+                } else {
+                    run.await;
+                }
+            }
+        })
+    };
     loop {
         tokio::select! {
             incoming = rx.next() => {
                 let Some(Ok(msg)) = incoming else { break };
                 match msg {
                     Message::Text(text) => {
-                        let daemon = state.daemon.clone();
-                        let text = text.to_string();
-                        let reply = tokio::task::spawn_blocking(move || daemon.handle_text(&text)).await.ok().flatten();
-                        if let Some(reply) = reply {
-                            if tx.send(Message::Text(reply.into())).await.is_err() {
-                                break;
-                            }
+                        if jobs.send(text.to_string()).await.is_err() {
+                            break;
                         }
                     }
                     Message::Close(_) => break,
                     _ => {}
+                }
+            }
+            Some(reply) = answers.recv() => {
+                if tx.send(Message::Text(reply.into())).await.is_err() {
+                    break;
                 }
             }
             event = events.recv() => {
@@ -394,13 +428,19 @@ async fn socket_loop(state: AppState, socket: WebSocket) {
                             break;
                         }
                     }
-                    // A slow client missed some status events: not an error, the next one is fresh.
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    // some events were missed: the panel reads the graph again on this one (the status events are fresh anyway)
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        let resync = r#"{"jsonrpc":"2.0","method":"graph.changed","params":null}"#;
+                        if tx.send(Message::Text(resync.into())).await.is_err() {
+                            break;
+                        }
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
         }
     }
+    worker.abort();
     tracing::info!("WebSocket client disconnected");
 }
 
@@ -482,4 +522,20 @@ async fn start_https(
         error: None,
     });
     Ok(handle)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_slow;
+
+    #[test]
+    fn only_the_methods_that_wait_for_a_person_or_the_network_are_slow() {
+        for slow in ["devices.clean", "modules.install", "sounds.import", "sounds.compress"] {
+            assert!(is_slow(&format!(r#"{{"jsonrpc":"2.0","id":1,"method":"{slow}","params":null}}"#)), "{slow}");
+        }
+        for fast in ["graph.set", "engine.status", "graph.validate", "apps.list", "devices.list", "settings.get"] {
+            assert!(!is_slow(&format!(r#"{{"jsonrpc":"2.0","id":1,"method":"{fast}"}}"#)), "{fast}");
+        }
+        assert!(!is_slow("not json"));
+    }
 }
