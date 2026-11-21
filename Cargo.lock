@@ -3736,6 +3736,7 @@ dependencies = [
  "omu-branding",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -3817,6 +3818,7 @@ dependencies = [
  "flate2",
  "omu-audiofile",
  "omu-diagnostics",
+ "omu-discovery",
  "omu-tls",
  "omu-types",
  "serde",
@@ -3857,6 +3859,7 @@ version = "0.22.1"
 dependencies = [
  "omu-audiofile",
  "omu-branding",
+ "omu-discovery",
  "omu-dsp",
  "omu-hal",
  "omu-modules",
@@ -3871,6 +3874,7 @@ name = "omu-tls"
 version = "0.22.1"
 dependencies = [
  "if-addrs",
+ "omu-branding",
  "omu-types",
  "pem 3.0.6",
  "rcgen",

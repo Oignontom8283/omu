@@ -4,6 +4,8 @@
 //! The file is only readable by the user (it lives in the user's profile), which is what keeps the token private on
 //! a shared machine.
 
+pub mod durable;
+
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::PathBuf;

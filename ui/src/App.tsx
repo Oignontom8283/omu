@@ -243,6 +243,8 @@ export function App() {
     });
     const offEvent = rpc.onEvent((method, params) => {
       if (method === EVENT_STATUS) setStatus(params as EngineStatus);
+      // something went wrong that is not the failure of a request (the graph runs but its file could not be written...)
+      if (method === 'daemon.warning') setNotice((params as { message?: string }).message ?? null);
       if (method === EVENT_GRAPH) {
         if (applying.current) return;
         if (dirtyRef.current) setNotice('app.changedElsewhere');

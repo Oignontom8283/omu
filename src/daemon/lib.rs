@@ -55,6 +55,11 @@ pub struct Daemon {
     sounds: Arc<omu_soundboard::SoundEngine>,
     /// The names of the web inputs and outputs, and the connections to them.
     web: omu_net::web::Hub,
+    /// What changes the running graph (apply, start, stop, restore) takes one at a time, from the engine to the file and the shortcuts:
+    /// the engine, the saved state and the pad shortcuts then always describe the same graph. Taken before `state`, never after.
+    ops: Mutex<()>,
+    /// Saving the layout: one at a time, so that what is on the disk is what the memory holds.
+    layout_gate: Mutex<()>,
     /// What the secure server says about itself (written by the task that runs it).
     remote: Mutex<omu_types::RemoteInfo>,
     /// The key a page on another device carries: it only allows the web sound routes.
@@ -101,6 +106,9 @@ fn params<M: Method>(value: Value) -> Result<M::Params, RpcError> {
     serde_json::from_value(value).map_err(|e| RpcError::invalid_params(format!("{}: {e}", M::NAME)))
 }
 
+/// The event that tells the clients about something that went wrong without being the failure of a request.
+pub const EVENT_WARNING: &str = "daemon.warning";
+
 fn result<T: serde::Serialize>(v: T) -> Result<Value, RpcError> {
     serde_json::to_value(v).map_err(|e| RpcError::internal(e.to_string()))
 }
@@ -140,6 +148,8 @@ impl Daemon {
             elevator: Arc::new(omu_desktop::elevation::SystemElevator),
             sounds,
             web,
+            ops: Mutex::new(()),
+            layout_gate: Mutex::new(()),
             remote: Mutex::default(),
             guest_token: Mutex::default(),
             pad_hotkeys: Default::default(),
@@ -237,6 +247,7 @@ impl Daemon {
 
     /// Starts again what was running when the daemon last stopped.
     pub fn restore(&self) {
+        let _ops = lock(&self.ops);
         let saved = lock(&self.state).saved.clone();
         if saved.running {
             match validate(&saved.graph) {
@@ -552,12 +563,20 @@ impl Daemon {
             }
             m::EngineStop::NAME => {
                 tracing::info!("engine stop requested");
+                let _ops = lock(&self.ops);
                 self.engine.stop();
-                let mut st = lock(&self.state);
-                st.saved.running = false;
-                let _ = self.store.save_state(&st.saved);
-                st.status = EngineStatus::default();
-                drop(st);
+                let saved = {
+                    let mut st = lock(&self.state);
+                    st.saved.running = false;
+                    st.status = EngineStatus::default();
+                    st.saved.clone()
+                };
+                // the disk is written without holding what the status tick needs
+                if let Err(e) = self.store.save_state(&saved) {
+                    self.warn(format!(
+                        "the engine stopped but that could not be saved: {e}"
+                    ));
+                }
                 self.sync_pad_hotkeys();
                 result(())
             }
@@ -581,11 +600,11 @@ impl Daemon {
             m::LayoutGet::NAME => result(lock(&self.state).layout.clone()),
             m::LayoutSet::NAME => {
                 let layout = params::<m::LayoutSet>(p)?;
-                let mut st = lock(&self.state);
+                let _gate = lock(&self.layout_gate);
                 self.store
                     .save_layout(&layout)
                     .map_err(|e| RpcError::internal(format!("cannot save the layout: {e}")))?;
-                st.layout = layout;
+                lock(&self.state).layout = layout;
                 result(())
             }
             other => Err(RpcError::method_not_found(other)),
@@ -765,7 +784,19 @@ impl Daemon {
         problems
     }
 
+    /// Tells the clients something that went wrong without being a failure of what they asked (the graph runs, but its file could not
+    /// be written...).
+    fn warn(&self, message: String) {
+        tracing::warn!("{message}");
+        self.publish(EVENT_WARNING, serde_json::json!({ "message": message }));
+    }
+
     fn set_graph(&self, graph: GraphSpec) -> Result<(), RpcError> {
+        let _ops = lock(&self.ops);
+        self.set_graph_locked(graph)
+    }
+
+    fn set_graph_locked(&self, graph: GraphSpec) -> Result<(), RpcError> {
         let diagnostics = self.problems(&graph);
         let errors: Vec<&Diagnostic> = diagnostics
             .iter()
@@ -793,22 +824,19 @@ impl Daemon {
         let valid = validate(&graph)
             .map_err(|_| RpcError::internal("the graph changed under validation"))?;
         self.engine.apply(valid);
-        {
-            let mut st = lock(&self.state);
-            st.saved = SavedState {
-                graph: graph.clone(),
-                running: true,
-            };
-            if let Err(e) = self.store.save_state(&st.saved) {
-                // The graph is running; only its persistence failed. Report it without undoing anything.
-                return Err(RpcError::internal(format!(
-                    "the graph runs but could not be saved: {e}"
-                )));
-            }
-        }
+        let saved = SavedState {
+            graph: graph.clone(),
+            running: true,
+        };
+        lock(&self.state).saved = saved.clone();
+        let written = self.store.save_state(&saved);
+        // the graph runs whether or not its file could be written: its shortcuts and the news of it do not wait for the disk's answer
         self.sync_pad_hotkeys();
         if let Ok(v) = serde_json::to_value(&graph) {
             self.publish(EVENT_GRAPH, v);
+        }
+        if let Err(e) = written {
+            self.warn(format!("the graph runs but could not be saved: {e}"));
         }
         Ok(())
     }
@@ -986,6 +1014,103 @@ mod tests {
         )
         .unwrap();
         assert!(ok.ok);
+    }
+
+    /// Many clients at once (the panel, the command line, the notification-area menu): whatever the order, the engine, the saved state
+    /// and the graph the daemon reports describe the same thing at the end, and nothing waits for ever.
+    #[test]
+    fn applying_starting_and_stopping_from_many_threads_leaves_the_engine_and_the_saved_state_in_agreement(
+    ) {
+        let sim = SimBackend::new();
+        sim.add_app(1, "a.exe", SimSource::tone(1000.0));
+        let dir = temp_dir("concurrent");
+        let d = Arc::new(daemon_in(&dir, &sim));
+        let a = chain();
+        let mut b = chain();
+        b.nodes.retain(|n| n.id.0 != "mic"); // a second, different graph: only the application
+        b.edges.clear();
+        let (graph_a, graph_b) = (
+            serde_json::to_value(&a).unwrap(),
+            serde_json::to_value(&b).unwrap(),
+        );
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        for t in 0..4u32 {
+            let (d, done_tx) = (d.clone(), done_tx.clone());
+            let (graph_a, graph_b) = (graph_a.clone(), graph_b.clone());
+            std::thread::spawn(move || {
+                for i in 0..25u32 {
+                    // a mix that differs from thread to thread, without a random number generator
+                    match (t * 7 + i * 3) % 6 {
+                        0 => drop(call(&d, "graph.set", graph_a.clone())),
+                        1 => drop(call(&d, "graph.set", graph_b.clone())),
+                        2 => drop(call(&d, "engine.stop", Value::Null)),
+                        3 => drop(call(&d, "engine.start", Value::Null)),
+                        4 => drop(call(&d, "layout.set", json!({}))),
+                        _ => drop((call(&d, "graph.get", Value::Null), d.tick())),
+                    }
+                }
+                let _ = done_tx.send(());
+            });
+        }
+        drop(done_tx);
+        for _ in 0..4 {
+            done_rx
+                .recv_timeout(Duration::from_secs(60))
+                .expect("no deadlock: every thread finishes");
+        }
+
+        let status = d.tick();
+        let saved = Store::new(&dir).load_state();
+        let reported: GraphSpec =
+            serde_json::from_value(call(&d, "graph.get", Value::Null).result.unwrap()).unwrap();
+        assert_eq!(
+            saved.graph, reported,
+            "the file holds the graph the daemon reports"
+        );
+        assert_eq!(
+            saved.running, status.running,
+            "the file says what the engine does"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The graph runs even when its file cannot be written: the answer is a success, the shortcuts and the news of the graph follow, and
+    /// the clients are warned.
+    #[test]
+    fn a_graph_that_runs_but_cannot_be_saved_is_still_applied_and_announced_with_a_warning() {
+        let sim = SimBackend::new();
+        sim.add_app(1, "a.exe", SimSource::tone(1000.0));
+        let dir = temp_dir("unsaveable");
+        std::fs::create_dir_all(dir.join("state.json")).unwrap(); // a folder where the file must go: the save cannot succeed
+        let d = daemon_in(&dir, &sim);
+        let events = Arc::new(Mutex::new(vec![]));
+        let e2 = events.clone();
+        d.on_event(Box::new(move |n| {
+            e2.lock()
+                .unwrap()
+                .push((n.method.clone(), n.params.clone()))
+        }));
+
+        let r = call(&d, "graph.set", serde_json::to_value(chain()).unwrap());
+        assert!(r.error.is_none(), "{:?}", r.error);
+        std::thread::sleep(Duration::from_millis(500));
+        let status = d.tick();
+        assert!(status.running, "the graph runs");
+        let seen = events.lock().unwrap().clone();
+        assert!(
+            seen.iter().any(|(m, _)| m == EVENT_GRAPH),
+            "the clients are told the graph changed"
+        );
+        let warning = seen
+            .iter()
+            .find(|(m, _)| m == EVENT_WARNING)
+            .expect("and warned that it was not saved");
+        assert!(
+            warning.1.to_string().contains("could not be saved"),
+            "{warning:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

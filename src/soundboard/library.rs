@@ -39,13 +39,11 @@ impl Library {
     /// Reads what `dir` holds (nothing, the first time).
     pub fn load(dir: impl Into<PathBuf>) -> Library {
         let dir = dir.into();
-        let read = |name: &str| std::fs::read_to_string(dir.join(name)).ok();
-        let data = read("soundboards.json")
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
-        let settings = read("settings.json")
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        // a file that cannot be read is set aside (never written over) and the latest readable backup is used
+        let data =
+            omu_discovery::durable::load_json(&dir.join("soundboards.json"), 3).unwrap_or_default();
+        let settings =
+            omu_discovery::durable::load_json(&dir.join("settings.json"), 3).unwrap_or_default();
         Library {
             dir,
             data: Mutex::new(data),
@@ -54,10 +52,7 @@ impl Library {
     }
 
     fn write(&self, name: &str, text: &str) -> io::Result<()> {
-        std::fs::create_dir_all(&self.dir)?;
-        let tmp = self.dir.join(format!("{name}.tmp"));
-        std::fs::write(&tmp, text)?;
-        std::fs::rename(&tmp, self.dir.join(name))
+        omu_discovery::durable::write(&self.dir.join(name), text.as_bytes(), 3)
     }
 
     fn save(&self, data: &SoundLibrary) -> io::Result<()> {
@@ -308,12 +303,27 @@ mod tests {
         assert_eq!(again.sound("s1").unwrap().bytes, 192_000);
         assert_eq!(again.disk_bytes(), 192_000);
         assert!(
-            !dir.join("soundboards.json.tmp").exists(),
+            std::fs::read_dir(&dir).unwrap().all(|e| !e
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")),
             "no temporary file left"
         );
-        // an unreadable file is an empty library, not a refusal to start
+        // an unreadable file is set aside, not lost; with no earlier version to use the library is empty, not a refusal to start
+        for n in 1..=3 {
+            let _ = std::fs::remove_file(dir.join(format!("soundboards.json.bak{n}")));
+        }
         std::fs::write(dir.join("soundboards.json"), "{ not json").unwrap();
         assert_eq!(Library::load(&dir).get(), SoundLibrary::default());
+        assert!(
+            std::fs::read_dir(&dir).unwrap().any(|e| e
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with("soundboards.json.bad-")),
+            "the file that could not be read is kept"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
