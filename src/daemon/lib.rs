@@ -207,6 +207,8 @@ impl Daemon {
                     n.parse::<std::net::IpAddr>()
                         .is_ok_and(|ip| ip.is_ipv4() && !ip.is_loopback())
                 })
+                // a network joined since the certificate was made: its address is not in it, and a browser would refuse the page
+                .filter(|n| info.names.is_empty() || info.names.contains(n))
                 .map(|ip| format!("https://{ip}:{}/remote.html#token={key}", info.port))
                 .collect();
             if info.urls.is_empty() {
@@ -265,6 +267,15 @@ impl Daemon {
 
     /// From now on the startup list follows the setting "start at logon" (and is made to match it now).
     pub fn manage_autostart(&self) {
+        // a daemon with another data folder (a test, a second set of settings) must not rewrite or remove the entry of the real one
+        let same = |a: &std::path::Path, b: &std::path::Path| match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        };
+        if !same(self.store.dir(), &omu_discovery::data_dir()) {
+            tracing::info!("another data folder than the usual one: the startup list is left as it is");
+            return;
+        }
         self.manages_autostart
             .store(true, std::sync::atomic::Ordering::Relaxed);
         let enabled = self.sounds.settings().start_at_logon;
@@ -506,6 +517,10 @@ impl Daemon {
             m::RemoteInfoMethod::NAME => result(self.remote_info()),
             m::SettingsSet::NAME => {
                 let settings = params::<m::SettingsSet>(p)?;
+                // saved first: the startup list then follows what is saved, never the other way round
+                self.sounds
+                    .set_settings(settings.clone())
+                    .map_err(RpcError::internal)?;
                 if self
                     .manages_autostart
                     .load(std::sync::atomic::Ordering::Relaxed)
@@ -513,9 +528,6 @@ impl Daemon {
                     self.apply_autostart(settings.start_at_logon)
                         .map_err(RpcError::internal)?;
                 }
-                self.sounds
-                    .set_settings(settings.clone())
-                    .map_err(RpcError::internal)?;
                 self.sounds.modules().set_trust(self.trust());
                 for l in lock(&self.settings_listeners).iter() {
                     l(&settings);

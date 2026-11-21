@@ -159,12 +159,15 @@ pub fn server_identity(
             .is_some_and(|left| left.whole_days() > RENEW_BEFORE_DAYS);
         if same && fresh {
             let fingerprint = fingerprint(&chain[0]);
-            return Ok(Identity {
-                config: config(chain, key)?,
-                fingerprint,
-                generated: true,
-                names,
-            });
+            // a crash between the writes of the certificate and of its key can leave a pair that does not go together: made again
+            if let Ok(config) = config(chain, key) {
+                return Ok(Identity {
+                    config,
+                    fingerprint,
+                    generated: true,
+                    names,
+                });
+            }
         }
     }
 

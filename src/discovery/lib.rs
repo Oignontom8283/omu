@@ -32,6 +32,14 @@ pub struct Discovery {
 }
 
 impl Discovery {
+    /// Whether something answers at the recorded address. A file left by a daemon that is gone, whose process number was given to
+    /// another program since (after a restart of Windows, for example), points at nobody: it must not be taken for a running daemon.
+    pub fn answers(&self) -> bool {
+        self.address.parse::<std::net::SocketAddr>().is_ok_and(|a| {
+            std::net::TcpStream::connect_timeout(&a, std::time::Duration::from_millis(500)).is_ok()
+        })
+    }
+
     pub fn path_in(dir: &std::path::Path) -> PathBuf {
         dir.join("daemon.json")
     }
@@ -69,6 +77,21 @@ mod tests {
         let d = std::env::temp_dir().join(format!("omu-disc-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    #[test]
+    fn a_record_answers_only_when_something_listens_at_its_address() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let record = |address: String| Discovery {
+            address,
+            token: "t".into(),
+            pid: std::process::id(),
+        };
+        let live = record(listener.local_addr().unwrap().to_string());
+        assert!(live.answers());
+        drop(listener);
+        assert!(!live.answers(), "nobody there any more: the record is stale, whatever process has that number now");
+        assert!(!record("not an address".into()).answers());
     }
 
     #[test]

@@ -525,6 +525,7 @@ async fn start_https(
         fingerprint: Some(identity.fingerprint),
         certificate_generated: identity.generated,
         error: None,
+        names: identity.names.clone(),
     });
     Ok(handle)
 }

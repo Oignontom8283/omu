@@ -79,7 +79,10 @@ fn already_running(pid: Option<u32>, address: Option<&str>) -> String {
 pub fn acquire(scope: Scope<'_>, data_dir: &Path) -> Result<Instance, String> {
     // A daemon that is running announces itself there (older versions do not take the lock but do write it).
     if let Some(d) = Discovery::read(data_dir) {
-        if d.pid != std::process::id() && omu_diagnostics::session::pid_alive(d.pid) {
+        if d.pid != std::process::id()
+            && omu_diagnostics::session::pid_alive(d.pid)
+            && d.answers()
+        {
             return Err(already_running(Some(d.pid), Some(&d.address)));
         }
     }
@@ -173,8 +176,11 @@ mod tests {
             .stdout(std::process::Stdio::null())
             .spawn();
         let Ok(mut child) = parent else { return }; // not Windows: nothing to start
+        // a daemon is told apart from a stranger that was given the process number of a daemon that is gone by listening where the file says
+        let listening = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listening.local_addr().unwrap().to_string();
         Discovery {
-            address: "127.0.0.1:7650".into(),
+            address: address.clone(),
             token: "SECRET-TOKEN-VALUE".into(),
             pid: child.id(),
         }
@@ -182,15 +188,17 @@ mod tests {
         .unwrap();
         let refused = acquire(Scope::Folder(&dir), &dir).unwrap_err();
         assert!(
-            refused.contains(&format!("process {}", child.id()))
-                && refused.contains("127.0.0.1:7650"),
+            refused.contains(&format!("process {}", child.id())) && refused.contains(&address),
             "{refused}"
         );
         assert!(
             !refused.contains("SECRET-TOKEN-VALUE"),
             "no secret in the message"
         );
-        // once that process is gone, the stale file does not block anybody
+        // nobody listens there any more (the process number may be another program's now): the stale file does not block anybody
+        drop(listening);
+        assert!(acquire(Scope::Folder(&dir), &dir).is_ok());
+        // and once the process is gone, neither
         let _ = child.kill();
         let _ = child.wait();
         assert!(acquire(Scope::Folder(&dir), &dir).is_ok());

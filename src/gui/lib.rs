@@ -68,7 +68,7 @@ pub fn call(method: &str, params: Value) -> Result<Value, IpcError> {
 pub fn start_daemon() -> Result<(), String> {
     // one daemon at a time: if one runs, it is the one the window will talk to
     if let Some(d) = omu_discovery::Discovery::read(&data_dir()) {
-        if omu_diagnostics::session::pid_alive(d.pid) {
+        if omu_diagnostics::session::pid_alive(d.pid) && d.answers() {
             tracing::info!(
                 pid = d.pid,
                 "a daemon is already running; not starting another"
