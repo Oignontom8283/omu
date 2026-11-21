@@ -163,7 +163,7 @@ export function BlocksBar({ drag, children }: { drag: DragIn; children: ReactNod
   return (
     <div className="catbar" onMouseEnter={cancelClose} onMouseLeave={closeSoon}>
       <div className="cats">
-        {CATEGORIES.map((c) => (
+        {CATEGORIES.filter((c) => KINDS_BY_CATEGORY[c].length > 0).map((c) => (
           <button
             key={c}
             className={`cat cat-${c}${shown === c ? ' open' : ''}`}

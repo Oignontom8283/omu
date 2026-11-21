@@ -557,6 +557,8 @@ impl Daemon {
     /// output).
     fn problems(&self, graph: &GraphSpec) -> Vec<Diagnostic> {
         let mut out = omu_graph::diagnose(graph);
+        // what is inside the groups counts too
+        let graph = &omu_graph::expand(graph).unwrap_or_else(|_| graph.clone());
         out.extend(self.feedback_problems(graph));
         // a soundboard block must name a soundboard that exists
         for n in &graph.nodes {

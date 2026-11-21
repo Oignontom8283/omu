@@ -67,7 +67,7 @@ export type PortMeta = {
 };
 
 /** What decides a block's ports: its kind, and for the blocks that branch, how many conditions they have. */
-export type KindLike = { type: NodeType; branches?: number; triggers?: string[]; args?: number };
+export type KindLike = { type: NodeType; branches?: number; triggers?: string[]; args?: number; graph?: GraphSpec; exposed?: { name: string; node: string; port: string }[] };
 
 /** The most conditions a branching block can have (same as the daemon's). */
 export const MAX_BRANCHES = 16;
@@ -227,10 +227,17 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [p('in', 'in', 'condition'), p('out', 'out', 'int')];
     case 'to_condition':
       return [p('in', 'in', 'float'), p('out', 'out', 'condition')];
+    case 'group':
+      // the points of its blocks that the group shows as its own: what they carry and which way they go
+      return (kind.exposed ?? []).flatMap((e) => {
+        const inner = kind.graph?.nodes.find((n) => n.id === e.node);
+        const point = inner && portsOf(inner).find((q) => q.name === e.port);
+        return point ? [p(e.name, point.dir, point.flow, point.multi, { label: e.name })] : [];
+      });
   }
 }
 
-export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion'];
+export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion', 'group'];
 
 /** The kinds of each family, in the order of the drop-down. */
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
@@ -242,11 +249,14 @@ export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   number: ['integer', 'number', 'math', 'choose', 'counter'],
   text: ['text', 'join'],
   conversion: ['volume', 'to_number', 'round', 'from_condition'],
+  // made by grouping blocks, not taken from a list
+  group: [],
 };
 
 export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
 
 export function categoryOf(type: NodeType): Category {
+  if (type === 'group') return 'group';
   return CATEGORIES.find((c) => KINDS_BY_CATEGORY[c].includes(type)) as Category;
 }
 
@@ -411,6 +421,8 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type };
     case 'round':
       return { type, mode: 'nearest' };
+    case 'group':
+      return { type, graph: { nodes: [], edges: [] }, exposed: [] };
     case 'counter':
       return { type, initial: 0 };
   }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { api } from '../api.ts';
 import { nameOf, portsOf, categoryOf } from '../graph.ts';
+import { owningBlock } from '../grouping.ts';
 import { useEditor } from '../context.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button } from '../kit/controls.tsx';
@@ -62,7 +63,7 @@ export function ProblemsPanel({ diagnostics, nodes, onGo }: { diagnostics: Diagn
   const t = useT();
   if (diagnostics.length === 0) return <p className="panel-empty">{t('problems.none')}</p>;
   const nameFor = (id: string) => {
-    const spec = nodes.find((n) => n.id === id);
+    const spec = nodes.find((n) => n.id === owningBlock(id, nodes));
     return spec ? nameOf(spec) || t(`kind.${spec.type}`) : id;
   };
   return (

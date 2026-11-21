@@ -110,8 +110,8 @@ test('canonical ignores the order of the lists', () => {
   assert.notEqual(canonical(chain), canonical(changed));
 });
 
-test('the eight families hold every kind exactly once, and each kind has ports', () => {
-  assert.deepEqual(CATEGORIES, ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion']);
+test('the families hold every kind exactly once, and each kind has ports', () => {
+  assert.deepEqual(CATEGORIES, ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion', 'group']);
   assert.equal(new Set(NODE_TYPES).size, NODE_TYPES.length);
   assert.equal(NODE_TYPES.length, Object.keys(PORTS).length);
   for (const t of NODE_TYPES) {

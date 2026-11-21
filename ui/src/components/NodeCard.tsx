@@ -4,6 +4,7 @@ import { useEditor } from '../context.ts';
 import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_JOIN_ARGS, inputValue, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { CompareOp, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, RoundMode, TextOp } from '../types.ts';
+import { sizeOf } from '../grouping.ts';
 import { Button, ComboInput, NumberField, Select, Slider, Switch, TextInput } from '../kit/controls.tsx';
 import { controlNamed, defaultControl } from '../kit/registry.ts';
 import '../kit/fields.tsx';
@@ -222,6 +223,8 @@ export function Params({ spec }: { spec: NodeSpec }) {
       return <OperationField value={spec.op} options={['equals', 'contains', 'starts_with', 'ends_with']} prefix="textop" onChange={(op) => update(spec.id, { type: 'text_compare', op: op as TextOp })} />;
     case 'counter':
       return <ValueField label="field.counterStart" value={spec.initial ?? 0} whole onChange={(initial) => update(spec.id, { type: 'counter', initial })} />;
+    case 'group':
+      return <GroupBody spec={spec} />;
     case 'round':
       return <OperationField value={spec.mode} options={['nearest', 'down', 'up']} prefix="round" onChange={(mode) => update(spec.id, { type: 'round', mode: mode as RoundMode })} />;
     case 'mixer':
@@ -244,6 +247,20 @@ export function Params({ spec }: { spec: NodeSpec }) {
     case 'timer':
       return null;
   }
+}
+
+/** A group: how many blocks it holds, and the way to take it apart. */
+function GroupBody({ spec }: { spec: Of<'group'> }) {
+  const { ungroup } = useEditor();
+  const t = useT();
+  return (
+    <>
+      <small className="muted">{t('group.contains', { count: sizeOf(spec) })}</small>
+      <Button size="small" wide onClick={() => ungroup(spec.id)}>
+        {t('group.take')}
+      </Button>
+    </>
+  );
 }
 
 /** The button that opens the calibration window of a noise reduction block. */

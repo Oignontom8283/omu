@@ -21,6 +21,8 @@ export type EditorContext = {
   openCalibration: (id: string, anchor: { x: number; y: number }) => void;
   /** Types a value in an input of a block (the one that is used while nothing is linked to it). */
   setInput: (id: string, port: string, value: InputValue) => void;
+  /** Takes a group apart: its blocks come back. */
+  ungroup: (id: string) => void;
   /** Takes a block out of the graph, with its links. */
   removeNode: (id: string) => void;
   /** Gives a block the name people see (free text; empty text means no name). Its identifier never changes. */

@@ -24,6 +24,7 @@
   --cat-number: #2a8f9e;
   --cat-text: #5a7a3a;
   --cat-conversion: #8a6a4a;
+  --cat-group: #5f6b7a;
 
   /* the three flows between blocks */
   --flow-audio: #2f9ad6;
@@ -59,6 +60,7 @@
   --cat-number: #5fc9d8;
   --cat-text: #a3c47a;
   --cat-conversion: #d4b08a;
+  --cat-group: #aab4c2;
 
   --flow-audio: #5cc1ff;
   --flow-condition: #f87171;
@@ -361,6 +363,9 @@ button.inline {
 }
 .cat-conversion {
   --cat: var(--cat-conversion);
+}
+.cat-group {
+  --cat: var(--cat-group);
 }
 
 /* blocks: made of grid cells (--grid), less the gap (--gap) that keeps neighbours apart. Rows of ports are one cell high and
