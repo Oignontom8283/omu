@@ -20,9 +20,10 @@ pub struct PadKey {
 /// The shortcuts that should be listening: those of the pads of the soundboards that have a block in the graph.
 pub fn wanted(boards: &[Board], graph: &GraphSpec) -> Vec<PadKey> {
     let used = |id: &str| {
+        // a soundboard inside a group plays, so its shortcuts must listen
         graph
-            .nodes
-            .iter()
+            .leaf_nodes()
+            .into_iter()
             .any(|n| matches!(&n.kind, NodeKind::Soundboard { board, .. } if board == id))
     };
     boards

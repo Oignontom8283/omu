@@ -57,7 +57,8 @@ impl KeptDevices {
     /// The virtual devices of `graph`.
     pub fn of_graph(graph: &super::GraphSpec) -> KeptDevices {
         let mut kept = KeptDevices::default();
-        for node in &graph.nodes {
+        // the blocks inside groups count too: a virtual microphone in a group is kept, not "old"
+        for node in graph.leaf_nodes() {
             match &node.kind {
                 super::NodeKind::VirtualMic { name } => kept.microphones.push(name.clone()),
                 super::NodeKind::VirtualSpeaker { name } => kept.speakers.push(name.clone()),

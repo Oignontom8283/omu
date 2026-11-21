@@ -179,7 +179,11 @@ mod tests {
         assert_eq!(KeyCombo::parse("a").unwrap().key, Key::Letter('A'));
         assert_eq!(KeyCombo::parse("7").unwrap().key, Key::Digit(7));
         assert_eq!(KeyCombo::parse("Num3").unwrap().key, Key::Numpad(3));
-        assert_eq!(KeyCombo::parse("Numpad5").unwrap().key, Key::Numpad(5), "the long name works too");
+        assert_eq!(
+            KeyCombo::parse("Numpad5").unwrap().key,
+            Key::Numpad(5),
+            "the long name works too"
+        );
         assert_eq!(KeyCombo::parse("Win+Space").unwrap().key, Key::Space);
         assert_eq!(KeyCombo::parse("F24").unwrap().key, Key::Function(24));
     }
