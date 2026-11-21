@@ -1,5 +1,6 @@
 import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useT } from '../i18n/index.tsx';
+import { Button } from '../kit/controls.tsx';
 
 /**
  * A small window floating over the editor: it is moved by its title, comes to the front when it is touched and is closed
@@ -49,9 +50,7 @@ export function FloatingWindow({
     <div ref={box} className={`fwin ${className}`} style={{ left: x, top: y, zIndex: 30 + order }} role="dialog" onPointerDown={onFocus}>
       <div className="fwin-title" onPointerDown={grab}>
         <span className="fwin-name">{title}</span>
-        <button className="fwin-close" aria-label={t('app.close')} title={t('app.close')} onClick={onClose}>
-          ×
-        </button>
+        <Button variant="flat" size="small" icon="close" title={t('app.close')} onClick={onClose} />
       </div>
       <div className="fwin-body">{children}</div>
     </div>

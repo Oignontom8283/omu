@@ -1,7 +1,7 @@
 import { Handle, Position, useEdges, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useEditor } from '../context.ts';
-import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_JOIN_ARGS, inputValue, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, zonesOf, type PortMeta } from '../graph.ts';
+import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_EXPRESSION_ARGS, MAX_JOIN_ARGS, inputValue, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, variableName, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import type { CompareOp, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, RoundMode, TextOp } from '../types.ts';
 import { sizeOf } from '../grouping.ts';
@@ -212,7 +212,10 @@ export function Params({ spec }: { spec: NodeSpec }) {
     case 'number':
       return <ValueField label="field.number" value={spec.value} onChange={(value) => update(spec.id, { type: 'number', value })} />;
     case 'join':
-      return <JoinEditor spec={spec} />;
+      return <InputCount spec={spec} max={MAX_JOIN_ARGS} handle={(n) => `arg${n}`} add="node.addArgument" remove="node.removeArgument" />;
+    case 'math_expr':
+    case 'cond_expr':
+      return <InputCount spec={spec} max={MAX_EXPRESSION_ARGS} handle={(n) => variableName(n - 1)} add="node.addVariable" remove="node.removeVariable" />;
     case 'math':
       return <OperationField value={spec.op} options={['add', 'subtract', 'multiply', 'divide', 'min', 'max']} prefix="math" onChange={(op) => update(spec.id, { type: 'math', op: op as MathOp })} />;
     case 'noise_reduction':
@@ -272,15 +275,16 @@ function CalibrateButton({ id }: { id: string }) {
   const { openCalibration } = useEditor();
   const t = useT();
   return (
-    <button
-      className="mini wide nodrag"
+    <Button
+      size="small"
+      wide
       onClick={(e) => {
         const r = (e.currentTarget.closest('.node') ?? e.currentTarget).getBoundingClientRect();
         openCalibration(id, { x: r.right + 12, y: r.top });
       }}
     >
       {t('calibration.open')}
-    </button>
+    </Button>
   );
 }
 
@@ -305,29 +309,21 @@ function ValueField({ label, value, whole = false, onChange }: { label: string; 
 }
 
 /**
- * The text of a join block, with `$1`, `$2`... where its arguments go, and the "+" that adds an argument (or the "×" that
- * takes the last one away when nothing is linked to it).
+ * The buttons of a block that has as many inputs as it is asked for (a join, an expression): the "+" that adds one, and the "−" that
+ * takes the last one away when nothing is linked to it.
  */
-function JoinEditor({ spec }: { spec: Of<'join'> }) {
+function InputCount({ spec, max, handle, add, remove }: { spec: Of<'join'> | Of<'math_expr'> | Of<'cond_expr'>; max: number; handle: (n: number) => string; add: string; remove: string }) {
   const { update } = useEditor();
   const t = useT();
   const edges = useEdges();
   const count = portsOf(spec).filter((q) => q.dir === 'in' && !q.param).length;
-  const used = edges.some((e) => e.target === spec.id && e.targetHandle === `arg${count}`);
+  const used = edges.some((e) => e.target === spec.id && e.targetHandle === handle(count));
   const set = (args: number) => update(spec.id, { ...spec, args });
   return (
-    <>
-      <div className="adders">
-        <Button size="small" title={t('node.addArgument')} disabled={count >= MAX_JOIN_ARGS} onClick={() => set(count + 1)}>
-          +
-        </Button>
-        {count > 1 && !used && (
-          <Button size="small" title={t('node.removeArgument')} onClick={() => set(count - 1)}>
-            ×
-          </Button>
-        )}
-      </div>
-    </>
+    <div className="adders">
+      <Button size="small" icon="plus" title={t(add)} disabled={count >= max} onClick={() => set(count + 1)} />
+      {count > 1 && !used && <Button size="small" icon="minus" title={t(remove)} onClick={() => set(count - 1)} />}
+    </div>
   );
 }
 
@@ -337,7 +333,7 @@ function MsField({ label, value, max, disabled, title, onChange }: { label: stri
   return (
     <div className="field" title={title}>
       <span>{t(label)}</span>
-      <input className="nodrag" type="number" min={0} max={max} step={10} value={value} disabled={disabled} onChange={(e) => onChange(Math.max(0, Math.min(max, Math.round(Number(e.target.value) || 0))))} />
+      <NumberField whole min={0} max={max} step={10} unit="ms" value={value} disabled={disabled} onChange={onChange} />
     </div>
   );
 }
@@ -356,14 +352,8 @@ function Branches({ spec }: { spec: Of<'branch'> | Of<'select'> }) {
   const set = (branches: number) => update(spec.id, { type: spec.type, branches });
   return (
     <div className="adders">
-      <Button size="small" title={t('node.addCondition')} disabled={count >= MAX_BRANCHES} onClick={() => set(count + 1)}>
-        +
-      </Button>
-      {count > 1 && !used && (
-        <Button size="small" title={t('node.removeCondition')} onClick={() => set(count - 1)}>
-          ×
-        </Button>
-      )}
+      <Button size="small" icon="plus" title={t('node.addCondition')} disabled={count >= MAX_BRANCHES} onClick={() => set(count + 1)} />
+      {count > 1 && !used && <Button size="small" icon="minus" title={t('node.removeCondition')} onClick={() => set(count - 1)} />}
     </div>
   );
 }
@@ -377,13 +367,13 @@ function NameField({ spec }: { spec: NodeSpec }) {
   const { setDisplay } = useEditor();
   const t = useT();
   return (
-    <input
-      className="node-id nodrag"
+    <TextInput
+      className="node-id"
+      code={false}
       value={spec.display ?? ''}
       placeholder={isGeneratedId(spec.id) ? t('node.namePlaceholder') : spec.id}
-      spellCheck={false}
       title={`${t('node.nameHint')} · ${t('node.idLabel')} ${spec.id}`}
-      onChange={(e) => setDisplay(spec.id, e.target.value)}
+      onChange={(name) => setDisplay(spec.id, name)}
     />
   );
 }
@@ -420,16 +410,14 @@ function EntriesRow({ port, node, asked }: { port: PortMeta; node: string; asked
               </small>
             )}
             {last && count > 1 && !links.has(n) && (
-              <Button size="small" title={t('node.removeInput')} onClick={() => setInputs(node, count - 1)}>
-                ×
-              </Button>
+              <Button size="small" icon="minus" title={t('node.removeInput')} onClick={() => setInputs(node, count - 1)} />
             )}
           </div>
         );
       })}
-      <Button size="small" title={t('node.addInput')} disabled={count >= MAX_ENTRIES} onClick={() => setInputs(node, count + 1)}>
-        +
-      </Button>
+      <div className="adders in-ports">
+        <Button size="small" icon="plus" title={t('node.addInput')} disabled={count >= MAX_ENTRIES} onClick={() => setInputs(node, count + 1)} />
+      </div>
     </>
   );
 }
@@ -549,27 +537,17 @@ export function NodeCard({ data, selected }: NodeProps<OmuNode>) {
         <div className="bar">
           <span className="bar-label">{t(`kind.${spec.type}`)}</span>
           <span className="bar-actions nodrag">
-            <button
-              className="bar-btn"
+            <Button
+              variant="bar"
+              icon="help"
               title={t('block.help')}
-              aria-label={t('block.help')}
               onClick={(e) => {
                 // next to the block, not over it
                 const r = (e.currentTarget.closest('.node') ?? e.currentTarget).getBoundingClientRect();
                 openHelp(spec.id, { x: r.right + 12, y: r.top });
               }}
-            >
-              <svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true">
-                <circle cx="6" cy="6" r="4.9" fill="none" stroke="currentColor" strokeWidth="1" />
-                <circle cx="6" cy="3.5" r="0.75" fill="currentColor" />
-                <path d="M6 5.4v3.3" stroke="currentColor" strokeWidth="1.1" fill="none" />
-              </svg>
-            </button>
-            <button className="bar-btn close" title={t('block.remove')} aria-label={t('block.remove')} onClick={() => removeNode(spec.id)}>
-              <svg viewBox="0 0 12 12" width="10" height="10" aria-hidden="true">
-                <path d="M1.5 1.5l9 9M10.5 1.5l-9 9" stroke="currentColor" strokeWidth="1.1" fill="none" />
-              </svg>
-            </button>
+            />
+            <Button variant="bar" icon="close" className="close" title={t('block.remove')} onClick={() => removeNode(spec.id)} />
           </span>
         </div>
         <div className="name">

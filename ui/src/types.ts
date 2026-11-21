@@ -53,6 +53,8 @@ export type NodeKind =
   | { type: 'integer'; value: number }
   | { type: 'number'; value: number }
   | { type: 'join'; template: string; args?: number }
+  | { type: 'math_expr'; expression: string; args?: number }
+  | { type: 'cond_expr'; expression: string; args?: number }
   | { type: 'math'; op: MathOp }
   | { type: 'compare'; op: CompareOp }
   | { type: 'text_compare'; op: TextOp }

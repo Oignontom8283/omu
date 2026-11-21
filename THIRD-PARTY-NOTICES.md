@@ -128,10 +128,11 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-## CodeMirror (the editor of text templates)
+## CodeMirror (the editor of texts)
 
-The field of a text template is a CodeMirror editor (https://codemirror.net, by Marijn Haverbeke and contributors), through the
-packages `@codemirror/state`, `@codemirror/view` and `@codemirror/autocomplete`. Licence: MIT.
+Every text field of a block (and the window that edits it) is a CodeMirror editor (https://codemirror.net, by Marijn Haverbeke and
+contributors), through the packages `@codemirror/state`, `@codemirror/view`, `@codemirror/autocomplete`, `@codemirror/commands`
+and `@codemirror/language`. Licence: MIT.
 
 ```
 MIT License
