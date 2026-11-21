@@ -38,10 +38,16 @@ run target="demon" *args:
 
 # The cargo command of a target (private). Each executable is a package of its own (src/bin/) that lists the components it
 # needs, so building one compiles only those: the command line never compiles the audio engine. The daemon's options (the
-# icon, the web panel, the DeepFilterNet code) are default features of its package. `all` builds the three one after the other.
+# icon, the web panel, the DeepFilterNet code) are default features of its package. `all` builds the three one after the other, except for the debug build:
+#
+# the debug build of `all` is ONE cargo command over the whole workspace, tests included (the programs, and the test programs
+# that `just test` then runs without compiling anything). Cargo chooses the options (features) of every dependency for a
+# command as a whole, so three separate `cargo build --bin ...` commands plus a `cargo test --workspace` each compile their own
+# copy of the same dependencies (the audio model, Tauri, the Windows API...): measured from an empty folder, 12.9 GB and 340 s
+# that way, 10.4 GB and 190 s with one command. Release builds have their own folder and are not affected.
 [private]
 _cargo verb target native:
-    {{ if target == "all" { just_executable() + " _each " + quote(verb) + " " + (if native == "" { "-" } else { quote(native) }) } else { "cargo " + verb + " --bin " + (if target == "gui" { "omu-gui" } else if target == "cli" { "omu-cli" } else if target == "demon" { "omud" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else if native == "-" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
+    {{ if target == "all" { if verb == "build" { if native == "" { "cargo build --workspace --all-targets" } else { just_executable() + " _each " + quote(verb) + " " + (if native == "" { "-" } else { quote(native) }) } } else { just_executable() + " _each " + quote(verb) + " " + (if native == "" { "-" } else { quote(native) }) } } else { "cargo " + verb + " --bin " + (if target == "gui" { "omu-gui" } else if target == "cli" { "omu-cli" } else if target == "demon" { "omud" } else { error("unknown target `" + target + "`: use all, gui, cli, demon or server") }) + (if native == "native" { " --config \"build.rustflags=['-C','target-cpu=native']\"" } else if native == "" { "" } else if native == "-" { "" } else { error("unknown option `" + native + "`: the only one is `native`") }) } }}
 
 [private]
 _each verb native: (_cargo verb "cli" native) (_cargo verb "demon" native) (_cargo verb "gui" native)

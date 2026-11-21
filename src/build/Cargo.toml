@@ -9,6 +9,8 @@ publish = false
 
 [lib]
 path = "lib.rs"
+# no unit tests: nothing to build as a test program
+test = false
 
 [dependencies]
 toml = "1.2"

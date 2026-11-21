@@ -10,6 +10,8 @@ publish = false
 [[bin]]
 name = "omu-cli"
 path = "main.rs"
+# no unit tests: do not build a second, test copy of the whole program
+test = false
 
 [dependencies]
 omu-branding = { path = "../../branding" }
