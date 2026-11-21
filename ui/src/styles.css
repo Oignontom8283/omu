@@ -373,6 +373,8 @@ button.inline {
 /* the measures of a block all come from these: the grid cell and the gap are set by the editor (--grid, --gap, --node-width) */
 .node {
   --radius: 6px;
+  /* the column of the names of the values typed next to the connection points: three cells */
+  --name-col: calc(3 * var(--grid));
   --bar: 18px;
   --trim: calc(var(--gap) / 2);
   /* two cells, counted from the cell edge: the block itself starts half a gap inside it */
@@ -558,6 +560,30 @@ button.inline {
   align-items: center;
   min-height: var(--grid);
   color: var(--muted);
+}
+/* the settings of a block are rows of the grid like its connection points: the name in the same column, the value over the rest */
+.node .body .field {
+  display: grid;
+  grid-template-columns: var(--name-col) minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+  min-height: var(--grid);
+}
+.node .body .field > span:first-child {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.node .body .field > small {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-height: var(--grid);
+}
+.node .body > small {
+  display: flex;
+  align-items: center;
+  min-height: var(--grid);
 }
 .trigger-row {
   min-height: var(--grid);
@@ -1347,14 +1373,15 @@ button.ref:hover:not(:disabled) {
   width: 100%;
 }
 .port.inline {
-  gap: 6px;
+  /* a name column of the same width in every block, and the value over the rest of the row: values start and end at the same place */
+  display: grid;
+  grid-template-columns: var(--name-col) minmax(0, 1fr);
+  column-gap: 6px;
 }
 .port-name {
-  flex: none;
   white-space: nowrap;
 }
 .port.inline .port-name {
-  max-width: 42%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
