@@ -162,6 +162,7 @@ mod tests {
                 meter: Arc::<Meter>::default(),
                 param: None,
                 net: None,
+                muted: false,
             }],
             480,
         ))

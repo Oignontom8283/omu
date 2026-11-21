@@ -97,6 +97,7 @@ fn an_applications_sound_reaches_a_virtual_cable() {
                 id: "app".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::AppCapture {
                     target: AppTarget::Pid(tone.0.id()),
                 },
@@ -105,6 +106,7 @@ fn an_applications_sound_reaches_a_virtual_cable() {
                 id: "cable".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::DeviceRender {
                     device: DeviceRef::Name("Voicemeeter Input".into()),
                 },

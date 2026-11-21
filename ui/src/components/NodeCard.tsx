@@ -523,7 +523,7 @@ export function NodeCard({ data, selected }: NodeProps<OmuNode>) {
     return n ? `${t('soundboards.playAction')} ${pad?.name || t('soundboards.unnamedPad')}` : undefined;
   };
   return (
-    <GridBox className={`node cat-${category}${selected ? ' selected' : ''}${failed ? ' failed' : ''}`}>
+    <GridBox className={`node cat-${category}${selected ? ' selected' : ''}${failed ? ' failed' : ''}${spec.muted ? ' muted' : ''}`}>
       <header>
         <div className="bar">
           <span className="bar-label">{t(`kind.${spec.type}`)}</span>

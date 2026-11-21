@@ -478,6 +478,7 @@ mod tests {
             id: id.into(),
             display: None,
             inputs: Default::default(),
+            muted: false,
             kind,
         }
     }

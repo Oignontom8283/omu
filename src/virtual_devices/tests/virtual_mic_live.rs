@@ -67,6 +67,7 @@ fn the_engines_audio_comes_out_of_a_virtual_microphone() {
                 id: "app".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::AppCapture {
                     target: AppTarget::ProcessName("tone.exe".into()),
                 },
@@ -75,12 +76,14 @@ fn the_engines_audio_comes_out_of_a_virtual_microphone() {
                 id: "vol".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::Gain { db: -12.0 },
             },
             NodeSpec {
                 id: "mic".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::VirtualMic { name: NAME.into() },
             },
         ],

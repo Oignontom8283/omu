@@ -26,6 +26,7 @@ fn chain() -> GraphSpec {
                 id: "app".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::AppCapture {
                     target: AppTarget::ProcessName("chrome.exe".into()),
                 },
@@ -34,6 +35,7 @@ fn chain() -> GraphSpec {
                 id: "mic".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::VirtualMic {
                     name: "Stream".into(),
                 },
@@ -96,12 +98,14 @@ fn validation_errors_reach_the_client_with_details() {
                 id: "x".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::Mixer,
             },
             NodeSpec {
                 id: "x".into(),
                 display: None,
                 inputs: Default::default(),
+                muted: false,
                 kind: NodeKind::Mixer,
             },
         ],

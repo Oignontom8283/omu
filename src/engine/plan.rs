@@ -441,6 +441,8 @@ pub struct PlanNode {
     pub param: Option<ParamKind>,
     /// The flows on the settings of a network block, shared with the control side.
     pub net: Option<Arc<NetFlows>>,
+    /// A muted block sends nothing.
+    pub muted: bool,
 }
 
 /// What a node produced this cycle.
@@ -761,7 +763,12 @@ impl Plan {
                     }
                 }
                 NodeOp::Sink(producer) => {
-                    let input = input_audio(Port::In);
+                    // a muted output plays silence
+                    let input = if node.muted {
+                        silence
+                    } else {
+                        input_audio(Port::In)
+                    };
                     node.meter.record(input);
                     if let Ok(mut p) = producer.try_lock() {
                         p.push(input);
@@ -987,6 +994,13 @@ impl Plan {
                     }
                 }
             }
+            // a muted block sends nothing
+            if node.muted {
+                audios.iter_mut().for_each(|a| a.fill(0.0));
+                cond = false;
+                actions = [0; ACTION_OUTPUTS];
+                value = Value::None;
+            }
             // a block that sends sound is metered by what it sends; one that only listens was metered above
             for a in &audios {
                 node.meter.record(a);
@@ -1072,6 +1086,7 @@ mod tests {
         PlanNode {
             param: None,
             net: None,
+            muted: false,
             id: id.into(),
             op,
             inputs,
@@ -2229,5 +2244,42 @@ mod tests {
         assert!((gain(1000.0) - most).abs() < most * 0.01);
         // and -120 dB the least: silence, not a negative gain
         assert!(gain(-1000.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_muted_block_sends_no_sound_no_condition_and_no_value() {
+        let mut gain = node("g", NodeOp::Gain(Plan::gain(0.0)), vec![wire(0)]);
+        gain.muted = true;
+        let mut var = node("v", variable(true), vec![]);
+        var.muted = true;
+        let mut value = node("n", NodeOp::Const(Value::Int(3)), vec![]);
+        value.muted = true;
+        let mut plan = Plan::new(
+            vec![node("s", NodeOp::Constant(1.0), vec![]), gain, var, value],
+            480,
+        );
+        run(&mut plan, 20);
+        assert!(
+            plan_silent(&plan, 1, 0),
+            "the sound of a muted block is silence"
+        );
+        assert!(!plan.condition(2), "a muted variable is false");
+        assert_eq!(plan.value(3), &Value::None);
+        // what comes after it hears silence, and the source itself is untouched
+        assert!(!plan_silent(&plan, 0, 0));
+    }
+
+    #[test]
+    fn a_muted_output_plays_silence() {
+        let (producer, _consumer, _) = sink_bridge(AudioFormat::ENGINE, 100.0);
+        let mut sink = node(
+            "k",
+            NodeOp::Sink(Arc::new(Mutex::new(producer))),
+            vec![wire(0)],
+        );
+        sink.muted = true;
+        let mut plan = Plan::new(vec![node("s", NodeOp::Constant(1.0), vec![]), sink], 480);
+        run(&mut plan, 5);
+        assert_eq!(plan.nodes[1].meter.take(), 0.0, "the output heard nothing");
     }
 }

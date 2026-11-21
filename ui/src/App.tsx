@@ -18,6 +18,7 @@ import { NodeCard, type OmuNode } from './components/NodeCard.tsx';
 import { Doc, docKey, type DocRef } from './components/BlockHelp.tsx';
 import { Calibration } from './components/Calibration.tsx';
 import { CommandPalette, type PaletteItem } from './components/CommandPalette.tsx';
+import { EXAMPLES, type Example } from './examples.ts';
 import { History } from './history.ts';
 import { Button } from './kit/controls.tsx';
 import { loadDraft, loadVersions, saveDraft, saveVersions, withVersion, type Version } from './versions.ts';
@@ -80,7 +81,7 @@ function message(e: unknown): string {
 }
 
 /** The display name of a block, to be kept when its settings change. */
-const named = (spec: NodeSpec): { display?: string; inputs?: NodeSpec['inputs'] } => ({ ...(spec.display === undefined ? {} : { display: spec.display }), ...(spec.inputs === undefined ? {} : { inputs: spec.inputs }) });
+const named = (spec: NodeSpec): { display?: string; inputs?: NodeSpec['inputs']; muted?: boolean } => ({ ...(spec.display === undefined ? {} : { display: spec.display }), ...(spec.inputs === undefined ? {} : { inputs: spec.inputs }), ...(spec.muted ? { muted: true } : {}) });
 
 const asEdge = (e: Edge) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? '', targetHandle: e.targetHandle ?? '' });
 
@@ -131,7 +132,7 @@ export function App() {
   // the search bar (everything, or only the blocks to add, at a point of the graph), the setting it sent us to, the menu of a right click
   const [palette, setPalette] = useState<{ mode: 'all' | 'block'; at?: { x: number; y: number }; initial?: string } | null>(null);
   // the keyboard shortcuts: the defaults, and what the person changed (kept in this browser)
-  const [overrides] = useState(loadOverrides);
+  const [overrides, setOverrides] = useState(loadOverrides);
   const keys = useMemo(() => bindings(overrides), [overrides]);
   // the steps of the session (undo, redo) and what was copied
   type Step = { nodes: ClipNode[]; edges: (ClipEdge & { id: string })[] };
@@ -430,8 +431,8 @@ export function App() {
     void navigator.clipboard?.writeText(JSON.stringify({ omu: 1, ...clip })).catch(() => undefined);
     return true;
   };
-  const paste = (at?: { x: number; y: number }) => {
-    const clip = clipboard.current;
+  const paste = (at?: { x: number; y: number }, from: Clip | null = clipboard.current) => {
+    const clip = from;
     if (!clip) return;
     const p = pointer.current;
     const canvas = document.querySelector('.canvas')?.getBoundingClientRect();
@@ -440,9 +441,30 @@ export function App() {
     setNodes((list) => [...list.map((n) => ({ ...n, selected: false })), ...made.nodes.map((n): OmuNode => ({ id: n.id, type: 'omu', position: n.position, selected: true, data: { spec: n.spec, inputs: n.inputs } }))]);
     setEdges((list) => [...list, ...made.edges.map((e) => ({ id: `${e.source}.${e.sourceHandle}->${e.target}.${e.targetHandle}`, ...e }))]);
   };
+  // an example graph goes where the pointer is, like blocks that were copied
+  const insertExample = (ex: Example) => paste(undefined, ex.clip);
   const duplicate = () => {
     if (copy()) paste();
   };
+  // a muted block sends nothing; the same command un-mutes (a block already muted among the selected ones decides)
+  const toggleMute = (ids?: string[]) =>
+    setNodes((list) => {
+      const targets = list.filter((n) => (ids ? ids.includes(n.id) : n.selected));
+      const mute = !targets.every((n) => n.data.spec.muted);
+      return list.map((n) => {
+        if (!targets.includes(n)) return n;
+        const { muted: _old, ...rest } = n.data.spec;
+        return { ...n, data: { ...n.data, spec: (mute ? { ...rest, muted: true } : rest) as NodeSpec } };
+      });
+    });
+  const unmuteAll = () =>
+    setNodes((list) =>
+      list.map((n) => {
+        if (!n.data.spec.muted) return n;
+        const { muted: _old, ...rest } = n.data.spec;
+        return { ...n, data: { ...n.data, spec: rest as NodeSpec } };
+      }),
+    );
   const selectAll = () => setNodes((list) => list.map((n) => ({ ...n, selected: true })));
   const toggleDock = (panel: NonNullable<DockState['bottom']>) => setDock({ ...dock, bottom: dock.bottom === panel ? null : panel });
 
@@ -560,6 +582,9 @@ export function App() {
         { id: 'copy', kind: 'command', label: t('keys.copy'), icon: 'list', shortcut: keys['edit.copy'], run: () => void copy() },
         { id: 'paste', kind: 'command', label: t('keys.paste'), icon: 'list', shortcut: keys['edit.paste'], run: () => paste() },
         { id: 'duplicate', kind: 'command', label: t('keys.duplicate'), icon: 'list', shortcut: keys['edit.duplicate'], run: duplicate },
+        ...EXAMPLES.map((ex): PaletteItem => ({ id: `example-${ex.id}`, kind: 'command', label: t('example.insert', { name: t(ex.name) }), keywords: t(ex.about), icon: 'grid', run: () => { setTab('nodes'); insertExample(ex); } })),
+        { id: 'mute', kind: 'command', label: t('keys.mute'), icon: 'stop', run: () => toggleMute() },
+        { id: 'unmuteAll', kind: 'command', label: t('keys.unmuteAll'), icon: 'play', run: unmuteAll },
         { id: 'selectAll', kind: 'command', label: t('keys.selectAll'), icon: 'grid', shortcut: keys['edit.selectAll'], run: selectAll },
         ...nodes.map((n): PaletteItem => ({ id: `node-${n.id}`, kind: 'node', label: nameOf(n.data.spec) || t(`kind.${n.data.spec.type}`), family: categoryOf(n.data.spec.type), keywords: `${t(`kind.${n.data.spec.type}`)} ${n.id}`, run: () => goTo({ severity: 'info', code: 'go', message: '', node: n.id }) })),
         { id: 'problems', kind: 'command', label: t('dock.problems'), icon: 'error', run: () => setDock({ ...dock, bottom: dock.bottom === 'problems' ? null : 'problems' }) },
@@ -783,6 +808,7 @@ export function App() {
                 items: [
                   { label: t('block.help'), run: () => openDoc({ kind: 'node', node: node.id }, { x: e.clientX + 12, y: e.clientY }) },
                   { label: t('keys.copy'), run: () => { setNodes((list) => list.map((n) => ({ ...n, selected: n.selected || n.id === node.id }))); window.setTimeout(() => void copy(), 0); } },
+                  { label: t(node.data.spec.muted ? 'keys.unmute' : 'keys.mute'), run: () => toggleMute([node.id]) },
                   { label: t('keys.duplicate'), run: () => { setNodes((list) => list.map((n) => ({ ...n, selected: n.id === node.id }))); window.setTimeout(duplicate, 0); } },
                   { label: t('block.remove'), danger: true, run: () => void flow.deleteElements({ nodes: [{ id: node.id }] }) },
                 ],
@@ -863,12 +889,19 @@ export function App() {
             />
           )}
           {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}
-          {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} focus={settingFocus} />}
+          {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} focus={settingFocus} shortcuts={{ overrides, onChange: setOverrides }} />}
           {showJson && <JsonWindow graph={graph} onClose={() => setShowJson(false)} />}
           {nodes.length === 0 && conn === 'open' && (
             <div className="empty">
               <p>{t('app.emptyTitle')}</p>
               <p className="muted">{t('app.emptyHint')}</p>
+              <p className="examples">
+                {EXAMPLES.map((ex) => (
+                  <Button key={ex.id} title={t(ex.about)} onClick={() => insertExample(ex)}>
+                    {t(ex.name)}
+                  </Button>
+                ))}
+              </p>
             </div>
           )}
         </div>

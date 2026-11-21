@@ -98,6 +98,7 @@ mod tests {
                     id: "m".into(),
                     display: None,
                     inputs: Default::default(),
+                    muted: false,
                     kind: NodeKind::Mixer,
                 }],
                 edges: vec![],
