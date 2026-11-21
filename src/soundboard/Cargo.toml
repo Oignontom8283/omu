@@ -16,6 +16,7 @@ omu-branding = { path = "../branding" }
 omu-dsp = { path = "../dsp" }
 omu-hal = { path = "../hal" }
 omu-modules = { path = "../modules" }
+omu-discovery = { path = "../discovery" }
 omu-types = { path = "../types" }
 serde_json = "1.0"
 thiserror = "2.0"

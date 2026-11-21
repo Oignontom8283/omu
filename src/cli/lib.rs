@@ -566,9 +566,14 @@ fn read_graph(file: &std::path::Path) -> Result<GraphSpec, CliError> {
 }
 
 fn open_in_browser(url: &str) -> Result<(), CliError> {
+    // only a web address: the address may come from an environment variable or a file
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err(CliError::Other(format!("{url:?} is not a web address")));
+    }
+    // `cmd /C start` would read an `&` in the address as another command; this program reads its argument as it is
     #[cfg(windows)]
-    let status = std::process::Command::new("cmd")
-        .args(["/C", "start", "", url])
+    let status = std::process::Command::new("rundll32")
+        .args(["url.dll,FileProtocolHandler", url])
         .status();
     #[cfg(target_os = "macos")]
     let status = std::process::Command::new("open").arg(url).status();

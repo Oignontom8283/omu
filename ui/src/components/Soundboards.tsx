@@ -282,8 +282,10 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       notify(t('soundboards.compressInvalid'));
       return;
     }
-    const next: Settings = { show_tray_icon: true, start_at_logon: false, trust: 'system', remote_access: false, ...settings, sound_cache_mb: mb, compress_above_mb: packMb };
     try {
+      // never defaults over what the daemon holds: when the settings were not read earlier, they are read now
+      const current = settings ?? (await daemon.settings());
+      const next: Settings = { ...current, sound_cache_mb: mb, compress_above_mb: packMb };
       await daemon.setSettings(next);
       setSettings(next);
       setCacheText(String(mb));

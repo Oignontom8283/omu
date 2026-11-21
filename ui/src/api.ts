@@ -62,6 +62,8 @@ export class Rpc {
   private retry: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   state: Connection = 'connecting';
+  /** How many times the connection has been established: whoever follows the daemon's numbering (the logs) starts again when it changes. */
+  opens = 0;
 
   constructor(readonly token: string) {}
 
@@ -86,11 +88,15 @@ export class Rpc {
 
   private async startDesktop(): Promise<void> {
     const { invoke } = await import('@tauri-apps/api/core');
+    // stopped while the window's commands were being loaded: nothing may start
+    if (this.stopped) return;
     this.invoke = invoke as Invoke;
     let tick = 0;
+    let failures = 0;
     const once = async () => {
       try {
         const status = await this.request<unknown>('engine.status');
+        failures = 0;
         if (this.state !== 'open') this.set('open');
         this.events.forEach((h) => h('engine.status', status));
         if (tick++ % 8 === 0) {
@@ -99,11 +105,13 @@ export class Rpc {
           this.lastGraph = graph;
         }
       } catch {
-        if (this.state !== 'closed') this.set('closed');
+        // one poll that fails is not a lost daemon (a busy moment): the connection is given up after three in a row
+        if (++failures >= 3 && this.state !== 'closed') this.set('closed');
       }
     };
     this.set('connecting');
     await once();
+    if (this.stopped) return;
     this.poll = setInterval(() => void once(), 250);
   }
 
@@ -119,6 +127,7 @@ export class Rpc {
   }
 
   private set(state: Connection): void {
+    if (state === 'open' && this.state !== 'open') this.opens++;
     this.state = state;
     this.states.forEach((h) => h(state));
   }
@@ -132,6 +141,8 @@ export class Rpc {
     socket.onopen = () => this.set('open');
     socket.onmessage = (m) => this.receive(String(m.data));
     socket.onclose = () => {
+      // a socket that was already replaced by a newer one says nothing about the connection
+      if (this.socket !== socket) return;
       this.socket = null;
       this.pending.forEach((p) => p.reject(new Error('the connection to the daemon was lost')));
       this.pending.clear();
@@ -175,7 +186,21 @@ export class Rpc {
         return;
       }
       const id = this.nextId++;
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      // a daemon that does not answer must not leave a screen waiting for ever (the slow methods wait for a person or a download)
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error('the daemon did not answer in time'));
+      }, /^(devices\.clean|modules\.|sounds\.)/.test(method) ? 300_000 : 30_000);
+      this.pending.set(id, {
+        resolve: (v) => {
+          clearTimeout(timer);
+          (resolve as (v: unknown) => void)(v);
+        },
+        reject: (e) => {
+          clearTimeout(timer);
+          reject(e);
+        },
+      });
       this.socket.send(JSON.stringify({ jsonrpc: '2.0', id, method, params: params ?? null }));
     });
   }
@@ -195,6 +220,7 @@ export const api = (rpc: Rpc) => ({
   stop: () => rpc.request<null>('engine.stop'),
   levels: (node: string) => rpc.request<Levels>('engine.levels', { node }),
   logs: (after?: number) => rpc.request<LogLine[]>('logs.recent', { after, limit: 300 }),
+  opens: () => rpc.opens,
   start: () => rpc.request<null>('engine.start'),
   shutdown: () => rpc.request<null>('system.shutdown'),
   layoutGet: () => rpc.request<Layout>('layout.get'),

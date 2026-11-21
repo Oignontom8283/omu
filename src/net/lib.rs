@@ -9,6 +9,12 @@
 //! why a receiving block can be told which computer it accepts sound from.
 
 pub mod opus;
+
+/// True for the error a read gives when a datagram was bigger than the buffer (WSAEMSGSIZE on Windows): the datagram is lost, the
+/// socket is fine. Anyone who can reach the port can send such a datagram, so it must never end a stream.
+pub(crate) fn datagram_too_big(e: &std::io::Error) -> bool {
+    e.raw_os_error() == Some(10040)
+}
 pub mod stream;
 pub mod vban;
 pub mod web;

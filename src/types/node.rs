@@ -857,9 +857,75 @@ pub struct GraphSpec {
     pub edges: Vec<EdgeSpec>,
 }
 
+impl GraphSpec {
+    /// Every block that does something, the ones inside groups (at any depth) included, the groups themselves left out: what the engine
+    /// really runs. Whoever asks "is there a soundboard (a virtual microphone...) in this graph" must look here, not at `nodes`, or
+    /// what is inside a group is not seen.
+    pub fn leaf_nodes(&self) -> Vec<&NodeSpec> {
+        let mut out = vec![];
+        for node in &self.nodes {
+            match &node.kind {
+                NodeKind::Group { graph, .. } => out.extend(graph.leaf_nodes()),
+                _ => out.push(node),
+            }
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_blocks_inside_groups_are_found_at_any_depth() {
+        let node = |id: &str, kind: NodeKind| NodeSpec {
+            id: id.into(),
+            display: None,
+            inputs: Default::default(),
+            muted: false,
+            kind,
+        };
+        let inner = GraphSpec {
+            nodes: vec![node("mic", NodeKind::VirtualMic { name: "M".into() })],
+            edges: vec![],
+        };
+        let group = |id: &str, graph: GraphSpec| {
+            node(
+                id,
+                NodeKind::Group {
+                    graph: Box::new(graph),
+                    exposed: vec![],
+                    layout: Default::default(),
+                },
+            )
+        };
+        let outer = GraphSpec {
+            nodes: vec![
+                node(
+                    "board",
+                    NodeKind::Soundboard {
+                        board: "b".into(),
+                        triggers: vec![],
+                    },
+                ),
+                group(
+                    "g1",
+                    GraphSpec {
+                        nodes: vec![group("g2", inner)],
+                        edges: vec![],
+                    },
+                ),
+            ],
+            edges: vec![],
+        };
+        let ids: Vec<&str> = outer.leaf_nodes().iter().map(|n| n.id.0.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["board", "mic"],
+            "the groups are not blocks, what is in them is"
+        );
+    }
 
     #[test]
     fn graph_round_trips_through_json() {

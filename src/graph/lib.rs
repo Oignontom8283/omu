@@ -224,7 +224,7 @@ fn flatten(
             ));
             continue;
         }
-        let inner = flatten(
+        let mut inner = flatten(
             graph,
             &format!("{prefix}{}.", node.id.0),
             muted || node.muted,
@@ -260,6 +260,18 @@ fn flatten(
                         e.name
                     ),
                 )),
+            }
+        }
+        // a value typed on a point the group shows is the value of the inner block's point (nested groups are already resolved in
+        // `leads`); a value the inner block has of its own is left alone, and a link to the point still wins over both
+        for (name, value) in &node.inputs {
+            if let Some((target, port)) = leads.get(name) {
+                if let Some(inner_node) = inner.nodes.iter_mut().find(|n| n.id.0 == *target) {
+                    inner_node
+                        .inputs
+                        .entry(port.clone())
+                        .or_insert_with(|| value.clone());
+                }
             }
         }
         exposed.insert(node.id.0.clone(), leads);
@@ -897,6 +909,39 @@ mod tests {
                 .map(|p| (p.name.as_str(), p.direction))
                 .collect::<Vec<_>>(),
             [("in", PortDirection::Input), ("out", PortDirection::Output)]
+        );
+    }
+
+    #[test]
+    fn a_value_typed_on_a_point_of_a_group_reaches_the_block_inside_even_through_nested_groups() {
+        use omu_types::InputValue;
+        let inner = GraphSpec {
+            nodes: vec![node("vol", gain())],
+            edges: vec![],
+        };
+        let middle = GraphSpec {
+            nodes: vec![group_of("deep", inner, &[("level", "vol", "db")])],
+            edges: vec![],
+        };
+        let mut outer = group_of("top", middle, &[("level", "deep", "level")]);
+        outer
+            .inputs
+            .insert("level".into(), InputValue::Number(-12.0));
+        let spec = GraphSpec {
+            nodes: vec![outer],
+            edges: vec![],
+        };
+        let flat = expand(&spec).unwrap();
+        let vol = flat
+            .nodes
+            .iter()
+            .find(|n| n.id.0 == "top.deep.vol")
+            .expect("two levels down");
+        assert_eq!(
+            vol.inputs.get("db"),
+            Some(&InputValue::Number(-12.0)),
+            "{:?}",
+            vol.inputs
         );
     }
 

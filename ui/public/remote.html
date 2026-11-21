@@ -79,6 +79,8 @@
 
   // the key is in the address after #, which is never sent to a server by the browser itself
   const key = new URLSearchParams(location.hash.slice(1)).get('token') || '';
+  // and kept out of the address bar, the history and the screenshots from here on: the page keeps it in memory
+  if (key) history.replaceState(null, '', location.pathname + location.search);
   const params = new URLSearchParams(location.search);
   $('name').value = params.get('name') || 'phone';
   const state = (text, kind) => { const el = $('state'); el.textContent = text; el.className = 'state' + (kind ? ' ' + kind : ''); };
@@ -118,7 +120,11 @@
       await pc.setRemoteDescription({ type: 'answer', sdp: await response.text() });
       active = { kind, pc, stream, location };
       pc.addEventListener('connectionstatechange', () => {
-        if (active && active.pc === pc && ['failed', 'closed', 'disconnected'].includes(pc.connectionState)) { stop(); state(t.ended, 'problem'); }
+        if (!active || active.pc !== pc) return;
+        const end = () => { if (active && active.pc === pc) { stop(); state(t.ended, 'problem'); } };
+        if (['failed', 'closed'].includes(pc.connectionState)) end();
+        // 'disconnected' often mends itself (a phone changing Wi-Fi): a few seconds are given before it is taken for the end
+        else if (pc.connectionState === 'disconnected') setTimeout(() => { if (pc.connectionState === 'disconnected') end(); }, 5000);
       });
       buttons();
       state(kind === 'whip' ? t.sending : t.listening, 'on');
@@ -133,7 +139,8 @@
     if (!active) return;
     const { pc, stream, location } = active;
     active = null;
-    if (location) fetch(location, { method: 'DELETE', headers: { Authorization: `Bearer ${key}` } }).catch(() => {});
+    // keepalive: the request goes out even when the page is being closed
+    if (location) fetch(location, { method: 'DELETE', headers: { Authorization: `Bearer ${key}` }, keepalive: true }).catch(() => {});
     if (stream) stream.getTracks().forEach((track) => track.stop());
     pc.close();
     $('player').srcObject = null;

@@ -182,7 +182,11 @@ fn main() -> std::process::ExitCode {
         let why = stop_requested().await;
         tracing::info!("{why}: stopping");
     };
-    match runtime.block_on(serve(opts, ready, shutdown)) {
+    let outcome = runtime.block_on(serve(opts, ready, shutdown));
+    // The blocking tasks still running (a prompt waiting for an answer, a driver that does not answer) are not waited for beyond a few
+    // seconds: dropping the runtime would wait for them for ever, and the daemon would never end.
+    runtime.shutdown_timeout(std::time::Duration::from_secs(3));
+    match outcome {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => diagnostics::fail(&e, 1),
     }

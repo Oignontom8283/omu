@@ -81,7 +81,8 @@ export function withPadMoved(boards: Board[], boardId: string, from: number, to:
 
 /** Whether the graph has a block for this soundboard (without one, its pads cannot play). */
 export function boardInGraph(graph: GraphSpec, boardId: string): boolean {
-  return graph.nodes.some((n) => n.type === 'soundboard' && n.board === boardId);
+  // a block inside a group counts: it plays like any other
+  return graph.nodes.some((n) => (n.type === 'soundboard' && n.board === boardId) || (n.type === 'group' && boardInGraph(n.graph, boardId)));
 }
 
 /** A name for a new soundboard that no other has: `Soundboard 1`, `Soundboard 2`... */

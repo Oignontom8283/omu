@@ -98,11 +98,18 @@ export function LogsPanel({ daemon }: { daemon: ReturnType<typeof api> }) {
   const t = useT();
   const [lines, setLines] = useState<LogLine[]>([]);
   const last = useRef(0);
+  const opens = useRef(daemon.opens());
   const box = useRef<HTMLPreElement>(null);
   useEffect(() => {
     let alive = true;
-    const poll = () =>
-      daemon
+    const poll = () => {
+      // the daemon began again (its numbering with it): the old lines are another run's, and the new ones start at 1
+      if (daemon.opens() !== opens.current) {
+        opens.current = daemon.opens();
+        last.current = 0;
+        setLines([]);
+      }
+      return daemon
         .logs(last.current || undefined)
         .then((fresh) => {
           if (!alive || fresh.length === 0) return;
@@ -110,6 +117,7 @@ export function LogsPanel({ daemon }: { daemon: ReturnType<typeof api> }) {
           setLines((old) => [...old, ...fresh].slice(-500));
         })
         .catch(() => undefined);
+    };
     void poll();
     const timer = window.setInterval(poll, 1500);
     return () => {

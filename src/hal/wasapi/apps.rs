@@ -15,6 +15,12 @@ use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
 };
 
+/// What `IAudioSessionControl2::IsSystemSoundsSession` answers: S_OK means "this is the system sounds session" and S_FALSE (1)
+/// means "it is not". Both are successes, so `HRESULT::is_ok()` (any value from 0 up) cannot tell them apart.
+fn is_system_sounds(answer: windows::core::HRESULT) -> bool {
+    answer == windows::Win32::Foundation::S_OK
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessEntry {
     pub pid: u32,
@@ -78,8 +84,7 @@ fn sessions() -> Result<Vec<Session>, HalError> {
             let Ok(control2) = control.cast::<IAudioSessionControl2>() else {
                 continue;
             };
-            // S_OK means "this is the system sounds session".
-            if unsafe { control2.IsSystemSoundsSession() }.is_ok() {
+            if is_system_sounds(unsafe { control2.IsSystemSoundsSession() }) {
                 continue;
             }
             let Ok(pid) = (unsafe { control2.GetProcessId() }) else {
@@ -251,5 +256,24 @@ mod tests {
     #[test]
     fn listing_apps_does_not_fail() {
         assert!(list_apps().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod system_sounds_tests {
+    use super::is_system_sounds;
+    use windows::core::HRESULT;
+
+    #[test]
+    fn only_s_ok_is_the_system_sounds_session() {
+        assert!(is_system_sounds(HRESULT(0)), "S_OK: it is");
+        assert!(
+            !is_system_sounds(HRESULT(1)),
+            "S_FALSE: it is not, though it is a success"
+        );
+        assert!(
+            !is_system_sounds(HRESULT(-2147467259)),
+            "an error is not an answer"
+        );
     }
 }

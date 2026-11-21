@@ -258,77 +258,86 @@ impl CaptureStream for VbanCapture {
         let thread = std::thread::Builder::new()
             .name("vban-receive".into())
             .spawn(move || {
-                let mut buf = vec![0u8; 2048];
-                let mut decoded: Vec<f32> = Vec::new();
-                let mut pending: Vec<f32> = Vec::new();
-                let mut stereo: Vec<f32> = Vec::new();
-                let mut out = vec![0.0f32; 4096 * 2];
-                let mut resampler = StreamResampler::new(2);
-                let mut last_rate = 0u32;
-                let mut last_counter: Option<u32> = None;
-                while !flag.load(Ordering::Relaxed) {
-                    let (n, sender) = match socket.recv_from(&mut buf) {
-                        Ok(r) => r,
-                        Err(e)
-                            if matches!(
-                                e.kind(),
-                                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                            ) =>
-                        {
-                            continue
-                        }
-                        Err(e) => {
-                            health.fail(format!("the network socket failed: {e}"));
-                            return;
-                        }
-                    };
-                    if from.is_some_and(|a| a != sender.ip()) {
-                        continue;
-                    }
-                    let Some(p) = parse(&buf[..n]) else { continue };
-                    if !name_matches(&stream, &p.stream) {
-                        continue;
-                    }
-                    // a packet that arrives late (a lower counter, not a sender that started again) is dropped
-                    if let Some(last) = last_counter {
-                        let behind = last.wrapping_sub(p.counter);
-                        if behind > 0 && behind < 1000 {
+                // a panic in this thread (the data it reads comes from outside) ends this stream, not the daemon
+                let on_panic = health.clone();
+                let outcome = omu_diagnostics::crash::contained(move || {
+                    let mut buf = vec![0u8; 2048];
+                    let mut decoded: Vec<f32> = Vec::new();
+                    let mut pending: Vec<f32> = Vec::new();
+                    let mut stereo: Vec<f32> = Vec::new();
+                    let mut out = vec![0.0f32; 4096 * 2];
+                    let mut resampler = StreamResampler::new(2);
+                    let mut last_rate = 0u32;
+                    let mut last_counter: Option<u32> = None;
+                    while !flag.load(Ordering::Relaxed) {
+                        let (n, sender) = match socket.recv_from(&mut buf) {
+                            Ok(r) => r,
+                            Err(e)
+                                if matches!(
+                                    e.kind(),
+                                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                                ) =>
+                            {
+                                continue
+                            }
+                            Err(e) if crate::datagram_too_big(&e) => continue,
+                            Err(e) => {
+                                health.fail(format!("the network socket failed: {e}"));
+                                return;
+                            }
+                        };
+                        if from.is_some_and(|a| a != sender.ip()) {
                             continue;
                         }
-                    }
-                    last_counter = Some(p.counter);
-                    samples(&p, &mut decoded);
-                    // the first two channels, as stereo (one channel is both sides)
-                    stereo.clear();
-                    for frame in decoded.chunks_exact(p.channels) {
-                        let (l, r) = (frame[0], if p.channels > 1 { frame[1] } else { frame[0] });
-                        stereo.push(l);
-                        stereo.push(r);
-                    }
-                    if p.rate != last_rate {
-                        // another rate: the old interpolation state means nothing now
-                        resampler.reset();
-                        pending.clear();
-                        last_rate = p.rate;
-                    }
-                    if p.rate == 48_000 {
-                        callback(&stereo);
-                        health.add_frames((stereo.len() / 2) as u64);
-                        continue;
-                    }
-                    pending.extend_from_slice(&stereo);
-                    let step = p.rate as f64 / 48_000.0;
-                    loop {
-                        let (used, made) = resampler.process(&pending, &mut out, step);
-                        if made > 0 {
-                            callback(&out[..made * 2]);
-                            health.add_frames(made as u64);
+                        let Some(p) = parse(&buf[..n]) else { continue };
+                        if !name_matches(&stream, &p.stream) {
+                            continue;
                         }
-                        pending.drain(..used * 2);
-                        if made < out.len() / 2 {
-                            break;
+                        // a packet that arrives late (a lower counter, not a sender that started again) is dropped
+                        if let Some(last) = last_counter {
+                            let behind = last.wrapping_sub(p.counter);
+                            if behind > 0 && behind < 1000 {
+                                continue;
+                            }
+                        }
+                        last_counter = Some(p.counter);
+                        samples(&p, &mut decoded);
+                        // the first two channels, as stereo (one channel is both sides)
+                        stereo.clear();
+                        for frame in decoded.chunks_exact(p.channels) {
+                            let (l, r) =
+                                (frame[0], if p.channels > 1 { frame[1] } else { frame[0] });
+                            stereo.push(l);
+                            stereo.push(r);
+                        }
+                        if p.rate != last_rate {
+                            // another rate: the old interpolation state means nothing now
+                            resampler.reset();
+                            pending.clear();
+                            last_rate = p.rate;
+                        }
+                        if p.rate == 48_000 {
+                            callback(&stereo);
+                            health.add_frames((stereo.len() / 2) as u64);
+                            continue;
+                        }
+                        pending.extend_from_slice(&stereo);
+                        let step = p.rate as f64 / 48_000.0;
+                        loop {
+                            let (used, made) = resampler.process(&pending, &mut out, step);
+                            if made > 0 {
+                                callback(&out[..made * 2]);
+                                health.add_frames(made as u64);
+                            }
+                            pending.drain(..used * 2);
+                            if made < out.len() / 2 {
+                                break;
+                            }
                         }
                     }
+                });
+                if outcome.is_err() {
+                    on_panic.fail("the stream stopped unexpectedly (see the logs)");
                 }
             })
             .map_err(|e| HalError::Backend(format!("cannot start the receiver: {e}")))?;
@@ -336,6 +345,28 @@ impl CaptureStream for VbanCapture {
             stop,
             thread: Some(thread),
         }))
+    }
+}
+
+/// The address of `host`, looked for for at most a few seconds: a bare computer name that nobody answers for can take half a minute to
+/// give up on Windows, and the engine opens streams while everything else waits for it.
+fn resolve(host: &str, port: u16) -> Result<SocketAddr, HalError> {
+    use std::net::ToSocketAddrs;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let name = host.to_owned();
+    std::thread::spawn(move || {
+        let found = (name.as_str(), port)
+            .to_socket_addrs()
+            .map(|mut a| a.next());
+        let _ = tx.send(found);
+    });
+    match rx.recv_timeout(Duration::from_secs(3)) {
+        Ok(Ok(Some(address))) => Ok(address),
+        Ok(Ok(None)) => Err(HalError::NotFound(format!("cannot find {host}"))),
+        Ok(Err(e)) => Err(HalError::NotFound(format!("cannot find {host}: {e}"))),
+        Err(_) => Err(HalError::NotFound(format!(
+            "cannot find {host}: no answer to the search for its address"
+        ))),
     }
 }
 
@@ -350,16 +381,11 @@ pub struct VbanRender {
 impl VbanRender {
     /// `host` is a name or an address; the sound goes to its UDP `port`.
     pub fn open(host: &str, port: u16, stream: &str) -> Result<VbanRender, HalError> {
-        use std::net::ToSocketAddrs;
         let host = host.trim();
         if host.is_empty() {
             return Err(HalError::Backend("no computer to send the sound to".into()));
         }
-        let target = (host, port)
-            .to_socket_addrs()
-            .map_err(|e| HalError::NotFound(format!("cannot find {host}: {e}")))?
-            .next()
-            .ok_or_else(|| HalError::NotFound(format!("cannot find {host}")))?;
+        let target = resolve(host, port)?;
         // sound for this very computer is sent from the loopback, which never leaves it (no firewall question either)
         let socket = UdpSocket::bind(match (target.ip().is_loopback(), target.is_ipv4()) {
             (true, true) => "127.0.0.1:0",
@@ -536,6 +562,61 @@ mod tests {
     fn send(port: u16, bytes: &[u8]) {
         let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
         socket.send_to(bytes, ("127.0.0.1", port)).unwrap();
+    }
+
+    #[test]
+    fn a_panic_while_handling_a_packet_fails_that_stream_and_not_the_program() {
+        let capture = VbanCapture::open(0, "Voice", "127.0.0.1").unwrap();
+        let (health, port) = (capture.health(), capture.port());
+        let running = Box::new(capture)
+            .start(Box::new(|_| panic!("a bug met by a strange packet")))
+            .unwrap();
+        let render = VbanRender::open("127.0.0.1", port, "Voice").unwrap();
+        let sender = Box::new(render)
+            .start(Box::new(|out| out.fill(0.25)))
+            .unwrap();
+        let end = Instant::now() + Duration::from_secs(5);
+        while !health.has_failed() && Instant::now() < end {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            health.has_failed(),
+            "the stream is reported as failed (the engine opens it again)"
+        );
+        assert!(
+            health.error().unwrap().contains("unexpectedly"),
+            "{:?}",
+            health.error()
+        );
+        drop(sender);
+        drop(running);
+    }
+
+    #[test]
+    fn a_datagram_too_big_for_the_buffer_does_not_end_the_stream() {
+        let capture = VbanCapture::open(0, "Voice", "127.0.0.1").unwrap();
+        let health = capture.health();
+        let (running, heard, port) = collect(capture);
+        // anyone who can reach the port may send this: on Windows the read that meets it is an error
+        let stranger = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        stranger
+            .send_to(&vec![0u8; 8000], ("127.0.0.1", port))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(!health.has_failed(), "{:?}", health.error());
+        // and the sound that comes next is heard
+        let render = VbanRender::open("127.0.0.1", port, "Voice").unwrap();
+        let sender = Box::new(render)
+            .start(Box::new(|out| out.fill(0.25)))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(500));
+        drop(sender);
+        drop(running);
+        assert!(!health.has_failed());
+        assert!(
+            !heard.lock().unwrap().is_empty(),
+            "the sound after the big datagram arrived"
+        );
     }
 
     #[test]

@@ -115,8 +115,8 @@ fn parse_key(lower: &str) -> Option<Key> {
         return (1..=24).contains(&n).then_some(Key::Function(n));
     }
     if let Some(n) = lower
-        .strip_prefix("num")
-        .or_else(|| lower.strip_prefix("numpad"))
+        .strip_prefix("numpad")
+        .or_else(|| lower.strip_prefix("num"))
         .and_then(|n| n.parse::<u8>().ok())
     {
         return (n <= 9).then_some(Key::Numpad(n));
@@ -179,6 +179,11 @@ mod tests {
         assert_eq!(KeyCombo::parse("a").unwrap().key, Key::Letter('A'));
         assert_eq!(KeyCombo::parse("7").unwrap().key, Key::Digit(7));
         assert_eq!(KeyCombo::parse("Num3").unwrap().key, Key::Numpad(3));
+        assert_eq!(
+            KeyCombo::parse("Numpad5").unwrap().key,
+            Key::Numpad(5),
+            "the long name works too"
+        );
         assert_eq!(KeyCombo::parse("Win+Space").unwrap().key, Key::Space);
         assert_eq!(KeyCombo::parse("F24").unwrap().key, Key::Function(24));
     }

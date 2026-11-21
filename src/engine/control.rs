@@ -537,6 +537,9 @@ impl Inner {
                 },
             );
         }
+        // what the engine's state is needed for is done: the lock is released before the commands that talk to the driver (they take
+        // as long as the driver takes, and the status and the levels wait for this lock)
+        drop(st);
         // the virtual devices that exist now are the ones the system should bring back by itself at the next start
         if let Some(provider) = &self.virtual_devices {
             provider.persist();
@@ -766,11 +769,13 @@ impl Inner {
                     .ok_or_else(|| {
                         "the DeepFilterNet module is not installed or not switched on (see the Modules panel)".to_string()
                     })?;
-                let (endpoints, worker) = omu_deepfilter::start(&model, *limit_db)?;
+                // the worker fails this when it dies, so that the block is opened again instead of staying silent
+                let health = StreamHealth::new();
+                let (endpoints, worker) = omu_deepfilter::start(&model, *limit_db, health.clone())?;
                 Ok(Resource {
                     kind: kind.clone(),
                     io: Io::Filter(endpoints),
-                    health: StreamHealth::new(),
+                    health,
                     stats: Arc::default(),
                     _running: Box::new(worker),
                 })

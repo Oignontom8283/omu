@@ -56,4 +56,7 @@ pub struct RemoteInfo {
     pub certificate_generated: bool,
     /// Why the secure server could not start.
     pub error: Option<String>,
+    /// The names and addresses the certificate is for (the pages are offered only for these).
+    #[serde(default)]
+    pub names: Vec<String>,
 }

@@ -222,13 +222,17 @@ pub async fn serve(
     daemon.on_settings(move |s| {
         wanted_tx.send_if_modified(|on| std::mem::replace(on, s.remote_access) != s.remote_access);
     });
+    let (https_stop, https_stopped) = tokio::sync::oneshot::channel();
     let https = tokio::spawn(server::serve_https(
         daemon.clone(),
         router.clone(),
         wanted_rx,
+        https_stopped,
     ));
     let result = server::run(daemon.clone(), listener, router, shutdown).await;
-    https.abort();
+    // the secure server is closed properly (it holds the daemon through its router), and not waited for beyond a moment
+    let _ = https_stop.send(());
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(3), https).await;
     tracing::info!("shutting down");
     Discovery::remove_if_mine(&opts.data_dir);
     #[cfg(feature = "tray")]

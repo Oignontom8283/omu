@@ -1,14 +1,20 @@
 //! What the daemon remembers between runs: the graph, whether it was running, and the editors' layout.
 //!
-//! Plain JSON files in the data directory, written atomically (a temporary file, then a rename) so that a crash
-//! or a power cut never leaves a half-written file. A missing or unreadable file means "nothing saved": the daemon
-//! then starts empty instead of refusing to start.
+//! Plain JSON files in the data directory, written durably (see `omu_discovery::durable`: a temporary file flushed to the disk, a
+//! backup of the version replaced, then a rename) so that a crash or a power cut never leaves a half-written file. A missing file
+//! means "nothing saved". A file that cannot be understood is set aside (`state.json.bad-...`), never written over, and the latest
+//! readable backup is used: the daemon starts with that, or empty, instead of refusing to start.
 
+use omu_discovery::durable;
 use omu_protocol::methods::Layout;
 use omu_types::GraphSpec;
 use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// How many earlier versions of the graph are kept (`state.json.bak1`...): what the user built is the most valuable thing here.
+const STATE_BACKUPS: usize = 5;
 
 /// The saved audio state.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -20,45 +26,42 @@ pub struct SavedState {
 
 pub struct Store {
     dir: PathBuf,
+    /// Writes happen one at a time, so that two saves of the same file never meet.
+    writing: Mutex<()>,
 }
 
 impl Store {
     pub fn new(dir: impl Into<PathBuf>) -> Store {
-        Store { dir: dir.into() }
+        Store {
+            dir: dir.into(),
+            writing: Mutex::new(()),
+        }
     }
 
     pub fn dir(&self) -> &Path {
         &self.dir
     }
 
-    fn read<T: for<'de> Deserialize<'de>>(&self, name: &str) -> Option<T> {
-        let text = std::fs::read_to_string(self.dir.join(name)).ok()?;
-        serde_json::from_str(&text).ok()
-    }
-
-    fn write<T: Serialize>(&self, name: &str, value: &T) -> io::Result<()> {
-        std::fs::create_dir_all(&self.dir)?;
-        let text = serde_json::to_string_pretty(value).map_err(io::Error::other)?;
-        let target = self.dir.join(name);
-        let tmp = self.dir.join(format!("{name}.tmp"));
-        std::fs::write(&tmp, text)?;
-        std::fs::rename(&tmp, &target)
+    fn write<T: Serialize>(&self, name: &str, value: &T, backups: usize) -> io::Result<()> {
+        let _one_at_a_time = self.writing.lock().unwrap_or_else(|e| e.into_inner());
+        durable::write_json(&self.dir.join(name), value, backups)
     }
 
     pub fn load_state(&self) -> SavedState {
-        self.read("state.json").unwrap_or_default()
+        durable::load_json(&self.dir.join("state.json"), STATE_BACKUPS).unwrap_or_default()
     }
 
     pub fn save_state(&self, state: &SavedState) -> io::Result<()> {
-        self.write("state.json", state)
+        self.write("state.json", state, STATE_BACKUPS)
     }
 
     pub fn load_layout(&self) -> Layout {
-        self.read("layout.json").unwrap_or_default()
+        durable::load_json(&self.dir.join("layout.json"), 0).unwrap_or_default()
     }
 
+    /// The layout changes at every move of a block: no backups of it, the file is only written safely.
     pub fn save_layout(&self, layout: &Layout) -> io::Result<()> {
-        self.write("layout.json", layout)
+        self.write("layout.json", layout, 0)
     }
 }
 
@@ -112,18 +115,53 @@ mod tests {
         assert_eq!(Store::new(&dir).load_state(), state);
         assert_eq!(Store::new(&dir).load_layout(), layout);
         assert!(
-            !dir.join("state.json.tmp").exists(),
+            std::fs::read_dir(&dir).unwrap().all(|e| !e
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .ends_with(".tmp")),
             "the temporary file is renamed away"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn a_corrupt_file_is_treated_as_nothing_saved() {
+    fn a_corrupt_file_is_set_aside_not_lost_and_the_last_good_version_is_used() {
         let dir = temp_dir("corrupt");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("state.json"), "{ not json").unwrap();
-        assert_eq!(Store::new(&dir).load_state(), SavedState::default());
+        assert_eq!(
+            Store::new(&dir).load_state(),
+            SavedState::default(),
+            "nothing else to use"
+        );
+        let aside = |dir: &Path| {
+            std::fs::read_dir(dir)
+                .unwrap()
+                .filter_map(|e| e.ok().map(|e| e.file_name().to_string_lossy().into_owned()))
+                .filter(|n| n.starts_with("state.json.bad-"))
+                .count()
+        };
+        assert_eq!(aside(&dir), 1, "the damaged file is kept for the user");
+        assert!(
+            !dir.join("state.json").exists(),
+            "and nothing is there to be written over"
+        );
+
+        // with an earlier good version, that one is used
+        let s = Store::new(&dir);
+        let first = SavedState {
+            graph: GraphSpec::default(),
+            running: true,
+        };
+        s.save_state(&first).unwrap();
+        let second = SavedState {
+            graph: GraphSpec::default(),
+            running: false,
+        };
+        s.save_state(&second).unwrap();
+        std::fs::write(dir.join("state.json"), "").unwrap(); // a power cut can leave an empty file
+        assert_eq!(Store::new(&dir).load_state(), first);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

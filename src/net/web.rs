@@ -32,6 +32,11 @@ use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc, RtcConfig}
 
 /// The longest name of a web input or output.
 pub const MAX_NAME: usize = omu_types::MAX_WEB_NAME;
+/// How long a connection may take to be established before it is given up.
+const CONNECT_WITHIN: Duration = Duration::from_secs(20);
+/// How many connections one name may have, and the hub in all: each one is a thread and a socket, and a stranger with the guest key can ask for many.
+const MAX_PER_NAME: usize = 8;
+const MAX_IN_ALL: usize = 32;
 /// How much received sound is kept for the graph to take (more is thrown away, oldest first): one second.
 const MAX_QUEUE: usize = opus::RATE as usize * opus::CHANNELS;
 
@@ -195,6 +200,11 @@ impl Hub {
             .get(name)
             .cloned()
             .ok_or_else(|| WebError::NoEndpoint(name.to_owned()))?;
+        if ingest.sessions.load(Ordering::Relaxed) >= MAX_PER_NAME {
+            return Err(WebError::Internal(format!(
+                "too many connections to {name:?} already"
+            )));
+        }
         ingest.sessions.fetch_add(1, Ordering::Relaxed);
         let result = self.start_session(offer_sdp, Role::Ingest(ingest.clone()));
         if result.is_err() {
@@ -210,6 +220,11 @@ impl Hub {
             .get(name)
             .cloned()
             .ok_or_else(|| WebError::NoEndpoint(name.to_owned()))?;
+        if lock(&egress.listeners).len() >= MAX_PER_NAME {
+            return Err(WebError::Internal(format!(
+                "too many listeners to {name:?} already"
+            )));
+        }
         // a few packets of room: a listener that falls behind loses sound instead of holding up the graph
         let (tx, rx) = mpsc::sync_channel(16);
         let result = self.start_session(offer_sdp, Role::Egress(egress.clone(), rx));
@@ -262,12 +277,16 @@ impl Hub {
             format!("{:016x}", hasher.finish())
         };
         let stop = Arc::new(AtomicBool::new(false));
-        lock(&self.registry)
-            .sessions
-            .insert(session.clone(), stop.clone());
+        {
+            let mut registry = lock(&self.registry);
+            if registry.sessions.len() >= MAX_IN_ALL {
+                return Err(WebError::Internal("too many connections already".into()));
+            }
+            registry.sessions.insert(session.clone(), stop.clone());
+        }
         let hub = self.clone();
         let id = session.clone();
-        std::thread::Builder::new()
+        let started = std::thread::Builder::new()
             .name("web-connection".into())
             .spawn(move || {
                 let mut link = Link {
@@ -276,7 +295,8 @@ impl Hub {
                     port,
                     locals,
                 };
-                drive(&mut link, &role, &stop);
+                // a panic in the WebRTC code or the codec (fed by a stranger's packets) ends this connection, not the daemon; the cleanup below still runs
+                let _ = omu_diagnostics::crash::contained(|| drive(&mut link, &role, &stop));
                 match &role {
                     Role::Ingest(ingest) => {
                         ingest.sessions.fetch_sub(1, Ordering::Relaxed);
@@ -285,7 +305,12 @@ impl Hub {
                 }
                 lock(&hub.registry).sessions.remove(&id);
             })
-            .map_err(|e| WebError::Internal(format!("cannot start a connection: {e}")))?;
+            .map_err(|e| WebError::Internal(format!("cannot start a connection: {e}")));
+        if let Err(e) = started {
+            // nothing keeps this connection: it must not stay in the list
+            lock(&self.registry).sessions.remove(&session);
+            return Err(e);
+        }
         Ok(Answer {
             sdp: answer.to_sdp_string(),
             session,
@@ -350,7 +375,13 @@ fn drive(link: &mut Link, role: &Role, stop: &AtomicBool) {
     let mut mid: Option<Mid> = None;
     let mut rtp_time: u64 = 0;
     let mut buf = vec![0u8; 2048];
+    let started = Instant::now();
+    let mut connected = false;
     loop {
+        // an offer from a peer that cannot be reached never ends by itself: it is given up after a while
+        if !connected && started.elapsed() > CONNECT_WITHIN {
+            return;
+        }
         let ended = stop.load(Ordering::Relaxed)
             || match role {
                 Role::Ingest(i) => i.stop.load(Ordering::Relaxed),
@@ -368,6 +399,7 @@ fn drive(link: &mut Link, role: &Role, stop: &AtomicBool) {
                 }
                 Ok(Output::Event(event)) => match event {
                     Event::IceConnectionStateChange(IceConnectionState::Disconnected) => return,
+                    Event::Connected => connected = true,
                     Event::MediaAdded(added) => mid = Some(added.mid),
                     Event::MediaData(data) => {
                         if let (Role::Ingest(ingest), Some(decoder)) = (role, decoder.as_mut()) {
@@ -440,6 +472,8 @@ fn drive(link: &mut Link, role: &Role, stop: &AtomicBool) {
             }
             // a UDP socket on Windows reports an earlier refused packet as an error of the next read: not the end
             Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
+            // a datagram bigger than the buffer (anyone may send one): lost, the connection goes on
+            Err(e) if crate::datagram_too_big(&e) => continue,
             Err(_) => return,
         };
         if link.rtc.handle_input(input).is_err() {

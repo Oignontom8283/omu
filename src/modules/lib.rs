@@ -96,9 +96,7 @@ fn known(id: &str) -> Result<&'static str, String> {
 
 impl Modules {
     pub fn new(data_dir: &std::path::Path) -> Modules {
-        let saved = std::fs::read_to_string(data_dir.join("modules.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
+        let saved = omu_discovery::durable::load_json(&data_dir.join("modules.json"), 1)
             .unwrap_or_default();
         Modules {
             data_dir: data_dir.to_owned(),
@@ -168,11 +166,7 @@ impl Modules {
     }
 
     fn save(&self, saved: &Saved) {
-        let text = serde_json::to_string_pretty(saved).unwrap_or_default();
-        let tmp = self.data_dir.join("modules.json.part");
-        if std::fs::create_dir_all(&self.data_dir)
-            .and_then(|_| std::fs::write(&tmp, text))
-            .and_then(|_| std::fs::rename(&tmp, self.data_dir.join("modules.json")))
+        if omu_discovery::durable::write_json(&self.data_dir.join("modules.json"), saved, 1)
             .is_err()
         {
             tracing::warn!("cannot save which modules are switched on");

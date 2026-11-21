@@ -17,6 +17,7 @@ str0m = { version = "0.25", default-features = false, features = ["rust-crypto"]
 unsafe-libopus = "0.2"
 if-addrs = "0.13"
 thiserror = "2.0"
+omu-diagnostics = { path = "../diagnostics" }
 omu-dsp = { path = "../dsp" }
 omu-hal = { path = "../hal" }
 omu-types = { path = "../types" }

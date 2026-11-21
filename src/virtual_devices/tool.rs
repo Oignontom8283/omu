@@ -114,6 +114,69 @@ impl UsbipExe {
     }
 }
 
+/// How long a `usbip.exe` command may take. The driver can be busy or being reloaded, and the command then never returns; the engine asks
+/// for these commands while it holds what everything else waits for, so a command that hangs must not be waited for.
+const WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Runs `command` and collects what it says, but gives up on a program that is not finished after `limit`: it is killed.
+fn run(
+    mut command: std::process::Command,
+    limit: std::time::Duration,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn()?;
+    // read as it writes, so that a program that says a lot is never stuck on a full pipe
+    let reader = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut text = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut text);
+            }
+            text
+        })
+    };
+    let out = reader(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let err = reader(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let end = std::time::Instant::now() + limit;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= end {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!(
+                    "it did not finish in {} seconds and was stopped",
+                    limit.as_secs()
+                ),
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: out.join().unwrap_or_default(),
+        stderr: err.join().unwrap_or_default(),
+    })
+}
+
 const MISSING: &str =
     "the USB/IP client (usbip-win2) is not installed: virtual microphones need it \
 (https://github.com/vadimgrn/usbip-win2/releases)";
@@ -131,7 +194,8 @@ impl UsbipTool for UsbipExe {
 
     fn attach(&self, server_port: u16, busid: &str) -> Result<u32, String> {
         let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
-        let output = Self::command(&path)
+        let mut command = Self::command(&path);
+        command
             .args([
                 "--tcp-port",
                 &server_port.to_string(),
@@ -141,9 +205,9 @@ impl UsbipTool for UsbipExe {
                 "--bus-id",
                 busid,
             ])
-            .args(["--once", "--terse"])
-            .output()
-            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+            .args(["--once", "--terse"]);
+        let output =
+            run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
         if !output.status.success() {
             return Err(format!(
                 "usbip attach failed: {}{}",
@@ -159,10 +223,11 @@ impl UsbipTool for UsbipExe {
 
     fn detach(&self, port: u32) -> Result<(), String> {
         let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
-        let status = Self::command(&path)
-            .args(["detach", "--port", &port.to_string()])
-            .status()
-            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        let mut command = Self::command(&path);
+        command.args(["detach", "--port", &port.to_string()]);
+        let status = run(command, WAIT)
+            .map_err(|e| format!("could not run {}: {e}", path.display()))?
+            .status;
         status
             .success()
             .then_some(())
@@ -171,10 +236,10 @@ impl UsbipTool for UsbipExe {
 
     fn imported(&self) -> Result<Vec<Imported>, String> {
         let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
-        let output = Self::command(&path)
-            .arg("port")
-            .output()
-            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        let mut command = Self::command(&path);
+        command.arg("port");
+        let output =
+            run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
         Ok(parse_imported(&String::from_utf8_lossy(&output.stdout)))
     }
 
@@ -187,11 +252,12 @@ impl UsbipTool for UsbipExe {
             );
         }
         let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
-        let output = Self::command(&path)
+        let mut command = Self::command(&path);
+        command
             .args(["port", "--stash"])
-            .args(ports.iter().map(|p| p.to_string()))
-            .output()
-            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+            .args(ports.iter().map(|p| p.to_string()));
+        let output =
+            run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
         output.status.success().then_some(()).ok_or_else(|| {
             format!(
                 "usbip port --stash failed: {}{}",
@@ -203,10 +269,10 @@ impl UsbipTool for UsbipExe {
 
     fn stashed(&self) -> Result<Vec<String>, String> {
         let path = Self::locate().ok_or_else(|| MISSING.to_string())?;
-        let output = Self::command(&path)
-            .args(["list", "--stashed"])
-            .output()
-            .map_err(|e| format!("could not run {}: {e}", path.display()))?;
+        let mut command = Self::command(&path);
+        command.args(["list", "--stashed"]);
+        let output =
+            run(command, WAIT).map_err(|e| format!("could not run {}: {e}", path.display()))?;
         Ok(String::from_utf8_lossy(&output.stdout)
             .lines()
             .map(str::trim)
@@ -311,5 +377,30 @@ Port 02: device in use at Full Speed(12Mbps)
 "
         )
         .is_empty());
+    }
+}
+
+#[cfg(all(test, windows))]
+mod run_tests {
+    use super::run;
+    use std::time::{Duration, Instant};
+
+    fn cmd(script: &str) -> std::process::Command {
+        let mut c = std::process::Command::new("cmd");
+        c.args(["/C", script]);
+        c
+    }
+
+    #[test]
+    fn a_program_is_read_to_its_end_and_one_that_hangs_is_stopped_instead_of_waited_for() {
+        let out = run(cmd("echo hello"), Duration::from_secs(10)).unwrap();
+        assert!(out.status.success() && String::from_utf8_lossy(&out.stdout).contains("hello"));
+        let started = Instant::now();
+        let e = run(cmd("ping -n 30 127.0.0.1 >nul"), Duration::from_millis(400)).unwrap_err();
+        assert_eq!(e.kind(), std::io::ErrorKind::TimedOut, "{e}");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "not waited for the whole of it"
+        );
     }
 }

@@ -207,6 +207,10 @@ pub fn ca_bundle(trust: &Trust, path: &Path) -> Result<bool, Error> {
         std::fs::create_dir_all(dir)
             .map_err(|e| Error::Server(format!("cannot create {}: {e}", dir.display())))?;
     }
+    // written only when it changed: it is asked for every time a stream block opens
+    if std::fs::read_to_string(path).is_ok_and(|old| old == text) {
+        return Ok(true);
+    }
     std::fs::write(path, text)
         .map_err(|e| Error::Server(format!("cannot write {}: {e}", path.display())))?;
     Ok(true)

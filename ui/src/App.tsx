@@ -46,6 +46,7 @@ import {
   categoryOf,
   defaultKind,
   baseHandle,
+  portsOf,
   edgeId,
   flowOfEdge,
   fromFlow,
@@ -155,6 +156,10 @@ export function App() {
   edgesRef.current = edges;
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
+  const appliedRef = useRef(applied);
+  appliedRef.current = applied;
+  // true while this panel's own apply is under way (and a moment after): the daemon's "graph changed" is then this panel's doing
+  const applying = useRef(false);
 
   // Saves where the blocks are and how their links are laid out, a moment after the last change (what is saved is read
   // when the moment comes, so a change made in between is included).
@@ -197,16 +202,25 @@ export function App() {
     daemon.staleDevices().then(setStale).catch(() => setStale(null));
   }, [daemon]);
 
-  const load = useCallback(async () => {
-    history.current.reset();
+  // Reads what the daemon knows. `keepEdits`: the connection came back while the person was editing (the daemon restarted, the
+  // network blinked): their unapplied changes stay, and only what is compared with them (the graph the daemon runs) is refreshed.
+  const load = useCallback(async (keepEdits = false) => {
     try {
-      const [i, g, layout, a, d, lib] = await Promise.all([daemon.systemInfo(), daemon.graphGet(), daemon.layoutGet(), daemon.apps(), daemon.devices(), daemon.soundboards()]);
-      setInfo(i);
-      setLibrary(lib);
-      setApps(a);
-      setDevices(d);
-      show(g, layout);
-      setProblems([]);
+      // the graph is what the screen is for; the rest (applications, devices...) may fail without hiding it
+      const [g, layout] = await Promise.all([daemon.graphGet(), daemon.layoutGet()]);
+      const [i, a, d, lib] = await Promise.allSettled([daemon.systemInfo(), daemon.apps(), daemon.devices(), daemon.soundboards()]);
+      if (i.status === 'fulfilled') setInfo(i.value);
+      if (lib.status === 'fulfilled') setLibrary(lib.value);
+      if (a.status === 'fulfilled') setApps(a.value);
+      if (d.status === 'fulfilled') setDevices(d.value);
+      if (keepEdits && dirtyRef.current) {
+        if (canonical(g) !== canonical(appliedRef.current)) setNotice('app.changedElsewhere');
+        setApplied(g);
+      } else {
+        history.current.reset();
+        show(g, layout);
+        setProblems([]);
+      }
       refreshStale();
       // the first time only: changes left unapplied by the last session are offered back
       if (firstLoad.current) {
@@ -225,11 +239,14 @@ export function App() {
   useEffect(() => {
     const offState = rpc.onState((c) => {
       setConn(c);
-      if (c === 'open') void load();
+      if (c === 'open') void load(true);
     });
     const offEvent = rpc.onEvent((method, params) => {
       if (method === EVENT_STATUS) setStatus(params as EngineStatus);
+      // something went wrong that is not the failure of a request (the graph runs but its file could not be written...)
+      if (method === 'daemon.warning') setNotice((params as { message?: string }).message ?? null);
       if (method === EVENT_GRAPH) {
+        if (applying.current) return;
         if (dirtyRef.current) setNotice('app.changedElsewhere');
         else void daemon.graphGet().then((g) => daemon.layoutGet().then((l) => show(g, l)));
       }
@@ -262,6 +279,7 @@ export function App() {
   const apply = async () => {
     setBusy(true);
     setNotice(null);
+    applying.current = true;
     try {
       await daemon.graphSet(graph);
       setApplied(graph);
@@ -278,6 +296,7 @@ export function App() {
       if (e instanceof RpcError && e.diagnostics.length) setDiagnostics(e.diagnostics);
     } finally {
       setBusy(false);
+      window.setTimeout(() => (applying.current = false), 1500);
     }
   };
 
@@ -534,6 +553,8 @@ export function App() {
       const alwaysOn = id.startsWith('palette.open') || id === 'search.blocks' || id.startsWith('dock.');
       if (typing && !alwaysOn) return;
       if (!alwaysOn && tab !== 'nodes') return;
+      // some text is selected (in the log, the problems, a help window...): the browser copies and selects it, the graph keeps out of it
+      if ((id === 'edit.copy' || id === 'edit.selectAll') && (window.getSelection()?.toString() ?? '') !== '') return;
       e.preventDefault();
       run(id);
     };
@@ -568,7 +589,12 @@ export function App() {
         setCalibrations((list) => [...list.filter((c) => c.node !== id), list.find((c) => c.node === id) ?? { node: id, x: Math.max(4, Math.min(window.innerWidth - 420, anchor.x)), y: Math.max(4, Math.min(window.innerHeight - 320, anchor.y)) }]),
       removeNode: (id: string) => void flow.deleteElements({ nodes: [{ id }] }),
       // the values typed in a block go with it, but only for the inputs it still has
-      update: (id: string, kind: NodeKind) => setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: prunedInputs({ id, ...named(n.data.spec), ...kind } as NodeSpec) } } : n))),
+      update: (id: string, kind: NodeKind) => {
+        setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: prunedInputs({ id, ...named(n.data.spec), ...kind } as NodeSpec) } } : n)));
+        // the links to a point the block no longer has (the pads of another soundboard...) would stay, unseen, and fail the check
+        const points = new Set(portsOf(kind).map((p) => p.name));
+        setEdges((list) => list.filter((e) => !(e.target === id && !points.has(baseHandle(e.targetHandle ?? ''))) && !(e.source === id && !points.has(baseHandle(e.sourceHandle ?? '')))));
+      },
       setInput: (id: string, port: string, value: InputValue) =>
         setNodes((list) => list.map((n) => (n.id === id ? { ...n, data: { ...n.data, spec: { ...n.data.spec, inputs: { ...n.data.spec.inputs, [port]: value } } as NodeSpec } } : n))),
       setInputs: (id: string, count: number) => {

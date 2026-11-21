@@ -16,6 +16,7 @@ deepfilter = []
 [dependencies]
 omu-audiofile = { path = "../audiofile" }
 omu-diagnostics = { path = "../diagnostics" }
+omu-discovery = { path = "../discovery" }
 omu-tls = { path = "../tls" }
 omu-types = { path = "../types" }
 serde = { version = "1.0", features = ["derive"] }

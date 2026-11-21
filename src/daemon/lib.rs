@@ -55,6 +55,14 @@ pub struct Daemon {
     sounds: Arc<omu_soundboard::SoundEngine>,
     /// The names of the web inputs and outputs, and the connections to them.
     web: omu_net::web::Hub,
+    /// What changes the running graph (apply, start, stop, restore) takes one at a time, from the engine to the file and the shortcuts:
+    /// the engine, the saved state and the pad shortcuts then always describe the same graph. Taken before `state`, never after.
+    ops: Mutex<()>,
+    /// When the saved graph was started again at launch, and how long the daemon must then live for that to count as having worked.
+    restoring: Mutex<Option<std::time::Instant>>,
+    restore_settles: std::time::Duration,
+    /// Saving the layout: one at a time, so that what is on the disk is what the memory holds.
+    layout_gate: Mutex<()>,
     /// What the secure server says about itself (written by the task that runs it).
     remote: Mutex<omu_types::RemoteInfo>,
     /// The key a page on another device carries: it only allows the web sound routes.
@@ -101,8 +109,21 @@ fn params<M: Method>(value: Value) -> Result<M::Params, RpcError> {
     serde_json::from_value(value).map_err(|e| RpcError::invalid_params(format!("{}: {e}", M::NAME)))
 }
 
+/// The file that says the saved graph is being started again (see `Daemon::restore`).
+const RESTORING_MARKER: &str = "restoring";
+
+/// The event that tells the clients about something that went wrong without being the failure of a request.
+pub const EVENT_WARNING: &str = "daemon.warning";
+
 fn result<T: serde::Serialize>(v: T) -> Result<Value, RpcError> {
     serde_json::to_value(v).map_err(|e| RpcError::internal(e.to_string()))
+}
+
+impl Drop for Daemon {
+    /// A daemon that ends properly was not brought down by the graph it restored: the next start may restore it again.
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(self.store.dir().join(RESTORING_MARKER));
+    }
 }
 
 impl Daemon {
@@ -140,6 +161,10 @@ impl Daemon {
             elevator: Arc::new(omu_desktop::elevation::SystemElevator),
             sounds,
             web,
+            ops: Mutex::new(()),
+            restoring: Mutex::new(None),
+            restore_settles: std::time::Duration::from_secs(30),
+            layout_gate: Mutex::new(()),
             remote: Mutex::default(),
             guest_token: Mutex::default(),
             pad_hotkeys: Default::default(),
@@ -197,6 +222,8 @@ impl Daemon {
                     n.parse::<std::net::IpAddr>()
                         .is_ok_and(|ip| ip.is_ipv4() && !ip.is_loopback())
                 })
+                // a network joined since the certificate was made: its address is not in it, and a browser would refuse the page
+                .filter(|n| info.names.is_empty() || info.names.contains(n))
                 .map(|ip| format!("https://{ip}:{}/remote.html#token={key}", info.port))
                 .collect();
             if info.urls.is_empty() {
@@ -237,8 +264,22 @@ impl Daemon {
 
     /// Starts again what was running when the daemon last stopped.
     pub fn restore(&self) {
+        let _ops = lock(&self.ops);
         let saved = lock(&self.state).saved.clone();
+        // A graph that brings the daemon down as soon as it runs would bring it down again at every start (and at every logon, with the
+        // startup entry). The file `restoring` is written before the graph is started again and removed once the daemon has lived long
+        // enough, or ends properly: finding it means the last restore did not survive, so this time the graph is kept but not started.
+        let marker = self.store.dir().join(RESTORING_MARKER);
+        if saved.running && marker.exists() {
+            let _ = std::fs::remove_file(&marker);
+            tracing::warn!("the daemon did not survive starting the saved graph last time: it is kept, but not started again by itself");
+            self.warn("The last start with the saved graph did not go well, so the graph was not started again by itself. Start it when you are ready.".into());
+            return;
+        }
         if saved.running {
+            let _ = std::fs::create_dir_all(self.store.dir());
+            let _ = std::fs::write(&marker, b"");
+            *lock(&self.restoring) = Some(std::time::Instant::now());
             match validate(&saved.graph) {
                 Ok(valid) => {
                     tracing::info!("restoring the graph that was running at the last stop");
@@ -254,6 +295,20 @@ impl Daemon {
 
     /// From now on the startup list follows the setting "start at logon" (and is made to match it now).
     pub fn manage_autostart(&self) {
+        // a daemon with another data folder (a test, a second set of settings) must not rewrite or remove the entry of the real one
+        let same = |a: &std::path::Path, b: &std::path::Path| match (
+            std::fs::canonicalize(a),
+            std::fs::canonicalize(b),
+        ) {
+            (Ok(a), Ok(b)) => a == b,
+            _ => false,
+        };
+        if !same(self.store.dir(), &omu_discovery::data_dir()) {
+            tracing::info!(
+                "another data folder than the usual one: the startup list is left as it is"
+            );
+            return;
+        }
         self.manages_autostart
             .store(true, std::sync::atomic::Ordering::Relaxed);
         let enabled = self.sounds.settings().start_at_logon;
@@ -287,6 +342,14 @@ impl Daemon {
     /// Reads the engine's status (consuming the level meters, so only this method may do it), caches it for
     /// `engine.status` and publishes it. Called about four times a second by the server's timer.
     pub fn tick(&self) -> EngineStatus {
+        // the graph started again at launch has been running long enough: that start worked
+        {
+            let mut restoring = lock(&self.restoring);
+            if restoring.is_some_and(|at| at.elapsed() >= self.restore_settles) {
+                *restoring = None;
+                let _ = std::fs::remove_file(self.store.dir().join(RESTORING_MARKER));
+            }
+        }
         let status = self.engine.status();
         lock(&self.state).status = status.clone();
         if let Ok(v) = serde_json::to_value(&status) {
@@ -495,6 +558,10 @@ impl Daemon {
             m::RemoteInfoMethod::NAME => result(self.remote_info()),
             m::SettingsSet::NAME => {
                 let settings = params::<m::SettingsSet>(p)?;
+                // saved first: the startup list then follows what is saved, never the other way round
+                self.sounds
+                    .set_settings(settings.clone())
+                    .map_err(RpcError::internal)?;
                 if self
                     .manages_autostart
                     .load(std::sync::atomic::Ordering::Relaxed)
@@ -502,9 +569,6 @@ impl Daemon {
                     self.apply_autostart(settings.start_at_logon)
                         .map_err(RpcError::internal)?;
                 }
-                self.sounds
-                    .set_settings(settings.clone())
-                    .map_err(RpcError::internal)?;
                 self.sounds.modules().set_trust(self.trust());
                 for l in lock(&self.settings_listeners).iter() {
                     l(&settings);
@@ -552,12 +616,20 @@ impl Daemon {
             }
             m::EngineStop::NAME => {
                 tracing::info!("engine stop requested");
+                let _ops = lock(&self.ops);
                 self.engine.stop();
-                let mut st = lock(&self.state);
-                st.saved.running = false;
-                let _ = self.store.save_state(&st.saved);
-                st.status = EngineStatus::default();
-                drop(st);
+                let saved = {
+                    let mut st = lock(&self.state);
+                    st.saved.running = false;
+                    st.status = EngineStatus::default();
+                    st.saved.clone()
+                };
+                // the disk is written without holding what the status tick needs
+                if let Err(e) = self.store.save_state(&saved) {
+                    self.warn(format!(
+                        "the engine stopped but that could not be saved: {e}"
+                    ));
+                }
                 self.sync_pad_hotkeys();
                 result(())
             }
@@ -581,11 +653,11 @@ impl Daemon {
             m::LayoutGet::NAME => result(lock(&self.state).layout.clone()),
             m::LayoutSet::NAME => {
                 let layout = params::<m::LayoutSet>(p)?;
-                let mut st = lock(&self.state);
+                let _gate = lock(&self.layout_gate);
                 self.store
                     .save_layout(&layout)
                     .map_err(|e| RpcError::internal(format!("cannot save the layout: {e}")))?;
-                st.layout = layout;
+                lock(&self.state).layout = layout;
                 result(())
             }
             other => Err(RpcError::method_not_found(other)),
@@ -765,7 +837,19 @@ impl Daemon {
         problems
     }
 
+    /// Tells the clients something that went wrong without being a failure of what they asked (the graph runs, but its file could not
+    /// be written...).
+    fn warn(&self, message: String) {
+        tracing::warn!("{message}");
+        self.publish(EVENT_WARNING, serde_json::json!({ "message": message }));
+    }
+
     fn set_graph(&self, graph: GraphSpec) -> Result<(), RpcError> {
+        let _ops = lock(&self.ops);
+        self.set_graph_locked(graph)
+    }
+
+    fn set_graph_locked(&self, graph: GraphSpec) -> Result<(), RpcError> {
         let diagnostics = self.problems(&graph);
         let errors: Vec<&Diagnostic> = diagnostics
             .iter()
@@ -793,22 +877,19 @@ impl Daemon {
         let valid = validate(&graph)
             .map_err(|_| RpcError::internal("the graph changed under validation"))?;
         self.engine.apply(valid);
-        {
-            let mut st = lock(&self.state);
-            st.saved = SavedState {
-                graph: graph.clone(),
-                running: true,
-            };
-            if let Err(e) = self.store.save_state(&st.saved) {
-                // The graph is running; only its persistence failed. Report it without undoing anything.
-                return Err(RpcError::internal(format!(
-                    "the graph runs but could not be saved: {e}"
-                )));
-            }
-        }
+        let saved = SavedState {
+            graph: graph.clone(),
+            running: true,
+        };
+        lock(&self.state).saved = saved.clone();
+        let written = self.store.save_state(&saved);
+        // the graph runs whether or not its file could be written: its shortcuts and the news of it do not wait for the disk's answer
         self.sync_pad_hotkeys();
         if let Ok(v) = serde_json::to_value(&graph) {
             self.publish(EVENT_GRAPH, v);
+        }
+        if let Err(e) = written {
+            self.warn(format!("the graph runs but could not be saved: {e}"));
         }
         Ok(())
     }
@@ -988,6 +1069,103 @@ mod tests {
         assert!(ok.ok);
     }
 
+    /// Many clients at once (the panel, the command line, the notification-area menu): whatever the order, the engine, the saved state
+    /// and the graph the daemon reports describe the same thing at the end, and nothing waits for ever.
+    #[test]
+    fn applying_starting_and_stopping_from_many_threads_leaves_the_engine_and_the_saved_state_in_agreement(
+    ) {
+        let sim = SimBackend::new();
+        sim.add_app(1, "a.exe", SimSource::tone(1000.0));
+        let dir = temp_dir("concurrent");
+        let d = Arc::new(daemon_in(&dir, &sim));
+        let a = chain();
+        let mut b = chain();
+        b.nodes.retain(|n| n.id.0 != "mic"); // a second, different graph: only the application
+        b.edges.clear();
+        let (graph_a, graph_b) = (
+            serde_json::to_value(&a).unwrap(),
+            serde_json::to_value(&b).unwrap(),
+        );
+
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        for t in 0..4u32 {
+            let (d, done_tx) = (d.clone(), done_tx.clone());
+            let (graph_a, graph_b) = (graph_a.clone(), graph_b.clone());
+            std::thread::spawn(move || {
+                for i in 0..25u32 {
+                    // a mix that differs from thread to thread, without a random number generator
+                    match (t * 7 + i * 3) % 6 {
+                        0 => drop(call(&d, "graph.set", graph_a.clone())),
+                        1 => drop(call(&d, "graph.set", graph_b.clone())),
+                        2 => drop(call(&d, "engine.stop", Value::Null)),
+                        3 => drop(call(&d, "engine.start", Value::Null)),
+                        4 => drop(call(&d, "layout.set", json!({}))),
+                        _ => drop((call(&d, "graph.get", Value::Null), d.tick())),
+                    }
+                }
+                let _ = done_tx.send(());
+            });
+        }
+        drop(done_tx);
+        for _ in 0..4 {
+            done_rx
+                .recv_timeout(Duration::from_secs(60))
+                .expect("no deadlock: every thread finishes");
+        }
+
+        let status = d.tick();
+        let saved = Store::new(&dir).load_state();
+        let reported: GraphSpec =
+            serde_json::from_value(call(&d, "graph.get", Value::Null).result.unwrap()).unwrap();
+        assert_eq!(
+            saved.graph, reported,
+            "the file holds the graph the daemon reports"
+        );
+        assert_eq!(
+            saved.running, status.running,
+            "the file says what the engine does"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The graph runs even when its file cannot be written: the answer is a success, the shortcuts and the news of the graph follow, and
+    /// the clients are warned.
+    #[test]
+    fn a_graph_that_runs_but_cannot_be_saved_is_still_applied_and_announced_with_a_warning() {
+        let sim = SimBackend::new();
+        sim.add_app(1, "a.exe", SimSource::tone(1000.0));
+        let dir = temp_dir("unsaveable");
+        std::fs::create_dir_all(dir.join("state.json")).unwrap(); // a folder where the file must go: the save cannot succeed
+        let d = daemon_in(&dir, &sim);
+        let events = Arc::new(Mutex::new(vec![]));
+        let e2 = events.clone();
+        d.on_event(Box::new(move |n| {
+            e2.lock()
+                .unwrap()
+                .push((n.method.clone(), n.params.clone()))
+        }));
+
+        let r = call(&d, "graph.set", serde_json::to_value(chain()).unwrap());
+        assert!(r.error.is_none(), "{:?}", r.error);
+        std::thread::sleep(Duration::from_millis(500));
+        let status = d.tick();
+        assert!(status.running, "the graph runs");
+        let seen = events.lock().unwrap().clone();
+        assert!(
+            seen.iter().any(|(m, _)| m == EVENT_GRAPH),
+            "the clients are told the graph changed"
+        );
+        let warning = seen
+            .iter()
+            .find(|(m, _)| m == EVENT_WARNING)
+            .expect("and warned that it was not saved");
+        assert!(
+            warning.1.to_string().contains("could not be saved"),
+            "{warning:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn applying_a_graph_runs_it_reports_status_and_publishes_events() {
         let sim = SimBackend::new();
@@ -1027,6 +1205,64 @@ mod tests {
             serde_json::from_value(call(&d, "engine.status", Value::Null).result.unwrap()).unwrap();
         assert!(!st.running);
         drop(d);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_graph_that_took_the_daemon_down_at_its_last_start_is_kept_but_not_started_again_by_itself_once(
+    ) {
+        let sim = SimBackend::new();
+        sim.add_app(1, "a.exe", SimSource::tone(1000.0));
+        let dir = temp_dir("restoring");
+        {
+            let d = daemon_in(&dir, &sim);
+            assert!(
+                call(&d, "graph.set", serde_json::to_value(chain()).unwrap())
+                    .error
+                    .is_none()
+            );
+        }
+        // a start that ended properly leaves nothing behind: the graph comes back
+        {
+            let d = daemon_in(&dir, &sim);
+            d.restore();
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(d.tick().running);
+            assert!(
+                dir.join("restoring").exists(),
+                "while it has not lived long enough, the restore is marked"
+            );
+        }
+        assert!(
+            !dir.join("restoring").exists(),
+            "ending properly takes the mark away"
+        );
+        // a start that was cut short (crash, kill) leaves the mark: the next one keeps the graph and does not start it
+        std::fs::write(dir.join("restoring"), b"").unwrap();
+        {
+            let d = daemon_in(&dir, &sim);
+            d.restore();
+            std::thread::sleep(Duration::from_millis(200));
+            assert!(!d.tick().running, "not started again by itself");
+            let got: GraphSpec =
+                serde_json::from_value(call(&d, "graph.get", Value::Null).result.unwrap()).unwrap();
+            assert_eq!(got, chain(), "but kept");
+        }
+        // and only once: the one after that restores again
+        {
+            let d = daemon_in(&dir, &sim);
+            d.restore();
+            std::thread::sleep(Duration::from_millis(300));
+            assert!(d.tick().running);
+        }
+        // living long enough counts as having worked
+        {
+            let mut d = daemon_in(&dir, &sim);
+            d.restore_settles = Duration::ZERO;
+            d.restore();
+            d.tick();
+            assert!(!dir.join("restoring").exists());
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
