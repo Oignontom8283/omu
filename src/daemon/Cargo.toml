@@ -24,6 +24,7 @@ omu-discovery = { path = "../discovery" }
 omu-engine = { path = "../engine" }
 omu-graph = { path = "../graph" }
 omu-hal = { path = "../hal" }
+omu-net = { path = "../net" }
 omu-protocol = { path = "../protocol" }
 omu-soundboard = { path = "../soundboard" }
 omu-tls = { path = "../tls" }

@@ -4,6 +4,8 @@
 //! * `GET  /ws`    a WebSocket carrying JSON-RPC both ways, plus the events the daemon pushes;
 //! * `POST /sounds?name=<file name>` the bytes of a sound file in the body (what a browser can send); it is
 //!   imported like `sounds.import` and the reply is the sound's description;
+//! * `POST /whip/<name>` and `POST /whep/<name>` a WebRTC offer (SDP) in the body, the answer in the reply: a browser or a
+//!   program sends sound to a web input (WHIP) or listens to a web output (WHEP); `DELETE` on the address the reply gives ends it;
 //! * `GET  /health` answers `ok` without credentials (is a daemon there?);
 //! * everything else: the web panel's static files.
 //!
@@ -13,10 +15,10 @@
 use super::{auth, web, Daemon};
 use axum::body::Bytes;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post};
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
 use omu_protocol::{Response as RpcResponse, RpcError};
@@ -65,6 +67,10 @@ pub async fn bind(
         .route("/rpc", post(rpc))
         .route("/ws", get(ws))
         .route("/sounds", post(upload))
+        .route("/whip/{name}", post(whip))
+        .route("/whip/{name}/{session}", delete(end_connection))
+        .route("/whep/{name}", post(whep))
+        .route("/whep/{name}/{session}", delete(end_connection))
         .fallback(|uri: Uri| async move { web::serve(&uri) })
         .with_state(state);
     Ok((listener, router))
@@ -128,6 +134,99 @@ fn refuse(state: &AppState, headers: &HeaderMap, query: Option<&str>) -> Option<
 
 fn unauthorized_body() -> String {
     serde_json::to_string(&RpcResponse::err(None, RpcError::unauthorized())).unwrap_or_default()
+}
+
+/// A sender (a browser, OBS...) connects to a web input.
+async fn whip(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: Uri,
+    Path(name): Path<String>,
+    offer: String,
+) -> Response {
+    signal(state, headers, uri, name, offer, true).await
+}
+
+/// A listener connects to a web output.
+async fn whep(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: Uri,
+    Path(name): Path<String>,
+    offer: String,
+) -> Response {
+    signal(state, headers, uri, name, offer, false).await
+}
+
+/// Hands a WebRTC offer to the hub and returns its answer: `201 Created`, the answer as `application/sdp`, and the address
+/// that ends the connection in `Location` (what WHIP and WHEP ask for).
+async fn signal(
+    state: AppState,
+    headers: HeaderMap,
+    uri: Uri,
+    name: String,
+    offer: String,
+    sending: bool,
+) -> Response {
+    if let Some(r) = refuse(&state, &headers, uri.query()) {
+        return r;
+    }
+    let hub = state.daemon.web().clone();
+    let kind = if sending { "whip" } else { "whep" };
+    let wanted = name.clone();
+    // opening the sockets of a connection takes a moment: not on the thread that serves the others
+    let answered = tokio::task::spawn_blocking(move || {
+        if sending {
+            hub.whip(&wanted, &offer)
+        } else {
+            hub.whep(&wanted, &offer)
+        }
+    })
+    .await;
+    use omu_net::web::WebError;
+    match answered {
+        Ok(Ok(answer)) => (
+            StatusCode::CREATED,
+            [
+                (header::CONTENT_TYPE, "application/sdp".to_owned()),
+                (
+                    header::LOCATION,
+                    format!("/{kind}/{name}/{}", answer.session),
+                ),
+                (header::ACCESS_CONTROL_EXPOSE_HEADERS, "Location".to_owned()),
+            ],
+            answer.sdp,
+        )
+            .into_response(),
+        Ok(Err(e @ WebError::NoEndpoint(_))) => {
+            (StatusCode::NOT_FOUND, e.to_string()).into_response()
+        }
+        Ok(Err(e @ WebError::BadOffer(_))) => {
+            (StatusCode::BAD_REQUEST, e.to_string()).into_response()
+        }
+        Ok(Err(e @ WebError::Internal(_))) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()).into_response()
+        }
+        Err(_) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "the connection could not be made",
+        )
+            .into_response(),
+    }
+}
+
+/// Ends a connection (the address a WHIP or WHEP reply gave).
+async fn end_connection(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    uri: Uri,
+    Path((_, session)): Path<(String, String)>,
+) -> Response {
+    if let Some(r) = refuse(&state, &headers, uri.query()) {
+        return r;
+    }
+    state.daemon.web().close_session(&session);
+    StatusCode::NO_CONTENT.into_response()
 }
 
 /// The most a sound upload may be: what a stored sound can hold (a WAV file's size is 32 bits).

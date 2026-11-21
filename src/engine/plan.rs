@@ -213,7 +213,7 @@ impl Port {
             "else" => Port::Else,
             "host" => Port::Net(0),
             "port" => Port::Net(1),
-            "stream" => Port::Net(2),
+            "stream" | "name" => Port::Net(2),
             "from" => Port::Net(3),
             "template" => Port::Template,
             "when" => Port::When(0),

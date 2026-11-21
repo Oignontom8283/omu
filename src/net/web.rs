@@ -31,18 +31,11 @@ use str0m::net::{Protocol, Receive};
 use str0m::{Candidate, Event, IceConnectionState, Input, Output, Rtc, RtcConfig};
 
 /// The longest name of a web input or output.
-pub const MAX_NAME: usize = 32;
+pub const MAX_NAME: usize = omu_types::MAX_WEB_NAME;
 /// How much received sound is kept for the graph to take (more is thrown away, oldest first): one second.
 const MAX_QUEUE: usize = opus::RATE as usize * opus::CHANNELS;
 
-/// A name that goes in an address: letters, digits, `-` and `_`.
-pub fn valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= MAX_NAME
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-}
+pub use omu_types::is_web_name as valid_name;
 
 #[derive(Debug, thiserror::Error)]
 pub enum WebError {

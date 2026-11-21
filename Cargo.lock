@@ -3614,6 +3614,7 @@ dependencies = [
  "omu-graph",
  "omu-hal",
  "omu-modules",
+ "omu-net",
  "omu-protocol",
  "omu-soundboard",
  "omu-tls",

@@ -8,6 +8,6 @@
 //! VBAN is meant for a local network: it carries no encryption and no authentication beyond a stream name, which is
 //! why a receiving block can be told which computer it accepts sound from.
 
-pub mod vban;
 pub mod opus;
+pub mod vban;
 pub mod web;

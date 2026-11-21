@@ -454,6 +454,8 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
     let mut speaker_names: HashMap<String, &NodeId> = HashMap::new();
     let mut shortcuts: HashMap<String, &NodeId> = HashMap::new();
     let mut listen_ports: HashMap<u16, &NodeId> = HashMap::new();
+    let mut web_inputs: HashMap<&str, &NodeId> = HashMap::new();
+    let mut web_outputs: HashMap<&str, &NodeId> = HashMap::new();
     for node in &spec.nodes {
         match &node.kind {
             NodeKind::DeviceRender { device } => {
@@ -531,6 +533,27 @@ fn check_conflicts(spec: &GraphSpec, errors: &mut Vec<GraphError>) {
                     speaker_names.insert(name.trim().to_lowercase(), &node.id)
                 {
                     errors.push(GraphError::SameVirtualName(other.clone(), node.id.clone()));
+                }
+            }
+            NodeKind::WebIn { name } | NodeKind::WebOut { name } => {
+                let inputs = matches!(node.kind, NodeKind::WebIn { .. });
+                if !omu_types::is_web_name(name) {
+                    errors.push(GraphError::BadNetwork(
+                        node.id.clone(),
+                        format!(
+                            "the name is 1 to {} letters, digits, - or _ (it goes in an address)",
+                            omu_types::MAX_WEB_NAME
+                        ),
+                    ));
+                } else if let Some(other) = if inputs {
+                    web_inputs.insert(name, &node.id)
+                } else {
+                    web_outputs.insert(name, &node.id)
+                } {
+                    errors.push(GraphError::BadNetwork(
+                        node.id.clone(),
+                        format!("the block {} already uses the name {name:?}", other.0),
+                    ));
                 }
             }
             NodeKind::NetworkIn { port, stream, from } => {
@@ -963,6 +986,32 @@ mod tests {
             edges: vec![],
         };
         assert_eq!(expand(&plain).unwrap(), plain);
+    }
+
+    #[test]
+    fn web_names_are_good_for_an_address_and_one_input_or_output_each() {
+        let web_in = |n: &str| NodeKind::WebIn { name: n.into() };
+        let spec = GraphSpec {
+            nodes: vec![
+                node("a", web_in("phone")),
+                node("b", web_in("phone")),
+                node("c", web_in("not a name")),
+                // an output may have the name of an input: they are different things
+                node(
+                    "d",
+                    NodeKind::WebOut {
+                        name: "phone".into(),
+                    },
+                ),
+            ],
+            edges: vec![],
+        };
+        let bad: Vec<_> = diagnose(&spec)
+            .into_iter()
+            .filter(|d| d.code == "bad_network")
+            .filter_map(|d| d.node)
+            .collect();
+        assert_eq!(bad, vec!["b".into(), "c".into()], "{bad:?}");
     }
 
     #[test]

@@ -174,6 +174,95 @@ fn a_browser_from_another_site_is_refused_even_with_the_token() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// An agent that reports the status of an answer instead of failing on it.
+fn plain_agent() -> ureq::Agent {
+    ureq::Agent::config_builder()
+        .http_status_as_error(false)
+        .build()
+        .into()
+}
+
+#[test]
+fn a_web_connection_needs_the_token_a_running_block_and_a_real_offer() {
+    let (running, client, dir) = start("web");
+    let base = format!("http://{}", running.info.address);
+    let agent = plain_agent();
+    let post = |path: &str, token: Option<&str>, body: &str| {
+        let mut request = agent
+            .post(&format!("{base}{path}"))
+            .header("Content-Type", "application/sdp");
+        if let Some(t) = token {
+            request = request.header("Authorization", &format!("Bearer {t}"));
+        }
+        request.send(body.as_bytes()).unwrap()
+    };
+    let token = running.info.token.clone();
+
+    // without the token: refused, as everything else
+    assert_eq!(post("/whip/phone", None, "v=0").status(), 401);
+    assert_eq!(post("/whep/phone", Some("wrong"), "v=0").status(), 401);
+    // with it, but nothing is waiting for that name
+    let nobody = post("/whip/phone", Some(&token), "v=0");
+    assert_eq!(nobody.status(), 404);
+
+    // a graph with a web input and a web output of those names is running: the names are there
+    let graph = GraphSpec {
+        nodes: vec![
+            NodeSpec {
+                id: "in".into(),
+                display: None,
+                inputs: Default::default(),
+                muted: false,
+                kind: NodeKind::WebIn {
+                    name: "phone".into(),
+                },
+            },
+            NodeSpec {
+                id: "out".into(),
+                display: None,
+                inputs: Default::default(),
+                muted: false,
+                kind: NodeKind::WebOut {
+                    name: "listen".into(),
+                },
+            },
+        ],
+        edges: vec![EdgeSpec {
+            from: PortRef::new("in", "out"),
+            to: PortRef::new("out", "in"),
+        }],
+    };
+    client.call::<GraphSet>(&graph).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while client
+        .call::<EngineStatusMethod>(&())
+        .unwrap()
+        .nodes
+        .iter()
+        .any(|n| n.state != NodeState::Running)
+    {
+        assert!(Instant::now() < deadline, "the web blocks start");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // the right name but not an offer: a plain refusal, not a crash
+    let bad = post("/whip/phone", Some(&token), "this is not an SDP");
+    assert_eq!(bad.status(), 400);
+    assert_eq!(post("/whep/listen", Some(&token), "").status(), 400);
+    // an input is not an output: a sender cannot connect to a name that only listens
+    assert_eq!(post("/whip/listen", Some(&token), "v=0").status(), 404);
+    // ending a connection that is not there is not an error
+    let agent2 = plain_agent();
+    let gone = agent2
+        .delete(&format!("{base}/whip/phone/nothing"))
+        .header("Authorization", &format!("Bearer {token}"))
+        .call()
+        .unwrap();
+    assert_eq!(gone.status(), 204);
+
+    running.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn health_and_the_panel_page_need_no_token() {
     let (running, client, dir) = start("static");

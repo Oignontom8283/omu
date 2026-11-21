@@ -53,6 +53,8 @@ pub struct Daemon {
     elevator: Arc<dyn omu_desktop::elevation::Elevator>,
     /// The soundboards: their memory, their sounds and what they play.
     sounds: Arc<omu_soundboard::SoundEngine>,
+    /// The names of the web inputs and outputs, and the connections to them.
+    web: omu_net::web::Hub,
     /// The keyboard shortcuts that play pads.
     pad_hotkeys: omu_soundboard::hotkeys::PadHotkeys,
     /// What is told when the settings are saved (the notification-area icon shows or hides itself).
@@ -115,6 +117,8 @@ impl Daemon {
         ));
         let mut engine_config = engine_config;
         engine_config.sounds = Some(sounds.clone());
+        let web = omu_net::web::Hub::new();
+        engine_config.web = Some(web.clone());
         let engine = Engine::new(backend.clone(), virtual_devices.clone(), engine_config);
         Daemon {
             engine,
@@ -131,6 +135,7 @@ impl Daemon {
             stop: Arc::default(),
             elevator: Arc::new(omu_desktop::elevation::SystemElevator),
             sounds,
+            web,
             pad_hotkeys: Default::default(),
             settings_listeners: Mutex::new(vec![]),
             manages_autostart: std::sync::atomic::AtomicBool::new(false),
@@ -161,6 +166,11 @@ impl Daemon {
     }
 
     /// The soundboards' engine (the panel's upload route imports through it).
+    /// The web inputs and outputs (the HTTP side hands the connection requests to it).
+    pub fn web(&self) -> &omu_net::web::Hub {
+        &self.web
+    }
+
     pub fn sounds(&self) -> &Arc<omu_soundboard::SoundEngine> {
         &self.sounds
     }

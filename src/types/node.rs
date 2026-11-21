@@ -73,6 +73,17 @@ pub struct PortSpec {
 
 /// The longest name of a network stream (what VBAN allows).
 pub const MAX_STREAM_NAME: usize = 16;
+/// The longest name of a web input or output.
+pub const MAX_WEB_NAME: usize = 32;
+
+/// A name that fits in an address, as a web input or output needs: letters, digits, `-` and `_`.
+pub fn is_web_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_WEB_NAME
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
 /// The most conditions a `branch` or `select` block can have.
 pub const MAX_BRANCHES: u32 = 16;
 /// The most arguments a `join` block can have.
@@ -311,6 +322,9 @@ pub enum NodeKind {
         #[serde(default)]
         from: String,
     },
+    /// Input: sound sent through the web (WebRTC): a browser (a phone's microphone, the page `/remote`) or a program
+    /// (OBS, FFmpeg...) connects with WHIP to the address of `name` and sends. The name is open only while the graph runs.
+    WebIn { name: String },
     /// Input: a soundboard: the sound of its pads, as many as are playing at once. The soundboards themselves (their
     /// pads and sounds) are saved by the daemon, not in the graph: this block only names one.
     ///
@@ -334,6 +348,9 @@ pub enum NodeKind {
         #[serde(default)]
         stream: String,
     },
+    /// Output: sound for whoever listens through the web (WebRTC): a browser or a program connects with WHEP to the address
+    /// of `name` and hears the graph.
+    WebOut { name: String },
     // ---- processing
     /// Processing: gain in decibels.
     Gain { db: f32 },
@@ -497,6 +514,7 @@ impl NodeKind {
                 port("from", Input, TextFlow, false),
                 out_audio(),
             ],
+            NodeKind::WebIn { .. } => vec![port("name", Input, TextFlow, false), out_audio()],
             NodeKind::Soundboard { triggers, .. } => {
                 let count = (triggers.len() as u32).min(MAX_BRANCHES);
                 let plays = numbered("play", count, Input, Action);
@@ -517,6 +535,7 @@ impl NodeKind {
                 port("port", Input, Int, false),
                 port("stream", Input, TextFlow, false),
             ],
+            NodeKind::WebOut { .. } => vec![in_audio(), port("name", Input, TextFlow, false)],
             NodeKind::Gain { .. } => vec![in_audio(), port("db", Input, Float, false), out_audio()],
             NodeKind::Delay { .. } | NodeKind::NoiseReduction | NodeKind::DeepFilter { .. } => {
                 vec![in_audio(), out_audio()]
@@ -646,6 +665,7 @@ impl NodeKind {
             NodeKind::Timer { .. } => &["interval_ms"],
             NodeKind::NetworkIn { .. } => &["port", "stream", "from"],
             NodeKind::NetworkOut { .. } => &["host", "port", "stream"],
+            NodeKind::WebIn { .. } | NodeKind::WebOut { .. } => &["name"],
             _ => &[],
         }
     }
@@ -669,11 +689,13 @@ impl NodeKind {
             NodeKind::AppCapture { .. }
             | NodeKind::DeviceCapture { .. }
             | NodeKind::NetworkIn { .. }
+            | NodeKind::WebIn { .. }
             | NodeKind::VirtualSpeaker { .. }
             | NodeKind::Soundboard { .. } => Category::Input,
             NodeKind::DeviceRender { .. }
             | NodeKind::VirtualMic { .. }
-            | NodeKind::NetworkOut { .. } => Category::Output,
+            | NodeKind::NetworkOut { .. }
+            | NodeKind::WebOut { .. } => Category::Output,
             NodeKind::Gain { .. }
             | NodeKind::Mixer
             | NodeKind::Gate
@@ -948,6 +970,12 @@ mod tests {
                 port: 6980,
                 stream: "s".into(),
             },
+            NodeKind::WebIn {
+                name: "phone".into(),
+            },
+            NodeKind::WebOut {
+                name: "listen".into(),
+            },
             NodeKind::Gain { db: 0.0 },
             NodeKind::Mixer,
             NodeKind::Gate,
@@ -1171,13 +1199,15 @@ mod tests {
                         | NodeKind::VirtualMic { .. }
                         | NodeKind::NetworkIn { .. }
                         | NodeKind::NetworkOut { .. }
+                        | NodeKind::WebIn { .. }
+                        | NodeKind::WebOut { .. }
                         | NodeKind::Hotkey { .. }
                         | NodeKind::DeepFilter { .. }
                 )
             })
             .collect();
         assert_eq!(needs, expected);
-        assert_eq!(needs.iter().filter(|n| **n).count(), 8);
+        assert_eq!(needs.iter().filter(|n| **n).count(), 10);
     }
 
     #[test]
