@@ -761,15 +761,15 @@ export function App() {
           )}
           {status && <span className={`pill ${status.running ? 'open' : 'closed'}`}>{t(status.running ? 'app.engineRunning' : 'app.engineStopped')}</span>}
           <span className="spacer" />
-          <button className="search-button" onClick={() => openPalette('all')} title={t('palette.title')}>
+          <Button icon="search" className="search-button" onClick={() => openPalette('all')} title={t('palette.title')}>
             {t('palette.open')} <kbd>F1</kbd>
-          </button>
+          </Button>
           {status?.running ? (
-            <Button icon="stop" onClick={stopEngine} disabled={conn !== 'open'}>
+            <Button variant="warning" icon="stop" onClick={stopEngine} disabled={conn !== 'open'}>
               {t('app.stopEngine')}
             </Button>
           ) : (
-            <Button icon="play" onClick={startEngine} disabled={conn !== 'open' || applied.nodes.length === 0} title={t('app.startEngineHint')}>
+            <Button variant="success" icon="play" onClick={startEngine} disabled={conn !== 'open' || applied.nodes.length === 0} title={t('app.startEngineHint')}>
               {t('app.startEngine')}
             </Button>
           )}

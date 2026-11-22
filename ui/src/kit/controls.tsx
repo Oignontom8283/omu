@@ -13,7 +13,8 @@ const join = (...names: (string | false | undefined)[]) => names.filter(Boolean)
 export type ButtonProps = {
   children?: ReactNode;
   icon?: IconName;
-  variant?: 'secondary' | 'primary' | 'flat' | 'danger' | 'bar';
+  /** `secondary` is the grey ordinary one; `primary` (blue) the action of the page, `success` (green) what starts, `warning` (orange) what stops or deserves care, `danger` (red) what destroys; `flat` has no frame (toolbars); `bar`: see below. */
+  variant?: 'secondary' | 'primary' | 'success' | 'warning' | 'danger' | 'flat' | 'bar';
   size?: 'normal' | 'small';
   disabled?: boolean;
   title?: string;
@@ -41,7 +42,7 @@ export function Button({ children, icon, variant = 'secondary', size = 'normal',
       onBlur={onBlur}
     >
       {icon && <Icon name={icon} size={variant === 'bar' ? 14 : size === 'small' ? 12 : 14} />}
-      {children}
+      {children != null && children !== false && <span className="label">{children}</span>}
     </button>
   );
 }
