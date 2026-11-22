@@ -369,6 +369,10 @@ test('shortcuts are read from keyboard events', () => {
   assert.equal(comboFromEvent(ev('F8', 'F8')), 'F8');
   assert.equal(comboFromEvent(ev('m', 'KeyM', { ctrlKey: true, shiftKey: true })), 'Ctrl+Shift+M');
   assert.equal(comboFromEvent(ev('5', 'Digit5', { altKey: true })), 'Alt+5');
+  // the letter is the layout's, not the key's place: AZERTY puts Z where QWERTY has W
+  assert.equal(comboFromEvent(ev('z', 'KeyW', { ctrlKey: true })), 'Ctrl+Z');
+  assert.equal(comboFromEvent(ev('w', 'KeyZ', { ctrlKey: true })), 'Ctrl+W');
+  assert.equal(comboFromEvent(ev('я', 'KeyZ', { ctrlKey: true })), 'Ctrl+Z', 'no Latin letter on the layout: the place of the key');
   assert.equal(comboFromEvent(ev('3', 'Numpad3')), 'Num3');
   assert.equal(comboFromEvent(ev(' ', 'Space', { metaKey: true })), 'Win+Space');
   assert.equal(comboFromEvent(ev('Control', 'ControlLeft', { ctrlKey: true })), null, 'a lone modifier is not a shortcut');

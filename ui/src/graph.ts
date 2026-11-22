@@ -775,6 +775,8 @@ export function comboFromEvent(e: { key: string; code: string; ctrlKey: boolean;
   if (/^F\d{1,2}$/.test(e.key)) key = e.key;
   else if (e.key in named) key = named[e.key];
   else if (/^Numpad\d$/.test(e.code)) key = `Num${e.code.slice(6)}`;
+  // a letter is the one the keyboard's layout writes (the Z of an AZERTY keyboard is where the W of a QWERTY one is); on a layout without Latin letters, the key's place stands for it
+  else if (/^[A-Za-z]$/.test(e.key)) key = e.key.toUpperCase();
   else if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
   else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
   if (!key) return null;

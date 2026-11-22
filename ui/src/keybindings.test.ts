@@ -40,3 +40,10 @@ test('two commands on one shortcut are reported', () => {
   const map = bindings({ 'edit.copy': 'Ctrl+V' });
   assert.deepEqual(commandsFor('Ctrl+V', map), ['edit.copy', 'edit.paste']);
 });
+
+test('an AZERTY keyboard: the key that writes Z undoes, the one that writes W does not', () => {
+  const map = bindings({});
+  assert.equal(commandOf(key('KeyW', { key: 'z', ctrlKey: true }), map), 'edit.undo');
+  assert.equal(commandOf(key('KeyZ', { key: 'w', ctrlKey: true }), map), null);
+  assert.equal(commandOf(key('KeyQ', { key: 'a', ctrlKey: true }), map), 'edit.selectAll');
+});
