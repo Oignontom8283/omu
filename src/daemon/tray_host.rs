@@ -1,6 +1,7 @@
 //! The daemon's side of the notification-area icon: what its click and its menu do, and showing or hiding it when the
 //! setting changes.
 
+use super::open::{open_target, spawn_detached};
 use super::Daemon;
 use omu_desktop::tray::{Actions, Tray};
 use std::path::PathBuf;
@@ -86,30 +87,6 @@ pub fn open_interface(panel_url: &str) -> Result<(), String> {
     open_target(panel_url)
 }
 
-/// Opens an address, a file or a folder the way the system does for the user (the browser, the file manager...).
-pub fn open_target(target: &str) -> Result<(), String> {
-    #[cfg(windows)]
-    let command = {
-        // not `cmd /C start`: it would read an `&` in the address as another command
-        let mut c = std::process::Command::new("rundll32");
-        c.args(["url.dll,FileProtocolHandler", target]);
-        c
-    };
-    #[cfg(target_os = "macos")]
-    let command = {
-        let mut c = std::process::Command::new("open");
-        c.arg(target);
-        c
-    };
-    #[cfg(all(not(windows), not(target_os = "macos")))]
-    let command = {
-        let mut c = std::process::Command::new("xdg-open");
-        c.arg(target);
-        c
-    };
-    spawn_detached(command)
-}
-
 /// The desktop window's executable, when it sits next to this one.
 fn window_executable() -> Option<PathBuf> {
     let me = std::env::current_exe().ok()?;
@@ -120,16 +97,4 @@ fn window_executable() -> Option<PathBuf> {
     );
     let path = me.with_file_name(name);
     path.is_file().then_some(path)
-}
-
-fn spawn_detached(mut command: std::process::Command) -> Result<(), String> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        command.creation_flags(0x0800_0000); // no console window
-    }
-    command
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("cannot start {:?}: {e}", command.get_program()))
 }

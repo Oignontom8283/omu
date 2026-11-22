@@ -8,6 +8,7 @@
 pub mod auth;
 pub mod instance;
 pub mod launch;
+pub mod open;
 pub mod server;
 pub mod store;
 #[cfg(feature = "tray")]
@@ -660,7 +661,7 @@ impl Daemon {
                 if !dir.is_dir() {
                     return Err(RpcError::internal("there is no folder of logs yet"));
                 }
-                tray_host::open_target(&dir.display().to_string()).map_err(RpcError::internal)?;
+                open::open_target(&dir.display().to_string()).map_err(RpcError::internal)?;
                 result(())
             }
             m::LayoutGet::NAME => result(lock(&self.state).layout.clone()),
