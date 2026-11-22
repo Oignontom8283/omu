@@ -139,6 +139,9 @@ pub trait Backend: Send + Sync {
             "global keyboard shortcuts that notice the key being let go".into(),
         ))
     }
+    /// Lets go of every global shortcut for a while (`true`), or takes them back (`false`): a registered shortcut is kept from the program
+    /// that has the focus, so the field that records a new shortcut could never hear the keys that are already in use.
+    fn pause_hotkeys(&self, _paused: bool) {}
     /// Captures the sound of an application (and its child processes) before it reaches any device.
     fn open_app_capture(&self, _target: &AppTarget) -> Result<Box<dyn CaptureStream>, HalError> {
         Err(HalError::Unsupported(

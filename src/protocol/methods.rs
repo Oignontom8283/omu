@@ -263,6 +263,17 @@ method!(
     /// The ids of the pads of a soundboard that are playing now.
     SoundboardPlaying, "soundboard.playing", BoardRef => Vec<String>
 );
+/// Parameters of `hotkeys.pause`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HotkeysPause {
+    /// `true`: let go of the global shortcuts (they end the pause by themselves after a few seconds); `false`: take them back.
+    pub paused: bool,
+}
+
+method!(
+    /// Lets go of the global keyboard shortcuts for a moment, so that the page can record a key that is already in use.
+    HotkeysPauseMethod, "hotkeys.pause", HotkeysPause => ()
+);
 method!(
     /// Presses a button, or sets a switch or a slider, of the running graph.
     NodeControlMethod, "node.control", NodeControl => ()
@@ -378,6 +389,7 @@ pub const ALL_METHODS: &[&str] = &[
     EngineStatusMethod::NAME,
     EngineLevels::NAME,
     NodeControlMethod::NAME,
+    HotkeysPauseMethod::NAME,
     EngineStop::NAME,
     EngineStart::NAME,
     SystemShutdown::NAME,

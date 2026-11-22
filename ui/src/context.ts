@@ -23,6 +23,8 @@ export type EditorContext = {
   setInput: (id: string, port: string, value: InputValue) => void;
   /** Presses a button, or sets a switch or a slider, of the running graph. Says what went wrong, `null` when nothing did. `persist`: the place of a switch or slider is kept with the graph. */
   control: (id: string, action: ControlAction, persist?: boolean) => Promise<string | null>;
+  /** Lets go of the global keyboard shortcuts while a field records one (a shortcut that is in use is kept from the page), and takes them back. */
+  pauseHotkeys: (paused: boolean) => void;
   /** Takes a group apart: its blocks come back. */
   ungroup: (id: string) => void;
   /** Takes a block out of the graph, with its links. */

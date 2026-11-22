@@ -8,22 +8,103 @@
 //! game with anti-cheat may block the registration; both appear as a failed block, never as a crash.
 
 use crate::{HalError, HotkeyCallback, Running};
-use omu_types::{Key, KeyCombo};
-use std::sync::mpsc;
+use omu_types::{Extra, Key, KeyCombo};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{mpsc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL,
-    MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
+    GetAsyncKeyState, MapVirtualKeyW, RegisterHotKey, UnregisterHotKey, HOT_KEY_MODIFIERS,
+    MAPVK_VSC_TO_VK, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, PM_REMOVE, WM_HOTKEY, WM_QUIT,
+    GetMessageW, PeekMessageW, PostThreadMessageW, MSG, PM_NOREMOVE, PM_REMOVE, WM_APP, WM_HOTKEY,
+    WM_QUIT,
 };
 
-/// The virtual-key code of a key.
-fn virtual_key(key: Key) -> u32 {
+/// Asks a shortcut's thread to let go of its shortcut / to take it again.
+const WM_PAUSE: u32 = WM_APP;
+const WM_RESUME: u32 = WM_APP + 1;
+/// A pause that is not ended by whoever began it ends by itself after this long (a page closed while it records a shortcut).
+const PAUSE_LIMIT: Duration = Duration::from_secs(30);
+
+/// The threads that hold a shortcut now.
+static THREADS: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+static PAUSED: AtomicBool = AtomicBool::new(false);
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+fn tell_threads(message: u32) {
+    for id in THREADS.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+        let _ = unsafe { PostThreadMessageW(*id, message, Default::default(), Default::default()) };
+    }
+}
+
+/// Lets go of every shortcut (`true`) or takes them back (`false`). Each call that pauses starts the clock again.
+pub fn set_paused(paused: bool) {
+    let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
+    PAUSED.store(paused, Ordering::SeqCst);
+    tell_threads(if paused { WM_PAUSE } else { WM_RESUME });
+    if paused {
+        std::thread::spawn(move || {
+            std::thread::sleep(PAUSE_LIMIT);
+            if GENERATION.load(Ordering::SeqCst) == generation
+                && PAUSED.swap(false, Ordering::SeqCst)
+            {
+                tell_threads(WM_RESUME);
+            }
+        });
+    }
+}
+
+/// The scan code of the key that is at the place of an `Extra` on a US keyboard, for the keys whose virtual-key code depends on the layout (the
+/// code of the same key on this keyboard is asked of the system).
+fn place_of(extra: Extra) -> Option<u32> {
+    Some(match extra {
+        Extra::Backquote => 0x29,
+        Extra::Minus => 0x0C,
+        Extra::Equal => 0x0D,
+        Extra::BracketLeft => 0x1A,
+        Extra::BracketRight => 0x1B,
+        Extra::Backslash => 0x2B,
+        Extra::Semicolon => 0x27,
+        Extra::Quote => 0x28,
+        Extra::Comma => 0x33,
+        Extra::Period => 0x34,
+        Extra::Slash => 0x35,
+        Extra::IntlBackslash => 0x56,
+        _ => return None,
+    })
+}
+
+/// The virtual-key code of a key; none when this keyboard has no such key.
+fn virtual_key(key: Key) -> Option<u32> {
+    if let Key::Extra(extra) = key {
+        if let Some(scan) = place_of(extra) {
+            let code = unsafe { MapVirtualKeyW(scan, MAPVK_VSC_TO_VK) };
+            return (code != 0).then_some(code);
+        }
+        return Some(match extra {
+            Extra::NumMultiply => 0x6A,
+            Extra::NumAdd => 0x6B,
+            Extra::NumSubtract => 0x6D,
+            Extra::NumDecimal => 0x6E,
+            Extra::NumDivide => 0x6F,
+            Extra::CapsLock => 0x14,
+            Extra::PrintScreen => 0x2C,
+            Extra::ScrollLock => 0x91,
+            Extra::Pause => 0x13,
+            Extra::ContextMenu => 0x5D,
+            _ => return None,
+        });
+    }
+    Some(plain_key(key))
+}
+
+/// The virtual-key code of a key that is the same on every keyboard.
+fn plain_key(key: Key) -> u32 {
     match key {
+        Key::Extra(_) => 0,
         Key::Letter(c) => c as u32,
         Key::Digit(d) => 0x30 + d as u32,
         Key::Function(n) => 0x70 + n as u32 - 1,
@@ -112,6 +193,11 @@ fn register_inner(
     on_release: Option<HotkeyCallback>,
 ) -> Result<Box<dyn Running>, HalError> {
     let (combo, label) = (*combo, combo.to_string());
+    let key_code = virtual_key(combo.key).ok_or_else(|| {
+        HalError::Busy(format!(
+            "the shortcut {label}: this keyboard has no such key"
+        ))
+    })?;
     let (tx, rx) = mpsc::channel::<Result<u32, String>>();
     let thread = std::thread::Builder::new()
         .name(format!("hotkey {label}"))
@@ -119,11 +205,18 @@ fn register_inner(
             // make sure this thread has a message queue before anyone posts to it
             let mut msg = MSG::default();
             let _ = unsafe { PeekMessageW(&mut msg, None, 0, 0, PM_NOREMOVE) };
-            let registered =
-                unsafe { RegisterHotKey(None, 1, modifiers(&combo), virtual_key(combo.key)) };
+            let registered = unsafe { RegisterHotKey(None, 1, modifiers(&combo), key_code) };
+            let mut held = registered.is_ok();
             match registered {
                 Ok(()) => {
-                    let _ = tx.send(Ok(unsafe { GetCurrentThreadId() }));
+                    let me = unsafe { GetCurrentThreadId() };
+                    THREADS.lock().unwrap_or_else(|e| e.into_inner()).push(me);
+                    // a shortcut made while the others are let go is let go too
+                    if PAUSED.load(Ordering::SeqCst) {
+                        let _ = unsafe { UnregisterHotKey(None, 1) };
+                        held = false;
+                    }
+                    let _ = tx.send(Ok(me));
                 }
                 Err(e) => {
                     let _ = tx.send(Err(e.message().trim().to_string()));
@@ -132,13 +225,23 @@ fn register_inner(
             }
             // GetMessageW returns 0 on WM_QUIT (and -1 on error)
             'messages: while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
+                if msg.message == WM_PAUSE && held {
+                    let _ = unsafe { UnregisterHotKey(None, 1) };
+                    held = false;
+                    continue;
+                }
+                if msg.message == WM_RESUME && !held {
+                    // taken by another program in the meantime: it stays let go
+                    held = unsafe { RegisterHotKey(None, 1, modifiers(&combo), key_code) }.is_ok();
+                    continue;
+                }
                 if msg.message != WM_HOTKEY {
                     continue;
                 }
                 on_press();
                 let Some(release) = &on_release else { continue };
                 // wait for the key to be let go (the shortcut ending while it is held lets go too)
-                let key = virtual_key(combo.key) as i32;
+                let key = key_code as i32;
                 loop {
                     std::thread::sleep(HOLD_POLL);
                     let mut quit = MSG::default();
@@ -155,7 +258,14 @@ fn register_inner(
                     }
                 }
             }
-            let _ = unsafe { UnregisterHotKey(None, 1) };
+            if held {
+                let _ = unsafe { UnregisterHotKey(None, 1) };
+            }
+            let me = unsafe { GetCurrentThreadId() };
+            THREADS
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .retain(|id| *id != me);
         })
         .map_err(|e| HalError::Backend(format!("cannot start the shortcut thread: {e}")))?;
     match rx.recv_timeout(Duration::from_secs(5)) {
@@ -181,13 +291,33 @@ mod tests {
 
     #[test]
     fn virtual_keys_match_windows_codes() {
-        assert_eq!(virtual_key(Key::Letter('A')), 0x41);
-        assert_eq!(virtual_key(Key::Digit(0)), 0x30);
-        assert_eq!(virtual_key(Key::Function(1)), 0x70);
-        assert_eq!(virtual_key(Key::Function(24)), 0x87);
-        assert_eq!(virtual_key(Key::Numpad(5)), 0x65);
-        assert_eq!(virtual_key(Key::Escape), 0x1B);
-        assert_eq!(virtual_key(Key::Down), 0x28);
+        assert_eq!(virtual_key(Key::Letter('A')), Some(0x41));
+        assert_eq!(virtual_key(Key::Digit(0)), Some(0x30));
+        assert_eq!(virtual_key(Key::Function(1)), Some(0x70));
+        assert_eq!(virtual_key(Key::Function(24)), Some(0x87));
+        assert_eq!(virtual_key(Key::Numpad(5)), Some(0x65));
+        assert_eq!(virtual_key(Key::Escape), Some(0x1B));
+        assert_eq!(virtual_key(Key::Down), Some(0x28));
+        assert_eq!(virtual_key(Key::Extra(Extra::NumAdd)), Some(0x6B));
+        assert_eq!(virtual_key(Key::Extra(Extra::CapsLock)), Some(0x14));
+    }
+
+    #[test]
+    fn the_keys_of_punctuation_are_found_on_the_keyboard_in_use() {
+        // whatever the layout, the key right of L (US) has a code of its own
+        for extra in [
+            Extra::Semicolon,
+            Extra::Comma,
+            Extra::Period,
+            Extra::Minus,
+            Extra::Backquote,
+        ] {
+            let code = virtual_key(Key::Extra(extra));
+            assert!(
+                code.is_some_and(|c| c != 0),
+                "{extra:?} has a key on this keyboard"
+            );
+        }
     }
 
     #[test]
@@ -204,6 +334,33 @@ mod tests {
         drop(first);
         let again = register(&combo, Box::new(|| {})).expect("released when dropped");
         drop(again);
+    }
+
+    /// While the shortcuts are paused another program (here: this test) can take their keys, and taking them back is refused when it did.
+    #[test]
+    #[ignore = "lets go of every global shortcut of the process for a moment"]
+    fn pausing_lets_go_of_the_keys_and_resuming_takes_them_back() {
+        let combo = KeyCombo::parse("Ctrl+Alt+Shift+F23").unwrap();
+        let (mods, vk) = (modifiers(&combo), virtual_key(combo.key).unwrap());
+        let guard = register(&combo, Box::new(|| {})).unwrap();
+        assert!(
+            unsafe { RegisterHotKey(None, 99, mods, vk) }.is_err(),
+            "held"
+        );
+        set_paused(true);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            unsafe { RegisterHotKey(None, 99, mods, vk) }.is_ok(),
+            "let go while paused"
+        );
+        let _ = unsafe { UnregisterHotKey(None, 99) };
+        set_paused(false);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(
+            unsafe { RegisterHotKey(None, 99, mods, vk) }.is_err(),
+            "taken back"
+        );
+        drop(guard);
     }
 
     /// Sends the keys of Ctrl+Alt+Shift+F24 (a combination no program uses) like a user would, and checks that the

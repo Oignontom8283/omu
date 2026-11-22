@@ -117,6 +117,10 @@ impl Backend for WasapiBackend {
         hotkey::register_hold(combo, on_press, on_release)
     }
 
+    fn pause_hotkeys(&self, paused: bool) {
+        hotkey::set_paused(paused);
+    }
+
     fn list_apps(&self) -> Result<Vec<AppInfo>, HalError> {
         apps::list_apps()
     }

@@ -373,6 +373,13 @@ test('shortcuts are read from keyboard events', () => {
   assert.equal(comboFromEvent(ev('z', 'KeyW', { ctrlKey: true })), 'Ctrl+Z');
   assert.equal(comboFromEvent(ev('w', 'KeyZ', { ctrlKey: true })), 'Ctrl+W');
   assert.equal(comboFromEvent(ev('я', 'KeyZ', { ctrlKey: true })), 'Ctrl+Z', 'no Latin letter on the layout: the place of the key');
+  // the operators of the keypad, the keys of punctuation (the same place whatever they write) and the locks
+  assert.equal(comboFromEvent(ev('+', 'NumpadAdd')), 'NumAdd');
+  assert.equal(comboFromEvent(ev('*', 'NumpadMultiply', { ctrlKey: true })), 'Ctrl+NumMultiply');
+  assert.equal(comboFromEvent(ev(';', 'Semicolon')), 'Semicolon');
+  assert.equal(comboFromEvent(ev('m', 'Semicolon')), 'M', 'a letter on this layout is a letter');
+  assert.equal(comboFromEvent(ev(')', 'Minus', { altKey: true })), 'Alt+Minus');
+  assert.equal(comboFromEvent(ev('CapsLock', 'CapsLock')), 'CapsLock');
   assert.equal(comboFromEvent(ev('3', 'Numpad3')), 'Num3');
   assert.equal(comboFromEvent(ev(' ', 'Space', { metaKey: true })), 'Win+Space');
   assert.equal(comboFromEvent(ev('Control', 'ControlLeft', { ctrlKey: true })), null, 'a lone modifier is not a shortcut');

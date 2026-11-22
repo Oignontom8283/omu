@@ -768,6 +768,32 @@ export function meterFill(peak: number): number {
   return (levelDb(peak) + 60) / 60;
 }
 
+/** The keys other than letters, digits and the named ones, by the place of the key (`KeyboardEvent.code`) and the name the daemon knows them by. */
+const EXTRA_KEYS: Record<string, string> = {
+  NumpadAdd: 'NumAdd',
+  NumpadSubtract: 'NumSubtract',
+  NumpadMultiply: 'NumMultiply',
+  NumpadDivide: 'NumDivide',
+  NumpadDecimal: 'NumDecimal',
+  Backquote: 'Backquote',
+  Minus: 'Minus',
+  Equal: 'Equal',
+  BracketLeft: 'BracketLeft',
+  BracketRight: 'BracketRight',
+  Backslash: 'Backslash',
+  Semicolon: 'Semicolon',
+  Quote: 'Quote',
+  Comma: 'Comma',
+  Period: 'Period',
+  Slash: 'Slash',
+  IntlBackslash: 'IntlBackslash',
+  CapsLock: 'CapsLock',
+  PrintScreen: 'PrintScreen',
+  ScrollLock: 'ScrollLock',
+  Pause: 'Pause',
+  ContextMenu: 'ContextMenu',
+};
+
 /** `Ctrl+Shift+F8` from a keyboard event (the shortcut field uses it); `null` for a lone modifier key. */
 export function comboFromEvent(e: { key: string; code: string; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; metaKey: boolean }): string | null {
   const named: Record<string, string> = { ' ': 'Space', Escape: 'Escape', Enter: 'Enter', Tab: 'Tab', Backspace: 'Backspace', Insert: 'Insert', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right' };
@@ -777,6 +803,7 @@ export function comboFromEvent(e: { key: string; code: string; ctrlKey: boolean;
   else if (/^Numpad\d$/.test(e.code)) key = `Num${e.code.slice(6)}`;
   // a letter is the one the keyboard's layout writes (the Z of an AZERTY keyboard is where the W of a QWERTY one is); on a layout without Latin letters, the key's place stands for it
   else if (/^[A-Za-z]$/.test(e.key)) key = e.key.toUpperCase();
+  else if (e.code in EXTRA_KEYS) key = EXTRA_KEYS[e.code];
   else if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3);
   else if (/^Digit\d$/.test(e.code)) key = e.code.slice(5);
   if (!key) return null;

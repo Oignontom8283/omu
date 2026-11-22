@@ -199,7 +199,12 @@ async fn stop_requested() -> &'static str {
     #[cfg(windows)]
     {
         use tokio::signal::windows as w;
-        match (w::ctrl_break(), w::ctrl_close(), w::ctrl_logoff(), w::ctrl_shutdown()) {
+        match (
+            w::ctrl_break(),
+            w::ctrl_close(),
+            w::ctrl_logoff(),
+            w::ctrl_shutdown(),
+        ) {
             (Ok(mut brk), Ok(mut close), Ok(mut logoff), Ok(mut down)) => tokio::select! {
                 _ = tokio::signal::ctrl_c() => "Ctrl-C received",
                 _ = brk.recv() => "Ctrl-Break received",

@@ -603,6 +603,11 @@ impl Daemon {
                     )),
                 }
             }
+            m::HotkeysPauseMethod::NAME => {
+                let p = params::<m::HotkeysPauseMethod>(p)?;
+                self.engine.pause_hotkeys(p.paused);
+                result(())
+            }
             m::NodeControlMethod::NAME => {
                 let p = params::<m::NodeControlMethod>(p)?;
                 self.control_node(p)?;
@@ -1077,6 +1082,24 @@ mod tests {
         );
         assert_eq!(
             call(&d, "graph.set", json!({"nodes": 3}))
+                .error
+                .unwrap()
+                .code,
+            RpcError::INVALID_PARAMS
+        );
+    }
+
+    #[test]
+    fn the_page_can_let_go_of_the_global_shortcuts_and_take_them_back() {
+        let d = daemon_in(&temp_dir("hotkeys-pause"), &SimBackend::new());
+        assert!(call(&d, "hotkeys.pause", json!({"paused": true}))
+            .error
+            .is_none());
+        assert!(call(&d, "hotkeys.pause", json!({"paused": false}))
+            .error
+            .is_none());
+        assert_eq!(
+            call(&d, "hotkeys.pause", json!({"paused": "yes"}))
                 .error
                 .unwrap()
                 .code,

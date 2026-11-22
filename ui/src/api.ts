@@ -246,6 +246,7 @@ export const api = (rpc: Rpc) => ({
   certificates: () => rpc.request<TrustReport>('certificates.list'),
   remote: () => rpc.request<RemoteInfo>('remote.info'),
   openLogsFolder: () => rpc.request<null>('logs.open_folder'),
+  pauseHotkeys: (paused: boolean) => rpc.request<null>('hotkeys.pause', { paused }),
 });
 
 export const EVENT_STATUS = 'engine.status';

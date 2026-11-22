@@ -294,6 +294,12 @@ impl Engine {
         st.meters.get(id).map(|m| m.levels())
     }
 
+    /// Lets go of every global keyboard shortcut (`true`) or takes them back (`false`), so that a field that records a shortcut hears the keys
+    /// that are already in use. A pause ends by itself after a while.
+    pub fn pause_hotkeys(&self, paused: bool) {
+        self.inner.backend.pause_hotkeys(paused);
+    }
+
     /// Presses the button `id` of the panel: its action goes out at the next cycle. `false` when no running graph has that button.
     pub fn press(&self, id: &NodeId) -> bool {
         let st = self.inner.lock();

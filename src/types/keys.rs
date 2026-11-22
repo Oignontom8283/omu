@@ -16,6 +16,8 @@ pub enum Key {
     Function(u8),
     /// A digit of the numeric keypad.
     Numpad(u8),
+    /// Another key: the operators of the keypad, the punctuation keys, the locks.
+    Extra(Extra),
     Space,
     Enter,
     Tab,
@@ -31,6 +33,72 @@ pub enum Key {
     Down,
     Left,
     Right,
+}
+
+/// The keys that are neither a letter, a digit, a function key nor one of the named ones: the operators of the numeric keypad, the keys of
+/// punctuation (the same place on every keyboard, whatever they write: `Semicolon` is the key right of L on a US keyboard, the one of M on a
+/// French one) and the locks. Their names are the ones of the web's `KeyboardEvent.code` (the keypad's without the `pad`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Extra {
+    NumAdd,
+    NumSubtract,
+    NumMultiply,
+    NumDivide,
+    NumDecimal,
+    Backquote,
+    Minus,
+    Equal,
+    BracketLeft,
+    BracketRight,
+    Backslash,
+    Semicolon,
+    Quote,
+    Comma,
+    Period,
+    Slash,
+    IntlBackslash,
+    CapsLock,
+    PrintScreen,
+    ScrollLock,
+    Pause,
+    ContextMenu,
+}
+
+impl Extra {
+    pub const ALL: [(&'static str, Extra); 22] = [
+        ("NumAdd", Extra::NumAdd),
+        ("NumSubtract", Extra::NumSubtract),
+        ("NumMultiply", Extra::NumMultiply),
+        ("NumDivide", Extra::NumDivide),
+        ("NumDecimal", Extra::NumDecimal),
+        ("Backquote", Extra::Backquote),
+        ("Minus", Extra::Minus),
+        ("Equal", Extra::Equal),
+        ("BracketLeft", Extra::BracketLeft),
+        ("BracketRight", Extra::BracketRight),
+        ("Backslash", Extra::Backslash),
+        ("Semicolon", Extra::Semicolon),
+        ("Quote", Extra::Quote),
+        ("Comma", Extra::Comma),
+        ("Period", Extra::Period),
+        ("Slash", Extra::Slash),
+        ("IntlBackslash", Extra::IntlBackslash),
+        ("CapsLock", Extra::CapsLock),
+        ("PrintScreen", Extra::PrintScreen),
+        ("ScrollLock", Extra::ScrollLock),
+        ("Pause", Extra::Pause),
+        ("ContextMenu", Extra::ContextMenu),
+    ];
+
+    /// Its name, as it is written in a shortcut.
+    pub fn name(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .find(|(_, e)| *e == self)
+            .map(|(n, _)| *n)
+            .expect("every key is in the table")
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -121,6 +189,9 @@ fn parse_key(lower: &str) -> Option<Key> {
     {
         return (n <= 9).then_some(Key::Numpad(n));
     }
+    if let Some((_, e)) = Extra::ALL.iter().find(|(n, _)| n.to_lowercase() == lower) {
+        return Some(Key::Extra(*e));
+    }
     let mut chars = lower.chars();
     match (chars.next(), chars.next()) {
         (Some(c), None) if c.is_ascii_alphabetic() => Some(Key::Letter(c.to_ascii_uppercase())),
@@ -148,6 +219,7 @@ impl fmt::Display for KeyCombo {
             Key::Digit(d) => write!(f, "{d}"),
             Key::Function(n) => write!(f, "F{n}"),
             Key::Numpad(n) => write!(f, "Num{n}"),
+            Key::Extra(e) => f.write_str(e.name()),
             Key::Space => f.write_str("Space"),
             Key::Enter => f.write_str("Enter"),
             Key::Tab => f.write_str("Tab"),
@@ -186,6 +258,19 @@ mod tests {
         );
         assert_eq!(KeyCombo::parse("Win+Space").unwrap().key, Key::Space);
         assert_eq!(KeyCombo::parse("F24").unwrap().key, Key::Function(24));
+    }
+
+    #[test]
+    fn the_other_keys_have_names_and_round_trip() {
+        for (name, extra) in Extra::ALL {
+            let c = KeyCombo::parse(&format!("ctrl+{}", name.to_uppercase())).unwrap();
+            assert_eq!(c.key, Key::Extra(extra), "{name}");
+            assert_eq!(c.to_string(), format!("Ctrl+{name}"));
+        }
+        assert_eq!(
+            KeyCombo::parse("NumAdd").unwrap().key,
+            Key::Extra(Extra::NumAdd)
+        );
     }
 
     #[test]

@@ -19,7 +19,7 @@ pub use devices::{
 };
 pub use diagnostic::{Diagnostic, Severity};
 pub use format::{AudioFormat, ENGINE_CHANNELS, ENGINE_SAMPLE_RATE};
-pub use keys::{Key, KeyCombo, Modifiers};
+pub use keys::{Extra, Key, KeyCombo, Modifiers};
 pub use modules::{ModuleInfo, Progress};
 pub use node::{is_web_name, stream_problem, stream_scheme, MAX_STREAM_URL};
 pub use node::{

@@ -604,6 +604,7 @@ export function App() {
           .control(id, action, persist)
           .then(() => null)
           .catch((e: unknown) => message(e)),
+      pauseHotkeys: (paused: boolean) => void daemon.pauseHotkeys(paused).catch(() => undefined),
       openCalibration: (id: string, anchor: { x: number; y: number }) =>
         setCalibrations((list) => [...list.filter((c) => c.node !== id), list.find((c) => c.node === id) ?? { node: id, x: Math.max(4, Math.min(window.innerWidth - 420, anchor.x)), y: Math.max(4, Math.min(window.innerHeight - 320, anchor.y)) }]),
       removeNode: (id: string) => void flow.deleteElements({ nodes: [{ id }] }),
