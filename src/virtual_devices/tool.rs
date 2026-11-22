@@ -26,6 +26,19 @@ pub trait UsbipTool: Send + Sync {
     fn stashed(&self) -> Result<Vec<String>, String>;
 }
 
+/// Takes the devices of this product out of the driver's permanent list (what removing the product's data does), so that the driver does not
+/// go on looking for a server that is gone. Returns whether the list was emptied; a list that holds devices of other programs is left alone.
+pub fn forget_permanent(tool: &dyn UsbipTool, server_port: u16) -> Result<bool, String> {
+    tool.available()?;
+    let lines = tool.stashed()?;
+    let ours = server_port.to_string();
+    if lines.is_empty() || lines.iter().any(|l| !l.contains(&ours)) {
+        return Ok(false);
+    }
+    tool.stash(&[])?;
+    Ok(true)
+}
+
 /// A device attached through the USB/IP client.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Imported {
@@ -333,6 +346,29 @@ pub(crate) mod fake {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_permanent_devices_of_the_product_are_forgotten_and_the_others_are_not_touched() {
+        let tool = fake::FakeTool::default();
+        assert_eq!(
+            forget_permanent(&tool, 40391),
+            Ok(false),
+            "nothing to forget"
+        );
+        *tool.stashed_lines.lock().unwrap() = vec!["host=127.0.0.1;port=40391;busid=1-5".into()];
+        assert_eq!(forget_permanent(&tool, 40391), Ok(true));
+        assert_eq!(tool.stashes.lock().unwrap().last(), Some(&vec![]));
+        let other = fake::FakeTool::default();
+        *other.stashed_lines.lock().unwrap() = vec![
+            "host=127.0.0.1;port=40391;busid=1-5".into(),
+            "host=192.168.1.5;port=3240;busid=3-2".into(),
+        ];
+        assert_eq!(forget_permanent(&other, 40391), Ok(false));
+        assert!(
+            other.stashes.lock().unwrap().is_empty(),
+            "the list of others is left as it is"
+        );
+    }
 
     #[test]
     fn reads_the_port_listing() {

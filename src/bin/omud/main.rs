@@ -48,6 +48,9 @@ struct Args {
     /// rights), then stop: the daemon does not start.
     #[arg(long, value_name = "ON|OFF")]
     set_path: Option<Switch>,
+    /// Takes this product's devices out of the USB/IP driver's permanent list (what the installer does when it removes the product's data), then stop.
+    #[arg(long)]
+    forget_permanent_devices: bool,
     /// Asks the daemon that runs for this user to stop and waits for it to be gone (what the installer does before it replaces the
     /// programs), then stop: nothing happens when none runs.
     #[arg(long)]
@@ -175,6 +178,16 @@ fn main() -> std::process::ExitCode {
                 std::process::ExitCode::FAILURE
             }
         };
+    }
+    if args.forget_permanent_devices {
+        // no driver, nothing to forget
+        if let Err(e) = omu_virtual_devices::forget_permanent(
+            &omu_virtual_devices::UsbipExe,
+            omu_branding::VIRTUAL_SERVER_PORT,
+        ) {
+            eprintln!("{e}");
+        }
+        return std::process::ExitCode::SUCCESS;
     }
     if args.stop {
         stop_running(&data_dir);
