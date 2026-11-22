@@ -457,6 +457,10 @@ export function App() {
     void navigator.clipboard?.writeText(JSON.stringify({ omu: 1, ...clip })).catch(() => undefined);
     return true;
   };
+  const cut = () => {
+    if (!copy()) return;
+    void flow.deleteElements({ nodes: nodes.filter((n) => n.selected).map((n) => ({ id: n.id })) });
+  };
   const paste = (at?: { x: number; y: number }, from: Clip | null = clipboard.current) => {
     const clip = from;
     if (!clip) return;
@@ -517,7 +521,12 @@ export function App() {
       case 'edit.undo':
         return undo();
       case 'edit.redo':
+      case 'edit.redoAlt':
         return redo();
+      case 'edit.cut':
+        return cut();
+      case 'graph.apply':
+        return void (dirty && conn === 'open' && !busy && apply());
       case 'edit.copy':
         return void copy();
       case 'edit.paste':
@@ -555,7 +564,7 @@ export function App() {
       const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
       const id = commandOf(e, keys);
       if (!id) return;
-      const alwaysOn = id.startsWith('palette.open') || id === 'search.blocks' || id.startsWith('dock.');
+      const alwaysOn = id.startsWith('palette.open') || id === 'search.blocks' || id === 'graph.apply' || id.startsWith('dock.');
       if (typing && !alwaysOn) return;
       if (!alwaysOn && tab !== 'nodes') return;
       // some text is selected (in the log, the problems, a help window...): the browser copies and selects it, the graph keeps out of it
@@ -645,6 +654,7 @@ export function App() {
         { id: 'json', kind: 'command', label: t('app.json'), icon: 'braces', run: () => setShowJson((v) => !v) },
         { id: 'undo', kind: 'command', label: t('keys.undo'), icon: 'undo', shortcut: keys['edit.undo'], run: undo },
         { id: 'redo', kind: 'command', label: t('keys.redo'), icon: 'arrow', shortcut: keys['edit.redo'], run: redo },
+        { id: 'cut', kind: 'command', label: t('keys.cut'), icon: 'list', shortcut: keys['edit.cut'], run: cut },
         { id: 'copy', kind: 'command', label: t('keys.copy'), icon: 'list', shortcut: keys['edit.copy'], run: () => void copy() },
         { id: 'paste', kind: 'command', label: t('keys.paste'), icon: 'list', shortcut: keys['edit.paste'], run: () => paste() },
         { id: 'duplicate', kind: 'command', label: t('keys.duplicate'), icon: 'list', shortcut: keys['edit.duplicate'], run: duplicate },

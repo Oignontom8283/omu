@@ -7,10 +7,13 @@ import { comboFromEvent } from './graph.ts';
 export type CommandId =
   | 'edit.undo'
   | 'edit.redo'
+  | 'edit.redoAlt'
+  | 'edit.cut'
   | 'edit.copy'
   | 'edit.paste'
   | 'edit.duplicate'
   | 'edit.selectAll'
+  | 'graph.apply'
   | 'edit.group'
   | 'edit.ungroup'
   | 'search.blocks'
@@ -26,10 +29,13 @@ export type CommandId =
 export const COMMANDS: { id: CommandId; label: string; keys: string }[] = [
   { id: 'edit.undo', label: 'keys.undo', keys: 'Ctrl+Z' },
   { id: 'edit.redo', label: 'keys.redo', keys: 'Ctrl+Y' },
+  { id: 'edit.redoAlt', label: 'keys.redo', keys: 'Ctrl+Shift+Z' },
+  { id: 'edit.cut', label: 'keys.cut', keys: 'Ctrl+X' },
   { id: 'edit.copy', label: 'keys.copy', keys: 'Ctrl+C' },
   { id: 'edit.paste', label: 'keys.paste', keys: 'Ctrl+V' },
   { id: 'edit.duplicate', label: 'keys.duplicate', keys: 'Ctrl+D' },
   { id: 'edit.selectAll', label: 'keys.selectAll', keys: 'Ctrl+A' },
+  { id: 'graph.apply', label: 'app.apply', keys: 'Ctrl+S' },
   { id: 'edit.group', label: 'group.make', keys: 'Ctrl+G' },
   { id: 'edit.ungroup', label: 'group.take', keys: 'Ctrl+Shift+G' },
   { id: 'search.blocks', label: 'keys.searchBlocks', keys: 'Ctrl+F' },
