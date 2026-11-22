@@ -83,23 +83,28 @@ pub fn open_interface(panel_url: &str) -> Result<(), String> {
     if let Some(window) = window_executable() {
         return spawn_detached(std::process::Command::new(window));
     }
+    open_target(panel_url)
+}
+
+/// Opens an address, a file or a folder the way the system does for the user (the browser, the file manager...).
+pub fn open_target(target: &str) -> Result<(), String> {
     #[cfg(windows)]
     let command = {
         // not `cmd /C start`: it would read an `&` in the address as another command
         let mut c = std::process::Command::new("rundll32");
-        c.args(["url.dll,FileProtocolHandler", panel_url]);
+        c.args(["url.dll,FileProtocolHandler", target]);
         c
     };
     #[cfg(target_os = "macos")]
     let command = {
         let mut c = std::process::Command::new("open");
-        c.arg(panel_url);
+        c.arg(target);
         c
     };
     #[cfg(all(not(windows), not(target_os = "macos")))]
     let command = {
         let mut c = std::process::Command::new("xdg-open");
-        c.arg(panel_url);
+        c.arg(target);
         c
     };
     spawn_detached(command)

@@ -25,7 +25,7 @@ import { Button } from './kit/controls.tsx';
 import { loadDraft, loadVersions, saveDraft, saveVersions, withVersion, type Version } from './versions.ts';
 import { bindings, commandOf, loadOverrides, type CommandId } from './keybindings.ts';
 import { copyOf, pasteOf, type Clip, type ClipEdge, type ClipNode } from './selection.ts';
-import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Splitter, StatusBar, VersionsPanel, loadDock, saveDock, type DockState } from './components/Workbench.tsx';
+import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Splitter, StatusBar, USUAL_SIZE, VersionsPanel, loadDock, saveDock, type DockState } from './components/Workbench.tsx';
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
@@ -457,6 +457,10 @@ export function App() {
     void navigator.clipboard?.writeText(JSON.stringify({ omu: 1, ...clip })).catch(() => undefined);
     return true;
   };
+  const cut = () => {
+    if (!copy()) return;
+    void flow.deleteElements({ nodes: nodes.filter((n) => n.selected).map((n) => ({ id: n.id })) });
+  };
   const paste = (at?: { x: number; y: number }, from: Clip | null = clipboard.current) => {
     const clip = from;
     if (!clip) return;
@@ -517,7 +521,12 @@ export function App() {
       case 'edit.undo':
         return undo();
       case 'edit.redo':
+      case 'edit.redoAlt':
         return redo();
+      case 'edit.cut':
+        return cut();
+      case 'graph.apply':
+        return void (dirty && conn === 'open' && !busy && apply());
       case 'edit.copy':
         return void copy();
       case 'edit.paste':
@@ -555,7 +564,7 @@ export function App() {
       const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
       const id = commandOf(e, keys);
       if (!id) return;
-      const alwaysOn = id.startsWith('palette.open') || id === 'search.blocks' || id.startsWith('dock.');
+      const alwaysOn = id.startsWith('palette.open') || id === 'search.blocks' || id === 'graph.apply' || id.startsWith('dock.');
       if (typing && !alwaysOn) return;
       if (!alwaysOn && tab !== 'nodes') return;
       // some text is selected (in the log, the problems, a help window...): the browser copies and selects it, the graph keeps out of it
@@ -645,6 +654,7 @@ export function App() {
         { id: 'json', kind: 'command', label: t('app.json'), icon: 'braces', run: () => setShowJson((v) => !v) },
         { id: 'undo', kind: 'command', label: t('keys.undo'), icon: 'undo', shortcut: keys['edit.undo'], run: undo },
         { id: 'redo', kind: 'command', label: t('keys.redo'), icon: 'arrow', shortcut: keys['edit.redo'], run: redo },
+        { id: 'cut', kind: 'command', label: t('keys.cut'), icon: 'list', shortcut: keys['edit.cut'], run: cut },
         { id: 'copy', kind: 'command', label: t('keys.copy'), icon: 'list', shortcut: keys['edit.copy'], run: () => void copy() },
         { id: 'paste', kind: 'command', label: t('keys.paste'), icon: 'list', shortcut: keys['edit.paste'], run: () => paste() },
         { id: 'duplicate', kind: 'command', label: t('keys.duplicate'), icon: 'list', shortcut: keys['edit.duplicate'], run: duplicate },
@@ -727,7 +737,11 @@ export function App() {
     void flow.fitView({ nodes: [{ id }], duration: 300, maxZoom: 1, padding: 0.8 });
     if (d.port) window.setTimeout(() => flashPort(id, d.port as string), 380);
   };
-  const clampSize = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n));
+  // the panels of the workbench never take the whole window: what the graph keeps is the least that stays usable
+  const maxBottom = Math.max(120, Math.min(720, window.innerHeight - 260));
+  const maxRight = Math.max(260, Math.min(800, window.innerWidth - 420));
+  const bottomHeight = Math.min(dock.bottomHeight, maxBottom);
+  const rightWidth = Math.min(dock.rightWidth, maxRight);
 
   // each edge is drawn in the colour of the flow it carries
   const plainNodes = useMemo(() => nodes.map((n) => ({ id: n.id, spec: n.data.spec })), [nodes]);
@@ -981,8 +995,8 @@ export function App() {
         </div>
             {dock.right === 'inspector' && (
               <>
-                <Splitter direction="vertical" onResize={(d) => setDock({ ...dock, rightWidth: clampSize(dock.rightWidth - d, 220, 640) })} />
-                <div style={{ width: dock.rightWidth }} className="dock-wrap">
+                <Splitter direction="vertical" size={rightWidth} min={220} max={maxRight} usual={USUAL_SIZE.rightWidth} label={t('dock.resize')} onSize={(rightWidth) => setDock({ ...dock, rightWidth })} />
+                <div style={{ width: rightWidth }} className="dock-wrap">
                   <DockFrame side="right" title={t('dock.inspector')} onClose={() => setDock({ ...dock, right: null })}>
                     <InspectorPanel spec={selected} />
                   </DockFrame>
@@ -992,14 +1006,14 @@ export function App() {
           </div>
           {dock.bottom && (
             <>
-              <Splitter direction="horizontal" onResize={(d) => setDock({ ...dock, bottomHeight: clampSize(dock.bottomHeight - d, 90, 600) })} />
-              <div style={{ height: dock.bottomHeight }} className="dock-wrap">
+              <Splitter direction="horizontal" size={bottomHeight} min={90} max={maxBottom} usual={USUAL_SIZE.bottomHeight} label={t('dock.resize')} onSize={(bottomHeight) => setDock({ ...dock, bottomHeight })} />
+              <div style={{ height: bottomHeight }} className="dock-wrap">
                 <DockFrame
                   title={dock.bottom === 'problems' ? `${t('dock.problems')} (${diagnostics.length})` : dock.bottom === 'logs' ? t('app.logs') : dock.bottom === 'versions' ? t('dock.versions') : t('dock.monitor')}
                   onClose={() => setDock({ ...dock, bottom: null })}
                 >
                   {dock.bottom === 'problems' && <ProblemsPanel diagnostics={diagnostics} nodes={nodes.map((n) => n.data.spec)} onGo={goTo} />}
-                  {dock.bottom === 'logs' && <LogsPanel daemon={daemon} />}
+                  {dock.bottom === 'logs' && <LogsPanel daemon={daemon} notify={setNotice} />}
                   {dock.bottom === 'versions' && <VersionsPanel versions={versions} current={graph} onRestore={bringBack} />}
                   {dock.bottom === 'monitor' && <MonitorPanel status={status} nodes={nodes.map((n) => n.data.spec)} />}
                 </DockFrame>

@@ -330,6 +330,10 @@ method!(
     LogsRecent, "logs.recent", LogsParams => Vec<Line>
 );
 method!(
+    /// Opens the folder of the log files in the file manager of the computer the daemon runs on.
+    LogsOpenFolder, "logs.open_folder", () => ()
+);
+method!(
     /// The editor layout saved by the clients.
     LayoutGet, "layout.get", () => Layout
 );
@@ -378,6 +382,7 @@ pub const ALL_METHODS: &[&str] = &[
     EngineStart::NAME,
     SystemShutdown::NAME,
     LogsRecent::NAME,
+    LogsOpenFolder::NAME,
     LayoutGet::NAME,
     LayoutSet::NAME,
 ];

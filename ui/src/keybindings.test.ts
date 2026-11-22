@@ -17,6 +17,18 @@ test('a key press finds its command', () => {
   assert.equal(commandOf(key('KeyQ'), map), null, 'a letter nobody asked for');
 });
 
+test('the usual editing shortcuts are all there', () => {
+  const map = bindings({});
+  const of = (code: string, mods: object = {}) => commandOf(key(code, { ctrlKey: true, ...mods }), map);
+  assert.equal(of('KeyX'), 'edit.cut');
+  assert.equal(of('KeyC'), 'edit.copy');
+  assert.equal(of('KeyV'), 'edit.paste');
+  assert.equal(of('KeyD'), 'edit.duplicate');
+  assert.equal(of('KeyY'), 'edit.redo');
+  assert.equal(of('KeyZ', { shiftKey: true }), 'edit.redoAlt', 'redo has the other usual shortcut too');
+  assert.equal(of('KeyS'), 'graph.apply');
+});
+
 test('what the person changed wins, an empty text takes a shortcut away', () => {
   const map = bindings({ 'edit.undo': 'Ctrl+Alt+U', 'edit.redo': '' });
   assert.equal(commandOf(key('KeyU', { ctrlKey: true, altKey: true }), map), 'edit.undo');

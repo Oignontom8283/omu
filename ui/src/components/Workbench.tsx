@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import type { api } from '../api.ts';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { ON_THE_DAEMON_COMPUTER, saveTextFile, type api } from '../api.ts';
 import { nameOf, portsOf, categoryOf } from '../graph.ts';
 import { owningBlock } from '../grouping.ts';
 import { useEditor } from '../context.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button } from '../kit/controls.tsx';
-import type { Diagnostic, EngineStatus, GraphSpec, LogLine, NodeSpec } from '../types.ts';
+import { PRODUCT_NAME, type Diagnostic, type EngineStatus, type GraphSpec, type LogLine, type NodeSpec } from '../types.ts';
 import { differences, same, type Version } from '../versions.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { InlineValue, Params } from './NodeCard.tsx';
@@ -36,24 +36,81 @@ export function saveDock(dock: DockState): void {
   }
 }
 
-/** The bar between two areas: dragged to change the size of the panel on its other side. */
-export function Splitter({ direction, onResize }: { direction: 'horizontal' | 'vertical'; onResize: (delta: number) => void }) {
-  const press = (e: ReactPointerEvent) => {
+/** What the sizes of the panels are at first, and what a double click on a bar gives back. */
+export const USUAL_SIZE = { bottomHeight: DEFAULT.bottomHeight, rightWidth: DEFAULT.rightWidth };
+
+/**
+ * The bar between two areas, dragged (or moved with the arrow keys) to change the size of the panel that follows it: the panel is
+ * `size` big, and dragging towards the graph makes it bigger. The size is worked out from where the drag began, never from the
+ * last move, so the panel follows the pointer exactly; a double click gives the usual size back.
+ */
+export function Splitter({
+  direction,
+  size,
+  min,
+  max,
+  usual,
+  label,
+  onSize,
+}: {
+  direction: 'horizontal' | 'vertical';
+  size: number;
+  min: number;
+  max: number;
+  usual: number;
+  label: string;
+  onSize: (size: number) => void;
+}) {
+  const horizontal = direction === 'horizontal';
+  const clamp = (n: number) => Math.round(Math.min(max, Math.max(min, n)));
+  const [dragging, setDragging] = useState(false);
+  // the drag is followed on the whole window, so that it goes on over the graph and out of the page's frame
+  const press = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     e.preventDefault();
-    let last = direction === 'horizontal' ? e.clientY : e.clientX;
-    const move = (ev: PointerEvent) => {
-      const now = direction === 'horizontal' ? ev.clientY : ev.clientX;
-      onResize(now - last);
-      last = now;
-    };
+    const at = horizontal ? e.clientY : e.clientX;
+    const from = size;
+    const move = (ev: PointerEvent) => onSize(clamp(from - ((horizontal ? ev.clientY : ev.clientX) - at)));
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      document.body.classList.remove('resizing');
+      setDragging(false);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    document.body.classList.add('resizing');
+    setDragging(true);
   };
-  return <div className={`splitter ${direction}`} role="separator" aria-orientation={direction === 'horizontal' ? 'horizontal' : 'vertical'} onPointerDown={press} />;
+  const key = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const grow = horizontal ? 'ArrowUp' : 'ArrowLeft';
+    const shrink = horizontal ? 'ArrowDown' : 'ArrowRight';
+    const step = e.shiftKey ? 64 : 16;
+    if (e.key === grow) onSize(clamp(size + step));
+    else if (e.key === shrink) onSize(clamp(size - step));
+    else if (e.key === 'Home') onSize(max);
+    else if (e.key === 'End') onSize(min);
+    else if (e.key === 'Enter') onSize(clamp(usual));
+    else return;
+    e.preventDefault();
+  };
+  return (
+    <div
+      className={`splitter ${direction}${dragging ? ' dragging' : ''}`}
+      role="separator"
+      aria-orientation={horizontal ? 'horizontal' : 'vertical'}
+      aria-label={label}
+      aria-valuenow={size}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      tabIndex={0}
+      onPointerDown={press}
+      onDoubleClick={() => onSize(clamp(usual))}
+      onKeyDown={key}
+    />
+  );
 }
 
 const SEVERITY_ICON: Record<Diagnostic['severity'], IconName> = { error: 'error', warning: 'warning', info: 'info' };
@@ -94,7 +151,7 @@ export function ProblemsPanel({ diagnostics, nodes, onGo }: { diagnostics: Diagn
 }
 
 /** What the program has been doing lately: its latest log lines, following new ones as they come. */
-export function LogsPanel({ daemon }: { daemon: ReturnType<typeof api> }) {
+export function LogsPanel({ daemon, notify }: { daemon: ReturnType<typeof api>; notify: (text: string) => void }) {
   const t = useT();
   const [lines, setLines] = useState<LogLine[]>([]);
   const last = useRef(0);
@@ -125,14 +182,48 @@ export function LogsPanel({ daemon }: { daemon: ReturnType<typeof api> }) {
       window.clearInterval(timer);
     };
   }, [daemon]);
+  // follows the new lines while the person reads the end of the log; scrolling up to read something stops that
+  const following = useRef(true);
   useEffect(() => {
     const el = box.current;
-    if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 80) el.scrollTop = el.scrollHeight;
+    if (el && following.current) el.scrollTop = el.scrollHeight;
   }, [lines]);
+  const text = lines.map((l) => l.text).join('\n');
+  const [copied, setCopied] = useState(false);
+  const failed = (e: unknown) => notify(e instanceof Error ? e.message : String(e));
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch (e) {
+      failed(e);
+    }
+  };
+  const save = () => {
+    const day = new Date().toISOString().slice(0, 10);
+    const product = PRODUCT_NAME.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    void saveTextFile(`${product}-logs-${day}.log`, `${text}\n`).catch(failed);
+  };
   return (
-    <pre ref={box} className="logs-panel">
-      {lines.length === 0 ? t('app.logsEmpty') : lines.map((l) => l.text).join('\n')}
-    </pre>
+    <div className="logs">
+      <div className="logs-bar">
+        <Button icon={copied ? 'check' : 'copy'} disabled={lines.length === 0} onClick={() => void copy()}>
+          {copied ? t('logs.copied') : t('logs.copy')}
+        </Button>
+        <Button icon="save" disabled={lines.length === 0} onClick={save}>
+          {t('logs.export')}
+        </Button>
+        {ON_THE_DAEMON_COMPUTER && (
+          <Button icon="folder" onClick={() => void daemon.openLogsFolder().catch(failed)}>
+            {t('logs.openFolder')}
+          </Button>
+        )}
+      </div>
+      <pre ref={box} className="logs-panel" onScroll={(e) => (following.current = e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 40)}>
+        {lines.length === 0 ? t('app.logsEmpty') : text}
+      </pre>
+    </div>
   );
 }
 
