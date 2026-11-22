@@ -3,4 +3,5 @@
 
 pub mod autostart;
 pub mod elevation;
+pub mod path;
 pub mod tray;
