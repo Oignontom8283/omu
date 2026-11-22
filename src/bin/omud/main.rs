@@ -40,12 +40,23 @@ struct Args {
     /// for administrator rights only when this program does not have them already.
     #[arg(long)]
     clean_devices: bool,
+    /// Turns the start of the daemon at logon on or off for the current user (what the installer's option does), then stop: the
+    /// daemon does not start.
+    #[arg(long, value_name = "ON|OFF")]
+    set_start_at_logon: Option<Switch>,
     /// Used by the program itself when it starts again with administrator rights for `--clean-devices`.
     #[arg(long, hide = true)]
     elevated_helper: bool,
     /// Break on purpose once started, to check that crashes are handled (used by the tests).
     #[arg(long, hide = true, value_name = "KIND")]
     crash_test: Option<String>,
+}
+
+/// A value that is on or off.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum Switch {
+    On,
+    Off,
 }
 
 /// Fails the way the named kind of bug would.
@@ -115,6 +126,16 @@ fn clean_devices(data_dir: PathBuf, helper: bool) -> std::process::ExitCode {
 fn main() -> std::process::ExitCode {
     let args = Args::parse();
     let data_dir = args.data_dir.unwrap_or_else(omu_discovery::data_dir);
+    if let Some(switch) = args.set_start_at_logon {
+        return match omu_daemon::setup::set_start_at_logon(&data_dir, matches!(switch, Switch::On))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
     if args.clean_devices {
         return clean_devices(data_dir, args.elevated_helper);
     }
@@ -199,7 +220,12 @@ async fn stop_requested() -> &'static str {
     #[cfg(windows)]
     {
         use tokio::signal::windows as w;
-        match (w::ctrl_break(), w::ctrl_close(), w::ctrl_logoff(), w::ctrl_shutdown()) {
+        match (
+            w::ctrl_break(),
+            w::ctrl_close(),
+            w::ctrl_logoff(),
+            w::ctrl_shutdown(),
+        ) {
             (Ok(mut brk), Ok(mut close), Ok(mut logoff), Ok(mut down)) => tokio::select! {
                 _ = tokio::signal::ctrl_c() => "Ctrl-C received",
                 _ = brk.recv() => "Ctrl-Break received",
