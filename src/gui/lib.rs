@@ -155,6 +155,21 @@ async fn pick_sound_files() -> Result<Vec<String>, String> {
     .map_err(|e| e.to_string())
 }
 
+/// Shows the system's dialog to save a text file, and writes `text` where the person chose; `false` when the dialog is dismissed.
+#[tauri::command]
+async fn save_text_file(name: String, text: String) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        match rfd::FileDialog::new().set_file_name(name).save_file() {
+            Some(path) => std::fs::write(&path, text)
+                .map(|()| true)
+                .map_err(|e| format!("cannot write {}: {e}", path.display())),
+            None => Ok(false),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn launch_daemon() -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(start_daemon)
@@ -167,7 +182,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             rpc,
             launch_daemon,
-            pick_sound_files
+            pick_sound_files,
+            save_text_file
         ])
         .run(tauri::generate_context!())
         .unwrap_or_else(|e| omu_diagnostics::fail(&format!("the window could not run: {e}"), 1));

@@ -655,6 +655,14 @@ impl Daemon {
                     None => omu_diagnostics::ring::recent(limit),
                 })
             }
+            m::LogsOpenFolder::NAME => {
+                let dir = self.store.dir().join(omu_diagnostics::LOG_DIR);
+                if !dir.is_dir() {
+                    return Err(RpcError::internal("there is no folder of logs yet"));
+                }
+                tray_host::open_target(&dir.display().to_string()).map_err(RpcError::internal)?;
+                result(())
+            }
             m::LayoutGet::NAME => result(lock(&self.state).layout.clone()),
             m::LayoutSet::NAME => {
                 let layout = params::<m::LayoutSet>(p)?;
