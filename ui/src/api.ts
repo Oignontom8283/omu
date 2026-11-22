@@ -245,6 +245,7 @@ export const api = (rpc: Rpc) => ({
   setSettings: (s: Settings) => rpc.request<null>('settings.set', s),
   certificates: () => rpc.request<TrustReport>('certificates.list'),
   remote: () => rpc.request<RemoteInfo>('remote.info'),
+  openLogsFolder: () => rpc.request<null>('logs.open_folder'),
 });
 
 export const EVENT_STATUS = 'engine.status';
@@ -254,6 +255,26 @@ export const EVENT_GRAPH = 'graph.changed';
 export async function pickSoundFiles(): Promise<string[]> {
   const { invoke } = await import('@tauri-apps/api/core');
   return (await invoke('pick_sound_files')) as string[];
+}
+
+/** True when this page runs on the same computer as the daemon (the desktop window, or a browser on this very computer): what opens a folder there is the person's own. */
+export const ON_THE_DAEMON_COMPUTER = IN_DESKTOP_WINDOW || (typeof location !== 'undefined' && ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname));
+
+/** Puts a text in a file the person chooses the place of: the system's dialog in the desktop window, the browser's download elsewhere. False when the dialog is dismissed. */
+export async function saveTextFile(name: string, text: string): Promise<boolean> {
+  if (IN_DESKTOP_WINDOW) {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return (await invoke('save_text_file', { name, text })) as boolean;
+  }
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  return true;
 }
 
 /** Desktop window only: starts the daemon that sits next to the window's executable. */

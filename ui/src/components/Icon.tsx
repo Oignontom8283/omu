@@ -18,6 +18,7 @@ const PATHS = {
   folder: 'M2 4.2h4l1.2 1.5H14v7H2z',
   broom: 'M9.5 2.5 7 7M5.2 7h5.6l1.2 6H4zM6.6 10l.4 3M9.4 10l-.4 3',
   stack: 'M8 2.5 14 5.5 8 8.5 2 5.5zM2 8.5l6 3 6-3M2 11l6 3 6-3',
+  copy: 'M5.5 5.5h7.5v8H5.5zM3 10.5V2.5h7.5',
   save: 'M3 3h8.5L13 4.5V13H3zM5.5 3v3.2h4.5V3M5.5 13V9.5h5V13',
   record: 'M8 4a4 4 0 1 0 0 8 4 4 0 0 0 0-8z',
   power: 'M8 2.5v5M5 4.6a5 5 0 1 0 6 0',

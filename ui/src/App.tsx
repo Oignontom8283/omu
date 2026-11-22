@@ -1003,7 +1003,7 @@ export function App() {
                   onClose={() => setDock({ ...dock, bottom: null })}
                 >
                   {dock.bottom === 'problems' && <ProblemsPanel diagnostics={diagnostics} nodes={nodes.map((n) => n.data.spec)} onGo={goTo} />}
-                  {dock.bottom === 'logs' && <LogsPanel daemon={daemon} />}
+                  {dock.bottom === 'logs' && <LogsPanel daemon={daemon} notify={setNotice} />}
                   {dock.bottom === 'versions' && <VersionsPanel versions={versions} current={graph} onRestore={bringBack} />}
                   {dock.bottom === 'monitor' && <MonitorPanel status={status} nodes={nodes.map((n) => n.data.spec)} />}
                 </DockFrame>
