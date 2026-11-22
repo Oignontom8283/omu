@@ -28,6 +28,7 @@ members = [
     "src/bin/omud",
     "src/bin/omu-cli",
     "src/bin/omu-gui",
+    "scripts/win-installer",
 ]
 resolver = "2"
 

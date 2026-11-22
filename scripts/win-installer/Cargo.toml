@@ -1,0 +1,26 @@
+[package]
+name = "omu-win-installer"
+version = "0.22.1"
+edition = "2021"
+rust-version = "1.88"
+description = "script of the repository: builds the Windows installers (one per processor), on Windows or on Linux"
+license-file = "../../LICENSE"
+publish = false
+
+[lib]
+path = "lib.rs"
+
+[[bin]]
+name = "win-installer"
+path = "main.rs"
+
+[dependencies]
+omu-branding = { path = "../../src/branding" }
+base64 = "0.22"
+clap = { version = "4.6", features = ["derive"] }
+sha2 = "0.10"
+ureq = { version = "3.5", default-features = false, features = ["rustls", "platform-verifier"] }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+unused_must_use = "deny"

@@ -93,6 +93,31 @@ demo-release: release
 release-native:
     cargo build --release --workspace --config "build.rustflags=['-C','target-cpu=native']"
 
+# Everything that is handed to people, in dist/ (what a release or the CI runs): the optimised programs of each target, then the installer
+# or package made of them. One recipe per target, to build just that one (a tester gets package-win-x64 and nobody compiles ARM for it).
+# The Linux packages (deb, rpm) and the macOS one will join the list here when they exist; each lives in its own folder of scripts/.
+# The ARM64 one needs a C compiler for ARM64 (the build server has clang; on a PC: the ARM64 build tools of Visual Studio): to build only what
+# works on a given computer, run the recipe of that target.
+
+# Build everything that is handed to people, in dist/
+package: package-win-x64 package-win-arm64
+
+# The Windows installer for Intel and AMD processors (dist/omu-<version>-setup-x64.exe)
+package-win-x64 *args:
+    rustup target add x86_64-pc-windows-msvc
+    cargo build --release --target x86_64-pc-windows-msvc --bin omud --bin omu-cli --bin omu-gui
+    cargo run -p omu-win-installer -- --arch x64 {{ args }}
+
+# The Windows installer for ARM processors (dist/omu-<version>-setup-arm64.exe). Compiling for ARM needs the ARM64 build tools of Visual Studio
+# (the component "MSVC ... ARM64 build tools"); the Rust target is added by the recipe itself.
+package-win-arm64 *args:
+    rustup target add aarch64-pc-windows-msvc
+    cargo build --release --target aarch64-pc-windows-msvc --bin omud --bin omu-cli --bin omu-gui
+    cargo run -p omu-win-installer -- --arch arm64 {{ args }}
+
+# Both Windows installers
+package-win *args: (package-win-x64 args) (package-win-arm64 args)
+
 # Develop the web panel with hot reload against a running daemon: open http://localhost:5173
 ui:
     npm --prefix ui run dev
