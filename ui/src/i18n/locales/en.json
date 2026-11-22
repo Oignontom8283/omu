@@ -268,6 +268,7 @@
   "inspector.none": "Select a block to see its settings.",
   "monitor.stopped": "The engine is not running.",
   "monitor.cycles": "Cycles: {cycles} · late: {late}",
+  "dock.resize": "Drag to resize (double click: usual size)",
   "monitor.block": "Block",
   "monitor.level": "Level",
   "monitor.glitches": "Glitches",

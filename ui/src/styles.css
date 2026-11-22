@@ -1986,24 +1986,42 @@ button.ref:hover:not(:disabled) {
   padding: 6px 10px;
   font-size: 12.5px;
 }
+/* the bar between the graph and a panel: a line, with a wider zone around it that takes the pointer */
 .splitter {
+  position: relative;
   flex: none;
   background: var(--line);
   z-index: 5;
+  touch-action: none;
+  outline: none;
+}
+.splitter::before {
+  content: '';
+  position: absolute;
 }
 .splitter.horizontal {
   height: 1px;
   cursor: ns-resize;
-  box-shadow: 0 -3px 0 transparent, 0 3px 0 transparent;
+}
+.splitter.horizontal::before {
+  inset: -4px 0;
 }
 .splitter.vertical {
   width: 1px;
   cursor: ew-resize;
 }
+.splitter.vertical::before {
+  inset: 0 -4px;
+}
+/* while a bar is dragged: no text gets selected and the pointer stays the bar's */
+body.resizing {
+  user-select: none;
+}
 .splitter:hover,
-.splitter:active {
+.splitter.dragging,
+.splitter:focus-visible {
   background: var(--primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary) 40%, transparent);
+  box-shadow: 0 0 0 1px var(--primary);
 }
 .statusbar {
   flex: none;

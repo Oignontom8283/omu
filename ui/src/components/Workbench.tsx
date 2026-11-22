@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { api } from '../api.ts';
 import { nameOf, portsOf, categoryOf } from '../graph.ts';
 import { owningBlock } from '../grouping.ts';
@@ -36,24 +36,81 @@ export function saveDock(dock: DockState): void {
   }
 }
 
-/** The bar between two areas: dragged to change the size of the panel on its other side. */
-export function Splitter({ direction, onResize }: { direction: 'horizontal' | 'vertical'; onResize: (delta: number) => void }) {
-  const press = (e: ReactPointerEvent) => {
+/** What the sizes of the panels are at first, and what a double click on a bar gives back. */
+export const USUAL_SIZE = { bottomHeight: DEFAULT.bottomHeight, rightWidth: DEFAULT.rightWidth };
+
+/**
+ * The bar between two areas, dragged (or moved with the arrow keys) to change the size of the panel that follows it: the panel is
+ * `size` big, and dragging towards the graph makes it bigger. The size is worked out from where the drag began, never from the
+ * last move, so the panel follows the pointer exactly; a double click gives the usual size back.
+ */
+export function Splitter({
+  direction,
+  size,
+  min,
+  max,
+  usual,
+  label,
+  onSize,
+}: {
+  direction: 'horizontal' | 'vertical';
+  size: number;
+  min: number;
+  max: number;
+  usual: number;
+  label: string;
+  onSize: (size: number) => void;
+}) {
+  const horizontal = direction === 'horizontal';
+  const clamp = (n: number) => Math.round(Math.min(max, Math.max(min, n)));
+  const [dragging, setDragging] = useState(false);
+  // the drag is followed on the whole window, so that it goes on over the graph and out of the page's frame
+  const press = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     e.preventDefault();
-    let last = direction === 'horizontal' ? e.clientY : e.clientX;
-    const move = (ev: PointerEvent) => {
-      const now = direction === 'horizontal' ? ev.clientY : ev.clientX;
-      onResize(now - last);
-      last = now;
-    };
+    const at = horizontal ? e.clientY : e.clientX;
+    const from = size;
+    const move = (ev: PointerEvent) => onSize(clamp(from - ((horizontal ? ev.clientY : ev.clientX) - at)));
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+      document.body.classList.remove('resizing');
+      setDragging(false);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+    document.body.classList.add('resizing');
+    setDragging(true);
   };
-  return <div className={`splitter ${direction}`} role="separator" aria-orientation={direction === 'horizontal' ? 'horizontal' : 'vertical'} onPointerDown={press} />;
+  const key = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    const grow = horizontal ? 'ArrowUp' : 'ArrowLeft';
+    const shrink = horizontal ? 'ArrowDown' : 'ArrowRight';
+    const step = e.shiftKey ? 64 : 16;
+    if (e.key === grow) onSize(clamp(size + step));
+    else if (e.key === shrink) onSize(clamp(size - step));
+    else if (e.key === 'Home') onSize(max);
+    else if (e.key === 'End') onSize(min);
+    else if (e.key === 'Enter') onSize(clamp(usual));
+    else return;
+    e.preventDefault();
+  };
+  return (
+    <div
+      className={`splitter ${direction}${dragging ? ' dragging' : ''}`}
+      role="separator"
+      aria-orientation={horizontal ? 'horizontal' : 'vertical'}
+      aria-label={label}
+      aria-valuenow={size}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      tabIndex={0}
+      onPointerDown={press}
+      onDoubleClick={() => onSize(clamp(usual))}
+      onKeyDown={key}
+    />
+  );
 }
 
 const SEVERITY_ICON: Record<Diagnostic['severity'], IconName> = { error: 'error', warning: 'warning', info: 'info' };
