@@ -21,6 +21,8 @@ deepfilter = ["omu-daemon/deepfilter"]
 
 [dependencies]
 omu-branding = { path = "../../branding" }
+omu-client = { path = "../../client" }
+omu-protocol = { path = "../../protocol" }
 omu-daemon = { path = "../../daemon", default-features = false }
 omu-desktop = { path = "../../desktop" }
 omu-diagnostics = { path = "../../diagnostics" }
@@ -64,8 +66,6 @@ windows = { version = "0.62", features = [
 ] }
 
 [dev-dependencies]
-omu-client = { path = "../../client" }
-omu-protocol = { path = "../../protocol" }
 tungstenite = "0.30"
 
 [lints.rust]

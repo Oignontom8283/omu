@@ -3993,6 +3993,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "omu-win-installer"
+version = "0.22.1"
+dependencies = [
+ "base64 0.22.1",
+ "clap",
+ "omu-branding",
+ "sha2 0.10.9",
+ "ureq",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"

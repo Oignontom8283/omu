@@ -16,7 +16,7 @@ pub mod tool;
 pub mod usb;
 
 pub use mic::UsbMicProvider;
-pub use tool::{UsbipExe, UsbipTool};
+pub use tool::{forget_permanent, UsbipExe, UsbipTool};
 
 use omu_hal::VirtualDeviceProvider;
 use std::sync::Arc;

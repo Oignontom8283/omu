@@ -10,6 +10,7 @@ pub mod instance;
 pub mod launch;
 pub mod open;
 pub mod server;
+pub mod setup;
 pub mod store;
 #[cfg(feature = "tray")]
 pub mod tray_host;

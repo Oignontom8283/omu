@@ -34,3 +34,6 @@ rustc-ice-*.txt
 /ui/node_modules/
 /ui/dist/
 /src/gui/gen/
+
+# What is handed to people (just package)
+/dist

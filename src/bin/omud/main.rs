@@ -40,12 +40,51 @@ struct Args {
     /// for administrator rights only when this program does not have them already.
     #[arg(long)]
     clean_devices: bool,
+    /// Turns the start of the daemon at logon on or off for the current user (what the installer's option does), then stop: the
+    /// daemon does not start.
+    #[arg(long, value_name = "ON|OFF")]
+    set_start_at_logon: Option<Switch>,
+    /// Puts the folder of this program in the PATH of the computer, or takes it out (what the installer does; needs administrator
+    /// rights), then stop: the daemon does not start.
+    #[arg(long, value_name = "ON|OFF")]
+    set_path: Option<Switch>,
+    /// Takes this product's devices out of the USB/IP driver's permanent list (what the installer does when it removes the product's data), then stop.
+    #[arg(long)]
+    forget_permanent_devices: bool,
+    /// Asks the daemon that runs for this user to stop and waits for it to be gone (what the installer does before it replaces the
+    /// programs), then stop: nothing happens when none runs.
+    #[arg(long)]
+    stop: bool,
     /// Used by the program itself when it starts again with administrator rights for `--clean-devices`.
     #[arg(long, hide = true)]
     elevated_helper: bool,
     /// Break on purpose once started, to check that crashes are handled (used by the tests).
     #[arg(long, hide = true, value_name = "KIND")]
     crash_test: Option<String>,
+}
+
+/// A value that is on or off.
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+enum Switch {
+    On,
+    Off,
+}
+
+/// `--stop`: asks the daemon of this data folder to stop, and waits (a few seconds at most) until it no longer answers.
+fn stop_running(data_dir: &std::path::Path) {
+    use omu_protocol::methods::{SystemInfoMethod, SystemShutdown};
+    let Ok(client) = omu_client::Client::discover_in(data_dir) else {
+        return;
+    };
+    if client.call::<SystemShutdown>(&()).is_err() {
+        return;
+    }
+    for _ in 0..30 {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if client.call::<SystemInfoMethod>(&()).is_err() {
+            return;
+        }
+    }
 }
 
 /// Fails the way the named kind of bug would.
@@ -115,6 +154,45 @@ fn clean_devices(data_dir: PathBuf, helper: bool) -> std::process::ExitCode {
 fn main() -> std::process::ExitCode {
     let args = Args::parse();
     let data_dir = args.data_dir.unwrap_or_else(omu_discovery::data_dir);
+    if let Some(switch) = args.set_start_at_logon {
+        return match omu_daemon::setup::set_start_at_logon(&data_dir, matches!(switch, Switch::On))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if let Some(switch) = args.set_path {
+        let folder = std::env::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf));
+        return match folder
+            .ok_or_else(|| "cannot tell where this program is".to_string())
+            .and_then(|f| omu_desktop::path::set(&f, matches!(switch, Switch::On)))
+        {
+            Ok(()) => std::process::ExitCode::SUCCESS,
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::ExitCode::FAILURE
+            }
+        };
+    }
+    if args.forget_permanent_devices {
+        // no driver, nothing to forget
+        if let Err(e) = omu_virtual_devices::forget_permanent(
+            &omu_virtual_devices::UsbipExe,
+            omu_branding::VIRTUAL_SERVER_PORT,
+        ) {
+            eprintln!("{e}");
+        }
+        return std::process::ExitCode::SUCCESS;
+    }
+    if args.stop {
+        stop_running(&data_dir);
+        return std::process::ExitCode::SUCCESS;
+    }
     if args.clean_devices {
         return clean_devices(data_dir, args.elevated_helper);
     }
