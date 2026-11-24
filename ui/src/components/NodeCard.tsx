@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { useEditor } from '../context.ts';
 import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_EXPRESSION_ARGS, MAX_JOIN_ARGS, inputValue, branchCount, categoryOf, entryCount, entryHandles, hasEntries, isGeneratedId, levelDb, linksPerEntry, meterFill, portsOf, variableName, zonesOf, type PortMeta } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
-import type { CompareOp, ControlAction, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, RoundMode, TextOp } from '../types.ts';
+import type { CompareOp, ControlAction, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, NoiseColor, RoundMode, TextOp, Wave } from '../types.ts';
 import { sizeOf } from '../grouping.ts';
 import { Button, ComboInput, NumberField, Select, Slider, Switch, TextInput } from '../kit/controls.tsx';
 import { controlNamed, defaultControl } from '../kit/registry.ts';
@@ -125,6 +125,122 @@ function SoundboardEditor({ spec }: { spec: Of<'soundboard'> }) {
   );
 }
 
+const WAVES: Wave[] = ['sine', 'square', 'triangle', 'saw'];
+const NOISES: NoiseColor[] = ['white', 'pink', 'brown'];
+
+/** The level of a sound that is made here, in decibels. */
+function LevelField({ value, onChange }: { value: number; onChange: (db: number) => void }) {
+  const t = useT();
+  return (
+    <div className="field">
+      <span>{t('field.level')}</span>
+      <NumberField min={-60} max={12} step={1} unit="dB" value={value} onChange={onChange} />
+    </div>
+  );
+}
+
+/** A tone: its shape, its pitch and its level. */
+function ToneEditor({ spec }: { spec: Of<'tone'> }) {
+  const { update } = useEditor();
+  const t = useT();
+  const set = (patch: Partial<Of<'tone'>>) => update(spec.id, { ...spec, ...patch });
+  return (
+    <>
+      <div className="field">
+        <span>{t('field.wave')}</span>
+        <Select value={spec.wave ?? 'sine'} options={WAVES.map((w) => ({ value: w, label: t(`wave.${w}`) }))} onChange={(wave) => set({ wave: wave as Wave })} />
+      </div>
+      <div className="field">
+        <span>{t('field.pitch')}</span>
+        <NumberField min={1} max={20000} step={1} unit="Hz" value={spec.hz ?? 440} onChange={(hz) => set({ hz })} />
+      </div>
+      <LevelField value={spec.db ?? -12} onChange={(db) => set({ db })} />
+    </>
+  );
+}
+
+/** Noise: its colour and its level. */
+function NoiseEditor({ spec }: { spec: Of<'noise'> }) {
+  const { update } = useEditor();
+  const t = useT();
+  const set = (patch: Partial<Of<'noise'>>) => update(spec.id, { ...spec, ...patch });
+  return (
+    <>
+      <div className="field">
+        <span>{t('field.noiseColor')}</span>
+        <Select value={spec.color ?? 'white'} options={NOISES.map((c) => ({ value: c, label: t(`noise.${c}`) }))} onChange={(color) => set({ color: color as NoiseColor })} />
+      </div>
+      <LevelField value={spec.db ?? -12} onChange={(db) => set({ db })} />
+    </>
+  );
+}
+
+/** A file: which of the sounds that were imported it plays, whether it loops, and its level. */
+function AudioFileEditor({ spec }: { spec: Of<'audio_file'> }) {
+  const { library, update } = useEditor();
+  const t = useT();
+  const set = (patch: Partial<Of<'audio_file'>>) => update(spec.id, { ...spec, ...patch });
+  const known = library.sounds.some((s) => s.id === spec.sound);
+  const missing = !known && spec.sound !== '';
+  return (
+    <>
+      <div className={`field${missing ? ' warned' : ''}`} title={missing ? t('field.soundMissing') : undefined}>
+        <span>
+          {missing && <Icon name="warning" size={12} />}
+          {t('field.sound')}
+        </span>
+        <Select
+          value={spec.sound}
+          options={[...(known ? [] : [{ value: spec.sound, label: spec.sound ? t('field.notFound') : t('field.chooseSound') }]), ...library.sounds.map((s) => ({ value: s.id, label: s.name }))]}
+          onChange={(sound) => set({ sound })}
+        />
+      </div>
+      <div className="field">
+        <span>{t('field.loop')}</span>
+        <Switch checked={spec.looped ?? false} onChange={(looped) => set({ looped })} />
+      </div>
+      <LevelField value={spec.db ?? 0} onChange={(db) => set({ db })} />
+    </>
+  );
+}
+
+/** One sound of a soundboard: which soundboard, and which of its sounds. */
+function PadSoundEditor({ spec }: { spec: Of<'soundboard_sound'> }) {
+  const { library, update } = useEditor();
+  const t = useT();
+  const board = library.boards.find((b) => b.id === spec.board);
+  const boardMissing = !board && spec.board !== '';
+  const padKnown = board?.pads.some((p) => p.id === spec.pad) ?? false;
+  const padMissing = !padKnown && spec.pad !== '' && !!board;
+  return (
+    <>
+      <div className={`field${boardMissing ? ' warned' : ''}`} title={boardMissing ? t('field.soundboardMissing') : undefined}>
+        <span>
+          {boardMissing && <Icon name="warning" size={12} />}
+          {t('field.soundboard')}
+        </span>
+        <Select
+          value={spec.board}
+          options={[...(board ? [] : [{ value: spec.board, label: spec.board ? t('field.notFound') : t('field.chooseSoundboard') }]), ...library.boards.map((b) => ({ value: b.id, label: b.name }))]}
+          onChange={(id) => update(spec.id, { type: 'soundboard_sound', board: id, pad: '' })}
+        />
+      </div>
+      <div className={`field${padMissing ? ' warned' : ''}`} title={padMissing ? t('field.soundMissing') : undefined}>
+        <span>
+          {padMissing && <Icon name="warning" size={12} />}
+          {t('field.sound')}
+        </span>
+        <Select
+          value={spec.pad}
+          disabled={!board}
+          options={[...(padKnown ? [] : [{ value: spec.pad, label: spec.pad ? t('field.notFound') : t('field.chooseSound') }]), ...(board?.pads.map((p) => ({ value: p.id, label: p.name || t('soundboards.unnamedPad') })) ?? [])]}
+          onChange={(pad) => update(spec.id, { type: 'soundboard_sound', board: spec.board, pad })}
+        />
+      </div>
+    </>
+  );
+}
+
 function TextField({ label, value, placeholder, disabled, title, onChange }: { label: string; value: string; placeholder?: string; disabled?: boolean; title?: string; onChange: (text: string) => void }) {
   const t = useT();
   return (
@@ -177,6 +293,14 @@ export function Params({ spec }: { spec: NodeSpec }) {
       );
     case 'deep_filter':
       return <DeepFilterEditor spec={spec} />;
+    case 'tone':
+      return <ToneEditor spec={spec} />;
+    case 'noise':
+      return <NoiseEditor spec={spec} />;
+    case 'audio_file':
+      return <AudioFileEditor spec={spec} />;
+    case 'soundboard_sound':
+      return <PadSoundEditor spec={spec} />;
     case 'soundboard':
       return <SoundboardEditor spec={spec} />;
     case 'virtual_mic':

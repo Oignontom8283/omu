@@ -33,6 +33,24 @@ const SETTINGS: Partial<Record<NodeType, { key: string; type: string }[]>> = {
   hotkey: [{ key: 'field.shortcut', type: 'Keys' }],
   delay: [{ key: 'field.delay', type: 'ms' }],
   soundboard: [{ key: 'field.soundboard', type: 'Soundboard' }],
+  soundboard_sound: [
+    { key: 'field.soundboard', type: 'Soundboard' },
+    { key: 'field.sound', type: 'Sound' },
+  ],
+  audio_file: [
+    { key: 'field.sound', type: 'Sound' },
+    { key: 'field.loop', type: 'Condition' },
+    { key: 'field.level', type: 'dB' },
+  ],
+  tone: [
+    { key: 'field.wave', type: 'Wave' },
+    { key: 'field.pitch', type: 'Hz' },
+    { key: 'field.level', type: 'dB' },
+  ],
+  noise: [
+    { key: 'field.noiseColor', type: 'Colour' },
+    { key: 'field.level', type: 'dB' },
+  ],
   deep_filter: [{ key: 'field.maxReduction', type: 'dB' }],
   text: [{ key: 'field.text', type: 'Text' }],
   integer: [{ key: 'field.integer', type: 'Integer' }],

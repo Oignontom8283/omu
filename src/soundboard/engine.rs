@@ -51,6 +51,32 @@ pub enum SoundError {
     Io(String),
 }
 
+/// A block that plays one sound by itself (not through a soundboard's pads): a sound of a soundboard, or an imported file.
+/// Its runtime is named by `solo_key` and it has one pad, `SOLO_PAD`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Solo {
+    /// A pad of a soundboard, as it is set up there (its volume, loop, fade, part).
+    Pad { board: String, pad: String },
+    /// An imported sound, with the settings of the block.
+    File {
+        sound: String,
+        looped: bool,
+        gain_db: f32,
+    },
+}
+
+/// The name of the runtime of the block `node` that plays a sound by itself. It cannot be the id of a soundboard.
+pub fn solo_key(node: &str) -> String {
+    format!("~{node}")
+}
+
+fn is_solo_key(key: &str) -> bool {
+    key.starts_with('~')
+}
+
+/// The one pad a solo block plays.
+pub const SOLO_PAD: &str = "solo";
+
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -98,6 +124,8 @@ struct Shared {
     /// One sound is loaded at a time.
     load_gate: Mutex<()>,
     runtimes: Mutex<HashMap<String, Arc<BoardRuntime>>>,
+    /// What the blocks that play one sound by themselves are set to play, by the key of their runtime.
+    solos: Mutex<HashMap<String, Solo>>,
     /// The imports in progress, by the id the page gave them.
     imports: Mutex<HashMap<String, ImportJob>>,
     new_jobs: Mutex<Vec<StreamJob>>,
@@ -188,6 +216,7 @@ impl SoundEngine {
                 }),
                 load_gate: Mutex::new(()),
                 runtimes: Mutex::new(HashMap::new()),
+                solos: Mutex::new(HashMap::new()),
                 imports: Mutex::new(HashMap::new()),
                 new_jobs: Mutex::new(vec![]),
                 streams: AtomicUsize::new(0),
@@ -242,21 +271,35 @@ impl SoundEngine {
     /// Tells the engine which soundboards the running graph has. The first one makes the memory (and the reading
     /// thread); when the last one is gone the memory goes back to the system whole.
     pub fn sync(&self, boards_in_graph: &[String]) {
+        self.sync_with(boards_in_graph, &[]);
+    }
+
+    /// The same, with the blocks that play one sound by themselves: each is given as the id of its block and what it plays.
+    pub fn sync_with(&self, boards_in_graph: &[String], solos: &[(String, Solo)]) {
         let known: Vec<String> = boards_in_graph
             .iter()
             .filter(|id| self.shared.library.board(id).is_some())
             .cloned()
             .collect();
         {
+            let mut table = lock(&self.shared.solos);
+            table.clear();
+            for (node, what) in solos {
+                table.insert(solo_key(node), what.clone());
+            }
             let mut runtimes = lock(&self.shared.runtimes);
-            runtimes.retain(|id, _| known.contains(id));
-            for id in &known {
-                runtimes
-                    .entry(id.clone())
-                    .or_insert_with(|| Arc::new(BoardRuntime::new(id)));
+            runtimes.retain(|id, _| known.contains(id) || table.contains_key(id));
+            for id in known.iter().chain(table.keys()) {
+                runtimes.entry(id.clone()).or_insert_with(|| {
+                    let runtime = BoardRuntime::new(id);
+                    if is_solo_key(id) {
+                        runtime.set_triggers(vec![SOLO_PAD.to_owned()]);
+                    }
+                    Arc::new(runtime)
+                });
             }
         }
-        if known.is_empty() {
+        if known.is_empty() && solos.is_empty() {
             self.deactivate();
         } else {
             self.activate();
@@ -619,6 +662,9 @@ impl SoundEngine {
     }
 
     fn pad_of(&self, board: &str, pad: &str) -> Result<(Board, Pad), SoundError> {
+        if is_solo_key(board) {
+            return self.solo_pad(board, pad);
+        }
         let b = self
             .shared
             .library
@@ -631,6 +677,45 @@ impl SoundEngine {
             .cloned()
             .ok_or_else(|| SoundError::UnknownPad(pad.to_owned()))?;
         Ok((b, p))
+    }
+
+    /// The pad that a block playing one sound by itself plays: the soundboard's, or one made of the file and the block's settings.
+    fn solo_pad(&self, key: &str, pad: &str) -> Result<(Board, Pad), SoundError> {
+        if pad != SOLO_PAD {
+            return Err(SoundError::UnknownPad(pad.to_owned()));
+        }
+        let what = lock(&self.shared.solos)
+            .get(key)
+            .cloned()
+            .ok_or_else(|| SoundError::UnknownBoard(key.to_owned()))?;
+        match what {
+            Solo::Pad { board, pad } => self.pad_of(&board, &pad),
+            Solo::File {
+                sound,
+                looped,
+                gain_db,
+            } => {
+                let info = self
+                    .shared
+                    .library
+                    .sound(&sound)
+                    .ok_or_else(|| SoundError::UnknownSound(sound.clone()))?;
+                let pad = Pad {
+                    id: SOLO_PAD.to_owned(),
+                    name: info.name,
+                    sound: Some(sound),
+                    gain_db,
+                    looped,
+                    ..Pad::default()
+                };
+                let board = Board {
+                    id: key.to_owned(),
+                    name: pad.name.clone(),
+                    pads: vec![pad.clone()],
+                };
+                Ok((board, pad))
+            }
+        }
     }
 
     /// Plays a pad of a soundboard that is in the running graph.
@@ -712,7 +797,11 @@ impl SoundEngine {
             cache_used_bytes: used * block_bytes,
             sounds_loaded: inner.cache.len(),
             active_boards: {
-                let mut ids: Vec<String> = runtimes.keys().cloned().collect();
+                let mut ids: Vec<String> = runtimes
+                    .keys()
+                    .filter(|k| !is_solo_key(k))
+                    .cloned()
+                    .collect();
                 ids.sort();
                 ids
             },
@@ -1060,6 +1149,101 @@ mod tests {
             rt.mix(&mut vec![0.0; 960]);
         }
         assert!(e.playing("b").is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_block_that_plays_a_file_or_one_pad_by_itself_has_a_runtime_of_its_own() {
+        let dir = temp("solo");
+        let e = SoundEngine::with_cache_bytes(&dir, 64 * 32 * 1024);
+        add_sound(&e, "a", 1000);
+        board(&e, "b", &[("p", "a")]);
+        let mut boards = e.library().get().boards;
+        boards[0].pads[0].gain_db = -6.0206;
+        e.library().set_boards(boards).unwrap();
+        e.sync_with(
+            &[],
+            &[
+                (
+                    "file".into(),
+                    Solo::File {
+                        sound: "a".into(),
+                        looped: false,
+                        gain_db: 0.0,
+                    },
+                ),
+                (
+                    "pad".into(),
+                    Solo::Pad {
+                        board: "b".into(),
+                        pad: "p".into(),
+                    },
+                ),
+                (
+                    "gone".into(),
+                    Solo::File {
+                        sound: "nope".into(),
+                        looped: false,
+                        gain_db: 0.0,
+                    },
+                ),
+            ],
+        );
+        // the solos are not soundboards: they are not listed as running, and each has its own runtime
+        assert!(e.status().active_boards.is_empty());
+        let (file, pad) = (
+            e.runtime(&solo_key("file")).unwrap(),
+            e.runtime(&solo_key("pad")).unwrap(),
+        );
+        // the block's own pad is the one that is asked for
+        e.play(&solo_key("file"), SOLO_PAD).unwrap();
+        e.play(&solo_key("pad"), SOLO_PAD).unwrap();
+        let (mut a, mut b) = (vec![0.0; 2000], vec![0.0; 2000]);
+        file.mix(&mut a);
+        pad.mix(&mut b);
+        for f in 0..1000 {
+            let want = ramp(f) as f32 / 32768.0;
+            assert!(
+                (a[2 * f as usize] - want).abs() < 1e-6,
+                "the file plays as it is, frame {f}"
+            );
+            assert!(
+                (b[2 * f as usize] - want / 2.0).abs() < 1e-4,
+                "the pad plays with its own volume, frame {f}"
+            );
+        }
+        // what plays in one does not come out of the other, nor out of a soundboard's own runtime
+        e.sync_with(
+            &["b".into()],
+            &[(
+                "file".into(),
+                Solo::File {
+                    sound: "a".into(),
+                    looped: false,
+                    gain_db: 0.0,
+                },
+            )],
+        );
+        e.play(&solo_key("file"), SOLO_PAD).unwrap();
+        let mut board_out = vec![0.0; 200];
+        e.runtime("b").unwrap().mix(&mut board_out);
+        assert!(
+            board_out.iter().all(|s| *s == 0.0),
+            "the soundboard stays silent"
+        );
+        // a sound that is not there, a pad that is not the block's
+        assert!(e.play(&solo_key("gone"), SOLO_PAD).is_err());
+        assert!(matches!(
+            e.play(&solo_key("file"), "other").unwrap_err(),
+            SoundError::UnknownPad(_)
+        ));
+        // the graph asks through the trigger of the runtime: its one pad is the solo's
+        let rt = e.runtime(&solo_key("file")).unwrap();
+        rt.request_play(0);
+        assert_eq!(rt.take_requests(), (vec![SOLO_PAD.to_string()], false));
+        // nothing left: no runtime, no memory
+        e.sync_with(&[], &[]);
+        assert!(e.runtime(&solo_key("file")).is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

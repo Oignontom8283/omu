@@ -25,6 +25,10 @@ export type NodeKind =
   | { type: 'device_render'; device: DeviceRef }
   | { type: 'virtual_speaker'; name: string }
   | { type: 'soundboard'; board: string; triggers?: string[] }
+  | { type: 'soundboard_sound'; board: string; pad: string }
+  | { type: 'audio_file'; sound: string; looped?: boolean; db?: number }
+  | { type: 'tone'; wave?: Wave; hz?: number; db?: number }
+  | { type: 'noise'; color?: NoiseColor; db?: number }
   | { type: 'virtual_mic'; name: string }
   | { type: 'network_in'; port: number; stream?: string; from?: string }
   | { type: 'network_out'; host: string; port: number; stream?: string }
@@ -75,7 +79,10 @@ export type NodeKind =
 
 export type NodeType = NodeKind['type'];
 /** The eight families of blocks. */
-export type Category = 'input' | 'output' | 'processing' | 'condition' | 'trigger' | 'number' | 'text' | 'conversion' | 'group';
+/** The shape of a tone, and the colour of a noise. */
+export type Wave = 'sine' | 'square' | 'triangle' | 'saw';
+export type NoiseColor = 'white' | 'pink' | 'brown';
+export type Category = 'input' | 'generated' | 'output' | 'processing' | 'condition' | 'trigger' | 'number' | 'text' | 'conversion' | 'group';
 /** The kinds of flow between blocks. */
 export type FlowType = 'audio' | 'condition' | 'action' | 'text' | 'int' | 'float';
 

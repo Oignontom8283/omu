@@ -9,6 +9,7 @@
 //!   a timer fired. An action is consumed by the nodes it reaches (a variable changes) and then forgotten.
 
 use super::bridge::{SinkProducer, SourceConsumer};
+use crate::generate::{NoiseGenerator, Oscillator};
 use omu_dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
 use omu_soundboard::voices::BoardRuntime;
 use omu_types::{
@@ -233,6 +234,7 @@ impl Port {
             "down" => Port::Down,
             "reset" => Port::Reset,
             "stop" => Port::StopAll,
+            "play" => Port::Play(0),
             "db" | "threshold_db" | "ms" | "interval_ms" => Port::Param,
             _ => {
                 return numbered("when")
@@ -281,9 +283,13 @@ pub enum NodeOp {
         gains: Vec<SmoothedGain>,
         scratch: Vec<f32>,
     },
-    /// A soundboard: what its pads play. Shared with the plan that replaces this one, so that sounds go on playing
-    /// when the graph is edited.
+    /// A soundboard (or one sound of one, or a file): what its pads play. Shared with the plan that replaces this one, so that
+    /// sounds go on playing when the graph is edited.
     Soundboard(Arc<BoardRuntime>),
+    /// A steady tone.
+    Tone(Oscillator),
+    /// Noise.
+    Noise(NoiseGenerator),
     /// Noise reduction. Shared with the plan that replaces this one, so that editing the graph does not make the
     /// network start again (it would let the filter's fade-in through).
     NoiseReduction(Arc<Mutex<Denoiser>>),
@@ -407,6 +413,8 @@ impl NodeOp {
             | NodeOp::NoiseReduction(_)
             | NodeOp::DeepFilter(_)
             | NodeOp::Soundboard(_)
+            | NodeOp::Tone(_)
+            | NodeOp::Noise(_)
             | NodeOp::Delay { .. } => 1,
             NodeOp::Branch { gains } => gains.len(),
             #[cfg(test)]
@@ -662,6 +670,8 @@ impl Plan {
                     }
                 }
                 (NodeOp::NoiseReduction(d), NodeOp::NoiseReduction(o)) => *d = o.clone(),
+                (NodeOp::Tone(t), NodeOp::Tone(o)) => t.continue_from(o),
+                (NodeOp::Noise(n), NodeOp::Noise(o)) => n.continue_from(o),
                 (NodeOp::Delay { line, pos }, NodeOp::Delay { line: o, pos: op }) => {
                     if line.len() == o.len() {
                         line.copy_from_slice(o);
@@ -736,6 +746,8 @@ impl Plan {
                     Err(_) => audios[0].fill(0.0),
                 },
                 NodeOp::SilentSource => audios[0].fill(0.0),
+                NodeOp::Tone(osc) => osc.fill(&mut audios[0]),
+                NodeOp::Noise(noise) => noise.fill(&mut audios[0]),
                 #[cfg(test)]
                 NodeOp::Constant(v) => audios[0].fill(*v),
                 #[cfg(test)]

@@ -27,7 +27,7 @@ impl SoundInfo {
 }
 
 /// One button of a soundboard.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Pad {
     pub id: String,
     pub name: String,

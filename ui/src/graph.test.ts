@@ -115,7 +115,7 @@ test('canonical ignores the order of the lists', () => {
 });
 
 test('the families hold every kind exactly once, and each kind has ports', () => {
-  assert.deepEqual(CATEGORIES, ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion', 'group']);
+  assert.deepEqual(CATEGORIES, ['input', 'generated', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion', 'group']);
   assert.equal(new Set(NODE_TYPES).size, NODE_TYPES.length);
   assert.equal(NODE_TYPES.length + Object.keys(RETIRED_KINDS).length, Object.keys(PORTS).length);
   for (const t of NODE_TYPES) {
@@ -130,6 +130,11 @@ test('the families send and receive the flows they should', () => {
   // the input that gives a setting of a block from a flow is not part of what a family receives
   const receives = (t: (typeof NODE_TYPES)[number]) => PORTS[t].filter((q) => q.dir === 'in' && !q.param).map((q) => q.flow);
   for (const t of KINDS_BY_CATEGORY.input) assert.deepEqual([sends(t), receives(t)], [['audio'], []]);
+  // what makes sound by itself receives no sound: at most actions (to play it, to stop it)
+  for (const t of KINDS_BY_CATEGORY.generated) {
+    assert.deepEqual(sends(t), ['audio'], t);
+    assert.ok(receives(t).every((flow) => flow === 'action'), t);
+  }
   for (const t of KINDS_BY_CATEGORY.output) assert.deepEqual([sends(t), receives(t)], [[], ['audio']]);
   const only = (flows: string[], flow: string) => flows.length > 0 && flows.every((f) => f === flow);
   for (const t of KINDS_BY_CATEGORY.trigger) {

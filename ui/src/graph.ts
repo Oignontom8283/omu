@@ -159,6 +159,13 @@ export function portsOf(kind: KindLike): PortMeta[] {
       if (n === 0) return [p('out', 'out', 'audio')];
       return [...range(n).map((k) => p(`play${k}`, 'in', 'action', true, { label: 'port.play', n: k })), p('stop', 'in', 'action', true), p('out', 'out', 'audio')];
     }
+    case 'soundboard_sound':
+    case 'audio_file':
+      // one sound, played when an action reaches `play`, stopped by `stop`
+      return [p('play', 'in', 'action', true), p('stop', 'in', 'action', true), p('out', 'out', 'audio')];
+    case 'tone':
+    case 'noise':
+      return [p('out', 'out', 'audio')];
     case 'device_render':
     case 'virtual_mic':
       return [p('in', 'in', 'audio')];
@@ -273,11 +280,13 @@ export function portsOf(kind: KindLike): PortMeta[] {
   }
 }
 
-export const CATEGORIES: Category[] = ['input', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion', 'group'];
+export const CATEGORIES: Category[] = ['input', 'generated', 'output', 'processing', 'condition', 'trigger', 'number', 'text', 'conversion', 'group'];
 
 /** The kinds of each family, in the order of the drop-down. */
 export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
-  input: ['app_capture', 'device_capture', 'virtual_speaker', 'soundboard', 'network_in', 'web_in', 'stream_in'],
+  input: ['app_capture', 'device_capture', 'virtual_speaker', 'network_in', 'web_in', 'stream_in'],
+  // the sound the program makes itself
+  generated: ['soundboard', 'soundboard_sound', 'audio_file', 'tone', 'noise'],
   output: ['virtual_mic', 'device_render', 'network_out', 'web_out', 'stream_out'],
   processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction', 'deep_filter'],
   condition: ['variable', 'switch', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'cond_expr', 'text_expr', 'to_condition'],
@@ -408,6 +417,14 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, name: PRODUCT_NAME };
     case 'soundboard':
       return { type, board: '' };
+    case 'soundboard_sound':
+      return { type, board: '', pad: '' };
+    case 'audio_file':
+      return { type, sound: '', looped: false, db: 0 };
+    case 'tone':
+      return { type, wave: 'sine', hz: 440, db: -12 };
+    case 'noise':
+      return { type, color: 'white', db: -12 };
     case 'network_in':
       return { type, port: 6980, stream: '', from: '' };
     case 'network_out':

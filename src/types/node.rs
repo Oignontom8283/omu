@@ -149,6 +149,48 @@ fn one() -> u32 {
     1
 }
 
+fn zero_db() -> f32 {
+    0.0
+}
+
+fn tone_hz() -> f32 {
+    440.0
+}
+
+/// The level a generated sound starts at: a little under the full level, so that a tone does not startle anybody.
+fn generated_db() -> f32 {
+    -12.0
+}
+
+/// The shape of a tone.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Wave {
+    #[default]
+    Sine,
+    Square,
+    Triangle,
+    Saw,
+}
+
+/// The colour of a noise (how its energy is spread over the pitches).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoiseColor {
+    /// The same energy at every pitch: a hiss.
+    #[default]
+    White,
+    /// Less and less energy towards the high pitches: a rain.
+    Pink,
+    /// Even less: a rumble.
+    Brown,
+}
+
+/// The lowest and the highest pitch of a tone, in hertz, and the loudest level of a generated sound, in decibels.
+pub const TONE_MIN_HZ: f32 = 1.0;
+pub const TONE_MAX_HZ: f32 = 20_000.0;
+pub const GENERATED_MAX_DB: f32 = 12.0;
+
 /// The ports of an expression block: the expression itself (so that a flow can give it), its inputs `a`, `b`, `c`... (numbers, or
 /// texts for the test of texts) and its result.
 fn expression_ports(args: u32, input: PortType, result: PortSpec) -> Vec<PortSpec> {
@@ -238,6 +280,8 @@ pub enum DeviceRef {
 pub enum Category {
     /// Brings audio into the graph (a program's sound, a microphone).
     Input,
+    /// Makes audio by itself: a soundboard, a sound of a soundboard, a file, a tone, noise.
+    Generated,
     /// Takes audio out of the graph (speakers, a virtual microphone).
     Output,
     /// Works on audio (gain, mixing, gating...).
@@ -408,6 +452,40 @@ pub enum NodeKind {
         board: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         triggers: Vec<String>,
+    },
+    /// Generated: a sound made of a file that was imported (see the soundboards): it plays each time an action arrives on
+    /// `play`, and stops on `stop`. `sound` is the id of the imported sound.
+    AudioFile {
+        #[serde(default)]
+        sound: String,
+        #[serde(default)]
+        looped: bool,
+        #[serde(default = "zero_db")]
+        db: f32,
+    },
+    /// Generated: one sound of a soundboard, on its own: it plays (as the pad is set up in the soundboard) each time an action
+    /// arrives on `play`, and stops on `stop`. Only this sound comes out of it, whatever else the soundboard plays.
+    SoundboardSound {
+        #[serde(default)]
+        board: String,
+        #[serde(default)]
+        pad: String,
+    },
+    /// Generated: a steady tone, as long as the graph runs.
+    Tone {
+        #[serde(default)]
+        wave: Wave,
+        #[serde(default = "tone_hz")]
+        hz: f32,
+        #[serde(default = "generated_db")]
+        db: f32,
+    },
+    /// Generated: noise, as long as the graph runs.
+    Noise {
+        #[serde(default)]
+        color: NoiseColor,
+        #[serde(default = "generated_db")]
+        db: f32,
     },
     // ---- outputs
     /// Output: a playback device (speakers, headphones, or the input side of a third-party virtual cable).
@@ -646,6 +724,12 @@ impl NodeKind {
                         .collect()
                 }
             }
+            NodeKind::AudioFile { .. } | NodeKind::SoundboardSound { .. } => vec![
+                port("play", Input, Action, true),
+                port("stop", Input, Action, true),
+                out_audio(),
+            ],
+            NodeKind::Tone { .. } | NodeKind::Noise { .. } => vec![out_audio()],
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],
             NodeKind::NetworkOut { .. } => vec![
                 in_audio(),
@@ -823,8 +907,12 @@ impl NodeKind {
             | NodeKind::NetworkIn { .. }
             | NodeKind::WebIn { .. }
             | NodeKind::StreamIn { .. }
-            | NodeKind::VirtualSpeaker { .. }
-            | NodeKind::Soundboard { .. } => Category::Input,
+            | NodeKind::VirtualSpeaker { .. } => Category::Input,
+            NodeKind::Soundboard { .. }
+            | NodeKind::AudioFile { .. }
+            | NodeKind::SoundboardSound { .. }
+            | NodeKind::Tone { .. }
+            | NodeKind::Noise { .. } => Category::Generated,
             NodeKind::DeviceRender { .. }
             | NodeKind::VirtualMic { .. }
             | NodeKind::NetworkOut { .. }
@@ -872,9 +960,9 @@ impl NodeKind {
         }
     }
 
-    /// True for nodes that bring audio into the graph from outside.
+    /// True for nodes that bring audio into the graph: from outside, or made by the program itself.
     pub fn is_source(&self) -> bool {
-        self.category() == Category::Input
+        matches!(self.category(), Category::Input | Category::Generated)
     }
 
     /// True for nodes that send audio out of the graph.
@@ -885,8 +973,7 @@ impl NodeKind {
     /// True for nodes that need something from the system when the graph runs: a device, an application, a keyboard
     /// shortcut. The engine opens it, and the node reports an error (and stays silent) if that fails.
     pub fn needs_stream(&self) -> bool {
-        (matches!(self.category(), Category::Input | Category::Output)
-            && !matches!(self, NodeKind::Soundboard { .. }))
+        matches!(self.category(), Category::Input | Category::Output)
             || matches!(self, NodeKind::Hotkey { .. } | NodeKind::DeepFilter { .. })
     }
 
@@ -1258,6 +1345,24 @@ mod tests {
                 board: "b".into(),
                 triggers: vec!["p".into()],
             },
+            NodeKind::AudioFile {
+                sound: "s".into(),
+                looped: true,
+                db: -6.0,
+            },
+            NodeKind::SoundboardSound {
+                board: "b".into(),
+                pad: "p".into(),
+            },
+            NodeKind::Tone {
+                wave: Wave::Square,
+                hz: 220.0,
+                db: -20.0,
+            },
+            NodeKind::Noise {
+                color: NoiseColor::Pink,
+                db: -30.0,
+            },
         ]
     }
 
@@ -1301,6 +1406,11 @@ mod tests {
                     );
                 }
                 Category::Output => assert!(outputs.is_empty()),
+                Category::Generated => {
+                    assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Audio));
+                    // what makes sound by itself receives no sound: at most actions (to play and stop)
+                    assert!(inputs.iter().all(|t| *t == PortType::Action));
+                }
                 Category::Trigger => {
                     assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Action));
                     assert!(

@@ -9,6 +9,7 @@ use super::plan::{
     ManualCell, Meter, NetFlows, NodeOp, ParamKind, Plan, PlanNode, Port, Value, Wire,
 };
 use super::runtime::{GraphThread, RuntimeStats, ThreadInit};
+use crate::generate::{NoiseGenerator, Oscillator};
 use omu_graph::ValidGraph;
 use omu_hal::{Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider};
 use omu_types::{
@@ -559,7 +560,30 @@ impl Inner {
                     _ => None,
                 })
                 .collect();
-            sounds.sync(&boards);
+            let solos: Vec<(String, omu_soundboard::engine::Solo)> = desired
+                .spec
+                .nodes
+                .iter()
+                .filter_map(|n| match &n.kind {
+                    NodeKind::AudioFile { sound, looped, db } => Some((
+                        n.id.0.clone(),
+                        omu_soundboard::engine::Solo::File {
+                            sound: sound.clone(),
+                            looped: *looped,
+                            gain_db: *db,
+                        },
+                    )),
+                    NodeKind::SoundboardSound { board, pad } => Some((
+                        n.id.0.clone(),
+                        omu_soundboard::engine::Solo::Pad {
+                            board: board.clone(),
+                            pad: pad.clone(),
+                        },
+                    )),
+                    _ => None,
+                })
+                .collect();
+            sounds.sync_with(&boards, &solos);
         }
         let mut flows = std::mem::take(&mut st.net_flows);
         let mut manual = std::mem::take(&mut st.manual);
@@ -643,6 +667,24 @@ impl Inner {
                             }
                             None => NodeOp::SilentSource,
                         }
+                    }
+                    // a block that plays one sound by itself: its runtime is the one the sounds were synced with
+                    (NodeKind::AudioFile { .. } | NodeKind::SoundboardSound { .. }, _) => {
+                        match self
+                            .cfg
+                            .sounds
+                            .as_ref()
+                            .and_then(|s| s.runtime(&omu_soundboard::engine::solo_key(&spec.id.0)))
+                        {
+                            Some(runtime) => NodeOp::Soundboard(runtime),
+                            None => NodeOp::SilentSource,
+                        }
+                    }
+                    (NodeKind::Tone { wave, hz, db }, _) => {
+                        NodeOp::Tone(Oscillator::new(*wave, *hz, *db))
+                    }
+                    (NodeKind::Noise { color, db }, _) => {
+                        NodeOp::Noise(NoiseGenerator::new(*color, *db))
                     }
                     (k, None) if k.is_source() => NodeOp::SilentSource,
                     (k, None) if k.is_sink() => NodeOp::DiscardSink,
