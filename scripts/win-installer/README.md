@@ -1,6 +1,6 @@
 # Installing
 
-Run the installer that matches your computer's processor (`-x64` for Intel and AMD, `-arm64` for ARM) and follow the pages. It speaks the
+Run the installer (`-x64`, for Intel and AMD processors; there is none for ARM processors yet) and follow the pages. It speaks the
 language of Windows (English or French). Windows asks for administrator rights: the programs go in `Program Files`.
 
 | Option | By default | What it does |

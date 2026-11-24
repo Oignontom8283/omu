@@ -1,0 +1,96 @@
+# Makes the Windows installer (for Intel and AMD processors) when a release is published, a pre-release as well as an ordinary one, and
+# attaches it to that release. Everything is built on Linux, which cross-compiles the other systems most easily:
+# `cargo xwin` compiles the Windows programs (clang, lld and the Windows headers and libraries), NSIS makes the installer and osslsigncode
+# signs it. The recipe is the one a developer runs (`just package-win-x64`).
+#
+# Windows on ARM is not built for now: `ring` and `aws-lc` do not cross-compile for aarch64-pc-windows-msvc with cargo-xwin (see the justfile).
+#
+# The installer is signed when the repository has the two secrets OMU_SIGN_PFX_BASE64 (the certificate, a .pfx file written in base64) and
+# OMU_SIGN_PASSWORD; without them it is made all the same, unsigned. The secrets are only given to the step that makes and signs the
+# installer, never to the compilation (whose build scripts run code of every dependency). "Run workflow" (by hand) makes the installer and
+# keeps it as a file of the run, without touching any release.
+
+name: Installers
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+concurrency:
+  group: installers-${{ github.event.release.tag_name || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # only the upload to the release needs to write
+    permissions:
+      contents: write
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      # clang, lld and llvm (llvm-rc makes the resources of the programs) for the cross-compilation, NSIS for the installer, osslsigncode to sign it
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends clang lld llvm nsis osslsigncode
+          makensis -VERSION
+          osslsigncode --version
+          command -v llvm-rc clang lld-link
+
+      # the web panel is built with npm when the programs are compiled
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm --prefix ui ci
+
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add $TARGET
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installer-x64
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: just,cargo-xwin
+
+      # the Windows headers and libraries that cargo-xwin downloads, kept from one run to the next
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/cargo-xwin
+          key: xwin-${{ runner.os }}-v1
+
+      # the compilation, without the certificate in its environment
+      - name: Compile the programs
+        run: cargo xwin build --locked --release --target $TARGET --bin omud --bin omu-cli --bin omu-gui
+
+      # the installer (the recipe finds the programs already compiled), signed when the certificate is there
+      - name: Build and sign the installer
+        env:
+          OMU_SIGN_PFX_BASE64: ${{ secrets.OMU_SIGN_PFX_BASE64 }}
+          OMU_SIGN_PASSWORD: ${{ secrets.OMU_SIGN_PASSWORD }}
+        run: just package-win-x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-x64
+          path: dist/omu-*-setup-x64.exe
+          if-no-files-found: error
+
+      - name: Attach it to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" dist/omu-*-setup-x64.exe --clobber --repo "$GITHUB_REPOSITORY"

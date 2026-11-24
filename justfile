@@ -14,6 +14,9 @@
 # `just` runs recipes with `sh`; on Windows without Git Bash in PATH, use PowerShell instead.
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
+# What compiles for Windows: plain cargo on Windows, `cargo xwin` (a cargo that brings the Windows headers and libraries) anywhere else.
+windows_cargo := if os() == "windows" { "cargo" } else { "cargo xwin" }
+
 # Where cargo puts what it builds, and the ending of a program's file name.
 debug := if env('CARGO_TARGET_DIR', '') == '' { './target/debug' } else { env('CARGO_TARGET_DIR') / 'debug' }
 optimised := if env('CARGO_TARGET_DIR', '') == '' { './target/release' } else { env('CARGO_TARGET_DIR') / 'release' }
@@ -96,27 +99,33 @@ release-native:
 # Everything that is handed to people, in dist/ (what a release or the CI runs): the optimised programs of each target, then the installer
 # or package made of them. One recipe per target, to build just that one (a tester gets package-win-x64 and nobody compiles ARM for it).
 # The Linux packages (deb, rpm) and the macOS one will join the list here when they exist; each lives in its own folder of scripts/.
-# The ARM64 one needs a C compiler for ARM64 (the build server has clang; on a PC: the ARM64 build tools of Visual Studio): to build only what
-# works on a given computer, run the recipe of that target.
+#
+# The CI builds everything on Linux, which cross-compiles the other systems without effort: the Windows programs are compiled by `cargo xwin`
+# (https://github.com/rust-cross/cargo-xwin: clang, lld and the Windows headers and libraries it downloads), and the installer is made with
+# NSIS (`apt install nsis`) and signed with osslsigncode (`apt install osslsigncode`). On Windows the same recipes use plain cargo.
+#
+# Windows on ARM is not built for now: from Linux, `ring` and `aws-lc` do not cross-compile for aarch64-pc-windows-msvc with cargo-xwin
+# (the assembly gets the options of clang-cl, or the Windows headers shadow the ones of clang), and from Windows the DeepFilterNet code
+# (tract-linalg) writes assembly that no compiler reads. The recipe is kept for when that works.
 
 # Build everything that is handed to people, in dist/
-package: package-win-x64 package-win-arm64
+package: package-win-x64
 
 # The Windows installer for Intel and AMD processors (dist/omu-<version>-setup-x64.exe)
 package-win-x64 *args:
     rustup target add x86_64-pc-windows-msvc
-    cargo build --release --target x86_64-pc-windows-msvc --bin omud --bin omu-cli --bin omu-gui
+    {{ windows_cargo }} build --locked --release --target x86_64-pc-windows-msvc --bin omud --bin omu-cli --bin omu-gui
     cargo run -p omu-win-installer -- --arch x64 {{ args }}
 
-# The Windows installer for ARM processors (dist/omu-<version>-setup-arm64.exe). Compiling for ARM needs the ARM64 build tools of Visual Studio
-# (the component "MSVC ... ARM64 build tools"); the Rust target is added by the recipe itself.
+# The Windows installer for ARM processors (dist/omu-<version>-setup-arm64.exe); the Rust target is added by the recipe itself. Not built by `package`
+# and by the CI for now (see above).
 package-win-arm64 *args:
     rustup target add aarch64-pc-windows-msvc
-    cargo build --release --target aarch64-pc-windows-msvc --bin omud --bin omu-cli --bin omu-gui
+    {{ windows_cargo }} build --locked --release --target aarch64-pc-windows-msvc --bin omud --bin omu-cli --bin omu-gui
     cargo run -p omu-win-installer -- --arch arm64 {{ args }}
 
-# Both Windows installers
-package-win *args: (package-win-x64 args) (package-win-arm64 args)
+# The Windows installers that are published (the one for Intel and AMD processors)
+package-win *args: (package-win-x64 args)
 
 # Develop the web panel with hot reload against a running daemon: open http://localhost:5173
 ui:
