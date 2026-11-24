@@ -204,6 +204,51 @@ impl SoundEngine {
     }
 
     fn build(dir: PathBuf, limit_override: Option<u64>) -> SoundEngine {
+        let engine = SoundEngine::assemble(dir, limit_override);
+        engine.repack_old_sounds();
+        engine
+    }
+
+    /// Sounds compressed by an earlier version (`.omuf`) are made FLAC files in the background: they play meanwhile.
+    fn repack_old_sounds(&self) {
+        let lib = &self.shared.library;
+        let old: Vec<String> = lib
+            .get()
+            .sounds
+            .into_iter()
+            .filter(|s| lib.old_packed_path_of(&s.id).exists())
+            .map(|s| s.id)
+            .collect();
+        if old.is_empty() {
+            return;
+        }
+        let shared = self.shared.clone();
+        let _ = std::thread::Builder::new()
+            .name("soundboard-repack".into())
+            .spawn(move || {
+                let lib = &shared.library;
+                for id in old {
+                    let (old, packed) = (lib.old_packed_path_of(&id), lib.packed_path_of(&id));
+                    let partial = packed.with_extension("flac.part");
+                    let done = omu_audiofile::stored::repack(&old, &partial)
+                        .and_then(|()| std::fs::rename(&partial, &packed).map_err(|e| e.to_string()));
+                    match done {
+                        Ok(()) => {
+                            if let Some(mut info) = lib.sound(&id) {
+                                info.bytes = std::fs::metadata(&packed).map_or(info.bytes, |m| m.len());
+                                let _ = lib.update_sound(info);
+                            }
+                            // a sound that is playing may still hold the old file open: it goes at the next start
+                            let _ = std::fs::remove_file(&old);
+                            tracing::info!("the sound {id} is now a FLAC file");
+                        }
+                        Err(e) => tracing::warn!("cannot make the sound {id} a FLAC file: {e}"),
+                    }
+                }
+            });
+    }
+
+    fn assemble(dir: PathBuf, limit_override: Option<u64>) -> SoundEngine {
         SoundEngine {
             shared: Arc::new(Shared {
                 modules: Arc::new(omu_modules::Modules::new(&dir)),
@@ -465,7 +510,7 @@ impl SoundEngine {
             return Ok(info);
         }
         let (plain, packed) = (lib.path_of(id), lib.packed_path_of(id));
-        let partial = packed.with_extension("omuf.part");
+        let partial = packed.with_extension("flac.part");
         omu_audiofile::stored::compress(&plain, &partial).map_err(SoundError::Io)?;
         std::fs::rename(&partial, &packed).map_err(|e| SoundError::Io(e.to_string()))?;
         let bytes = std::fs::metadata(&packed).map_or(info.bytes, |m| m.len());
