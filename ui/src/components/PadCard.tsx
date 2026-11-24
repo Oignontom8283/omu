@@ -9,8 +9,8 @@ import { ShortcutField } from './ShortcutField.tsx';
 const colorOf = (pad: Pad): CSSProperties | undefined => (pad.color ? ({ '--pad': pad.color } as CSSProperties) : undefined);
 
 /**
- * One sound of a soundboard. The top line: play, the name (the file's until it is changed), its settings, its removal. Under it the
- * file, whole (it is what tells two sounds apart), then the volume and the shortcut.
+ * One sound of a soundboard, from top to bottom: its name (a field that does not look like one until it is touched), the file, the
+ * volume, the shortcut with its clear button, then the play button, with a small square beside it that stops the sound while it plays.
  */
 export function PadCard({
   pad,
@@ -18,12 +18,12 @@ export function PadCard({
   playing,
   canPlay,
   problems,
-  confirming,
   onChange,
   onPlay,
   onStop,
   onSettings,
   onRemove,
+  onContextMenu,
 }: {
   pad: Pad;
   /** The file it plays; none when it was lost. */
@@ -32,33 +32,22 @@ export function PadCard({
   /** The soundboard is in the running graph. */
   canPlay: boolean;
   problems: string[];
-  /** The remove button has been pressed once: it asks to be pressed again. */
-  confirming: boolean;
   onChange: (patch: Partial<Pad>) => void;
   onPlay: () => void;
   onStop: () => void;
   onSettings: (e: MouseEvent) => void;
-  onRemove: () => void;
+  onRemove: (e: MouseEvent) => void;
+  onContextMenu: (e: MouseEvent) => void;
 }) {
   const t = useT();
   const gain = pad.gain_db ?? 0;
-  const blocked = !sound || (!canPlay && !playing);
+  const blocked = !sound || !canPlay;
   return (
-    <article className={`pad-card${playing ? ' playing' : ''}${sound ? '' : ' lost'}`} style={colorOf(pad)}>
+    <article className={`pad-card${playing ? ' playing' : ''}${sound ? '' : ' lost'}`} style={colorOf(pad)} onContextMenu={onContextMenu}>
       <div className="pad-card-top">
-        <button
-          type="button"
-          className="pad-play nodrag"
-          disabled={blocked}
-          title={!sound ? t('soundboards.lost') : !canPlay && !playing ? t('soundboards.cannotPlay') : playing ? t('soundboards.stopPad') : t('soundboards.playPad')}
-          aria-label={playing ? t('soundboards.stopPad') : t('soundboards.playPad')}
-          onClick={playing ? onStop : onPlay}
-        >
-          <Icon name={playing ? 'stop' : 'play'} size={16} />
-        </button>
         <TextInput code={false} className="pad-name" title={t('soundboards.padName')} value={pad.name} onChange={(name) => onChange({ name })} />
         <Button variant="flat" size="small" icon="gear" title={t('soundboards.padSettings')} onClick={onSettings} />
-        <Button variant={confirming ? 'danger' : 'flat'} size="small" icon="trash" title={confirming ? t('soundboards.deleteConfirm') : t('soundboards.removePad')} onClick={onRemove} />
+        <Button variant="flat" size="small" icon="trash" title={t('soundboards.removePad')} onClick={onRemove} />
       </div>
       <p className="pad-file" title={sound?.name}>
         {sound ? sound.name : t('soundboards.lost')}
@@ -68,48 +57,53 @@ export function PadCard({
           </span>
         )}
       </p>
-      <div className="pad-card-bottom">
-        <div className="pad-volume" title={t('soundboards.volumeHint')}>
-          <Icon name="speaker" size={14} />
-          <Slider label={t('soundboards.volume')} min={-30} max={12} step={0.5} value={gain} onChange={(gain_db) => onChange({ gain_db })} />
-          <span className="pad-db">{formatDb(gain)}</span>
-        </div>
-        <ShortcutField value={pad.key ?? ''} placeholder={t('soundboards.shortcutShort')} onChange={(keys) => onChange({ key: keys || null })} />
+      <div className="pad-volume" title={t('soundboards.volumeHint')}>
+        <Icon name="speaker" size={14} />
+        <Slider label={t('soundboards.volume')} min={-30} max={12} step={0.5} value={gain} onChange={(gain_db) => onChange({ gain_db })} />
+        <span className="pad-db">{formatDb(gain)}</span>
       </div>
+      <ShortcutField value={pad.key ?? ''} placeholder={t('soundboards.shortcutShort')} onChange={(keys) => onChange({ key: keys || null })} />
       {problems.map((p) => (
         <small key={p} className="warn">
           {p}
         </small>
       ))}
+      <div className="pad-actions">
+        <button
+          type="button"
+          className="pad-play nodrag"
+          disabled={blocked}
+          title={!sound ? t('soundboards.lost') : !canPlay ? t('soundboards.cannotPlay') : t('soundboards.playPad')}
+          onClick={onPlay}
+        >
+          <Icon name="play" size={14} />
+          {t('soundboards.play')}
+        </button>
+        {playing && (
+          <button type="button" className="pad-stop nodrag" title={t('soundboards.stopPad')} aria-label={t('soundboards.stopPad')} onClick={onStop}>
+            <Icon name="stop" size={14} />
+          </button>
+        )}
+      </div>
     </article>
   );
 }
 
-/** The card of a sound that is being imported: its file, the step it is at and how far (no picture: there is nothing to see yet). */
-export function ImportCard({ job, label, waiting, error, onDismiss }: { job: ImportJob | undefined; label: string; waiting: boolean; error?: string; onDismiss: () => void }) {
+/** The card of a sound that is being imported: only the progress bar, until the sound is a card. A failure says why. */
+export function ImportCard({ job, label, error, onDismiss }: { job: ImportJob | undefined; label: string; error?: string; onDismiss: () => void }) {
   const t = useT();
   const fraction = job ? importFraction(job.done, job.total) : null;
-  const step = waiting || !job ? t('soundboards.step.waiting') : t(`soundboards.step.${job.step}`);
   return (
-    <article className={`pad-card importing${error ? ' failed' : ''}`} aria-busy={!error}>
-      <div className="pad-card-top">
-        <strong className="pad-title" title={label}>
-          {label}
-        </strong>
-        {error && <Button variant="flat" size="small" icon="close" title={t('app.close')} onClick={onDismiss} />}
-      </div>
+    <article className={`pad-card importing${error ? ' failed' : ''}`} aria-busy={!error} aria-label={t('soundboards.importingAria', { name: label })} title={label}>
       {error ? (
-        <p className="pad-file warn">{error}</p>
+        <div className="pad-card-top">
+          <p className="pad-file warn">{error}</p>
+          <Button variant="flat" size="small" icon="close" title={t('app.close')} onClick={onDismiss} />
+        </div>
       ) : (
-        <>
-          <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}>
-            <span className={fraction === null ? 'indeterminate' : ''} style={fraction === null ? undefined : { width: `${Math.round(fraction * 100)}%` }} />
-          </div>
-          <p className="pad-file">
-            {step}
-            {fraction !== null && <span className="pad-meta">{Math.round(fraction * 100)} %</span>}
-          </p>
-        </>
+        <div className="progress thick" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}>
+          <span className={fraction === null ? 'indeterminate' : ''} style={fraction === null ? undefined : { width: `${Math.round(fraction * 100)}%` }} />
+        </div>
       )}
     </article>
   );

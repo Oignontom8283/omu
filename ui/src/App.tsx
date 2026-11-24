@@ -30,6 +30,7 @@ import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
 import { DialogHost, ask } from './kit/dialogs.tsx';
+import { soundsInGraph } from './soundboard.ts';
 import { ExtensionWindow, JsonWindow } from './components/ToolWindows.tsx';
 import { getSnapshot as extensionsNow, subscribe as onExtensions } from './extensionRegistry.ts';
 import { flashPort } from './components/BlockHelp.tsx';
@@ -151,6 +152,7 @@ export function App() {
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
+  const graphSounds = useMemo(() => new Set([...soundsInGraph(graph), ...soundsInGraph(applied)]), [graph, applied]);
   const dirty = canonical(graph) !== canonical(applied);
 
   // keep the latest values for the callbacks that must not change identity
@@ -958,6 +960,7 @@ export function App() {
               initialBoard={boardsFirst}
               notify={setNotice}
               onOpenModules={() => setTab('modules')}
+              graphSounds={graphSounds}
             />
           )}
           {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}

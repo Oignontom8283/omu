@@ -15,7 +15,6 @@ export function SoundLibrary({
   settings,
   cacheText,
   compressText,
-  confirm,
   compressing,
   onCacheText,
   onCompressText,
@@ -28,13 +27,11 @@ export function SoundLibrary({
   settings: Settings | null;
   cacheText: string;
   compressText: string;
-  /** What is waiting to be confirmed (`sound:<id>`). */
-  confirm: string | null;
   compressing: string | null;
   onCacheText: (text: string) => void;
   onCompressText: (text: string) => void;
   onSaveSettings: () => void;
-  onRemove: (id: string) => void;
+  onRemove: (id: string, e: React.MouseEvent) => void;
   onCompress: (id: string) => void;
 }) {
   const t = useT();
@@ -114,7 +111,7 @@ export function SoundLibrary({
                   </span>
                   <span className="lib-actions" role="cell">
                     {!s.compressed && <Button size="small" variant="flat" icon="stack" disabled={compressing !== null} title={t('soundboards.compressNow')} onClick={() => onCompress(s.id)} />}
-                    <Button size="small" variant={confirm === `sound:${s.id}` ? 'danger' : 'flat'} icon="trash" title={confirm === `sound:${s.id}` ? t('soundboards.deleteConfirm') : t('soundboards.removeSound')} onClick={() => onRemove(s.id)} />
+                    <Button size="small" variant="flat" icon="trash" title={t('soundboards.removeSound')} onClick={(e) => onRemove(s.id, e)} />
                   </span>
                 </div>
               );
