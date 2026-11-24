@@ -735,10 +735,10 @@ impl Daemon {
         // what is inside the groups counts too
         let graph = &omu_graph::expand(graph).unwrap_or_else(|_| graph.clone());
         out.extend(self.feedback_problems(graph));
-        // a soundboard block must name a soundboard that exists
+        // a soundboard block must name a soundboard that exists (one that has none chosen yet is silent: the graph is not refused for it)
         for n in &graph.nodes {
             if let NodeKind::Soundboard { board, .. } = &n.kind {
-                if self.sounds.library().board(board).is_none() {
+                if !board.is_empty() && self.sounds.library().board(board).is_none() {
                     out.push(
                         Diagnostic::error(
                             "missing_soundboard",
@@ -2021,6 +2021,23 @@ mod tests {
                 .to_string()
                 .contains("does not exist"),
             "the reason is stated"
+        );
+
+        // a block with no soundboard chosen yet is not a reason to refuse the graph: it is silent
+        let unchosen = GraphSpec {
+            nodes: vec![NodeSpec::new(
+                "sb",
+                NodeKind::Soundboard {
+                    board: String::new(),
+                    triggers: vec![],
+                },
+            )],
+            edges: vec![],
+        };
+        assert!(
+            call(&d, "graph.set", serde_json::to_value(&unchosen).unwrap())
+                .error
+                .is_none()
         );
 
         // the real graph: soundboard -> virtual microphone
