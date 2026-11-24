@@ -28,7 +28,10 @@ pub use node::{
     PortSpec, PortType, RoundMode, TextOp, MAX_BRANCHES, MAX_DELAY_MS, MAX_JOIN_ARGS,
     MAX_STREAM_NAME, MAX_TEXT, MAX_WAIT_MS, MAX_WEB_NAME,
 };
-pub use soundboard::{Board, HotkeyProblem, Pad, Settings, SoundInfo, SoundLibrary, SoundStatus};
+pub use soundboard::{
+    Board, HotkeyProblem, ImportJob, ImportStep, Pad, Settings, SoundInfo, SoundLibrary,
+    SoundStatus,
+};
 pub use status::{EngineStatus, Levels, NodeState, NodeStatus};
 pub use template::TemplateError;
 pub use trust::{CertificateInfo, RemoteInfo, TrustMode, TrustReport};

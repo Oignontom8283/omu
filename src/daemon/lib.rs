@@ -488,10 +488,15 @@ impl Daemon {
                 tracing::info!(file = %p.path, "importing a sound");
                 let info = self
                     .sounds
-                    .import(std::path::Path::new(&p.path), p.name.as_deref())
+                    .import_job(
+                        std::path::Path::new(&p.path),
+                        p.name.as_deref(),
+                        p.job.as_deref(),
+                    )
                     .map_err(sound_error)?;
                 result(info)
             }
+            m::SoundsImports::NAME => result(self.sounds.imports()),
             m::ModulesList::NAME => result(self.sounds.modules().list()),
             m::ModulesInstall::NAME => {
                 let p = params::<m::ModulesInstall>(p)?;
@@ -1087,6 +1092,33 @@ mod tests {
                 .unwrap()
                 .code,
             RpcError::INVALID_PARAMS
+        );
+    }
+
+    #[test]
+    fn an_import_can_be_followed_while_it_runs_and_leaves_nothing_behind() {
+        let d = daemon_in(&temp_dir("imports"), &SimBackend::new());
+        assert_eq!(
+            call(&d, "sounds.imports", Value::Null).result.unwrap(),
+            json!([])
+        );
+        // a job that is being followed is listed; the end of the import takes it off
+        d.sounds()
+            .note_import("job-1", "a.wav", omu_types::ImportStep::Converting, 5, 10);
+        let listed = call(&d, "sounds.imports", Value::Null).result.unwrap();
+        assert_eq!(listed[0]["job"], "job-1");
+        assert_eq!(listed[0]["step"], "converting");
+        assert_eq!(listed[0]["done"], 5);
+        // a file that cannot be read ends its job too
+        let r = call(
+            &d,
+            "sounds.import",
+            json!({"path": "nope.wav", "job": "job-1"}),
+        );
+        assert!(r.error.is_some());
+        assert_eq!(
+            call(&d, "sounds.imports", Value::Null).result.unwrap(),
+            json!([])
         );
     }
 

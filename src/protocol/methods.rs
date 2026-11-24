@@ -134,6 +134,9 @@ pub struct ImportSound {
     /// What to call the sound; the file name when missing.
     #[serde(default)]
     pub name: Option<String>,
+    /// An id the page chooses to follow this import (`sounds.imports`).
+    #[serde(default)]
+    pub job: Option<String>,
 }
 
 /// A pad of a soundboard (`soundboard.play`).
@@ -275,6 +278,10 @@ method!(
     HotkeysPauseMethod, "hotkeys.pause", HotkeysPause => ()
 );
 method!(
+    /// The sounds that are being imported, with how far each one is.
+    SoundsImports, "sounds.imports", () => Vec<omu_types::ImportJob>
+);
+method!(
     /// Presses a button, or sets a switch or a slider, of the running graph.
     NodeControlMethod, "node.control", NodeControl => ()
 );
@@ -390,6 +397,7 @@ pub const ALL_METHODS: &[&str] = &[
     EngineLevels::NAME,
     NodeControlMethod::NAME,
     HotkeysPauseMethod::NAME,
+    SoundsImports::NAME,
     EngineStop::NAME,
     EngineStart::NAME,
     SystemShutdown::NAME,
