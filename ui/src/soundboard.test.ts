@@ -16,6 +16,8 @@ import {
   withPadMoved,
   withPadRemoved,
   withPadsAdded,
+  formatDb,
+  importFraction,
 } from './soundboard.ts';
 import type { Board, GraphSpec, NodeSpec, SoundInfo } from './types.ts';
 
@@ -129,4 +131,18 @@ test('a soundboard block gets an action input for each pad the graph can play, a
   ];
   assert.equal(canConnect(nodes, [], { source: 'k', target: 'sb', sourceHandle: 'pressed', targetHandle: 'play1' }), true);
   assert.equal(canConnect(nodes, [], { source: 'g', target: 'sb', sourceHandle: 'out', targetHandle: 'play1' }), false);
+});
+
+test('how far an import is: a fraction when the total is known, nothing when it is not', () => {
+  assert.equal(importFraction(50, 200), 0.25);
+  assert.equal(importFraction(300, 200), 1, 'never past the whole');
+  assert.equal(importFraction(-5, 200), 0);
+  assert.equal(importFraction(10, 0), null, 'the file does not say how long it is');
+});
+
+test('a volume is written with its sign', () => {
+  assert.equal(formatDb(0), '0 dB');
+  assert.equal(formatDb(-3), '−3 dB');
+  assert.equal(formatDb(2.5), '+2.5 dB');
+  assert.equal(formatDb(-0.04), '0 dB');
 });

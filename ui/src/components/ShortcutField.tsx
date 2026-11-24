@@ -5,7 +5,7 @@ import { useT } from '../i18n/index.tsx';
 import { Button } from '../kit/controls.tsx';
 
 /** A field that records a keyboard shortcut: click it, then press the keys. */
-export function ShortcutField({ value, onChange }: { value: string; onChange: (keys: string) => void }) {
+export function ShortcutField({ value, onChange, placeholder }: { value: string; onChange: (keys: string) => void; placeholder?: string }) {
   const t = useT();
   const { pauseHotkeys } = useEditor();
   // the global shortcuts are let go of while the field has the focus (a key that is in use would never reach it), and always taken back
@@ -31,7 +31,7 @@ export function ShortcutField({ value, onChange }: { value: string; onChange: (k
         readOnly
         onFocus={() => listen(true)}
         onBlur={() => listen(false)}
-        placeholder={t('field.shortcutPlaceholder')}
+        placeholder={placeholder ?? t('field.shortcutPlaceholder')}
         onKeyDown={(e) => {
           if (e.key === 'Tab') return; // keep keyboard navigation
           e.preventDefault();

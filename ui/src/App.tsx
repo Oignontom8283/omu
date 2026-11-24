@@ -963,13 +963,7 @@ export function App() {
               token={rpc.token}
               library={library}
               setLibrary={setLibrary}
-              applied={applied}
-              shown={graph}
               initialBoard={boardsFirst}
-              onAddBlock={(board) => {
-                addNode('input', { type: 'soundboard', board });
-                setTab('nodes');
-              }}
               notify={setNotice}
               onOpenModules={() => setTab('modules')}
             />

@@ -30,6 +30,8 @@ const PATHS = {
   info: 'M8 2.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11zM8 7.2v3.6M8 5.2v.2',
   panel: 'M2.5 3h11v10h-11zM2.5 6.5h11',
   list: 'M5 4h8M5 8h8M5 12h8M2.5 4h.5M2.5 8h.5M2.5 12h.5',
+  speaker: 'M2.5 6.2h2.2L8 3.5v9L4.7 9.8H2.5zM10.5 6a3 3 0 0 1 0 4M12.2 4.2a5.5 5.5 0 0 1 0 7.6',
+  keyboard: 'M1.8 4.5h12.4v7H1.8zM4 7h.4M6.2 7h.4M8.4 7h.4M10.6 7h.4M4.6 9.5h6.8',
 } as const;
 
 export type IconName = keyof typeof PATHS;

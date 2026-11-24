@@ -2,7 +2,7 @@
 // The same endpoint serves a daemon on this machine or on another one: the page talks to whoever served it.
 
 import { DEV_TOKEN } from './types.ts';
-import type { AppInfo, Board, CleanOutcome, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, Layout, Levels, LogLine, ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, RemoteInfo, StaleDevices, SystemInfo, TrustReport, ValidateResult } from './types.ts';
+import type { AppInfo, Board, CleanOutcome, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, ImportJob, Layout, Levels, LogLine, ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, RemoteInfo, StaleDevices, SystemInfo, TrustReport, ValidateResult } from './types.ts';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -229,7 +229,8 @@ export const api = (rpc: Rpc) => ({
   layoutSet: (l: Layout) => rpc.request<null>('layout.set', l),
   soundboards: () => rpc.request<SoundLibrary>('soundboards.get'),
   setSoundboards: (boards: Board[]) => rpc.request<null>('soundboards.set', boards),
-  importSound: (path: string, name?: string) => rpc.request<SoundInfo>('sounds.import', name ? { path, name } : { path }),
+  importSound: (path: string, job?: string) => rpc.request<SoundInfo>('sounds.import', job ? { path, job } : { path }),
+  imports: () => rpc.request<ImportJob[]>('sounds.imports'),
   modules: () => rpc.request<ModuleInfo[]>('modules.list'),
   installModule: (id: string) => rpc.request<null>('modules.install', { id }),
   cancelModule: (id: string) => rpc.request<null>('modules.cancel', { id }),
@@ -289,8 +290,8 @@ export async function startDaemon(): Promise<void> {
  * disk as it arrives, so a very long one never sits in memory). The desktop window has no address to send to: it
  * hands the daemon the path of the file instead (`sounds.import`).
  */
-export async function uploadSound(token: string, file: File): Promise<SoundInfo> {
-  const reply = await fetch(`/sounds?name=${encodeURIComponent(file.name)}`, {
+export async function uploadSound(token: string, file: File, job?: string): Promise<SoundInfo> {
+  const reply = await fetch(`/sounds?name=${encodeURIComponent(file.name)}${job ? `&job=${encodeURIComponent(job)}` : ''}`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}` },
     body: file,
