@@ -728,6 +728,7 @@ impl NodeKind {
                 port("play", Input, Action, true),
                 port("stop", Input, Action, true),
                 out_audio(),
+                port("progress", Output, Float, false),
             ],
             NodeKind::Tone { .. } | NodeKind::Noise { .. } => vec![out_audio()],
             NodeKind::DeviceRender { .. } | NodeKind::VirtualMic { .. } => vec![in_audio()],

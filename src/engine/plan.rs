@@ -798,6 +798,7 @@ impl Plan {
                 }
                 NodeOp::Soundboard(board) => {
                     board.mix(&mut audios[0]);
+                    value = Value::Float(board.progress_percent());
                     // actions from the graph: the control side plays the pads (loading a sound is not for this thread)
                     for w in node.inputs.iter() {
                         let fired = outs[w.from].actions[w.out.min(ACTION_OUTPUTS - 1)] > 0;
@@ -1186,7 +1187,7 @@ impl Plan {
                     | NodeOp::ToNumber
                     | NodeOp::Round(_)
                     | NodeOp::FromCondition
-            );
+            ) || matches!(&node.op, NodeOp::Soundboard(b) if b.is_solo());
             if makes_value && out.value != value {
                 node.meter.set_value(&value);
             }

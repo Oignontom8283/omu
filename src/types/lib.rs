@@ -30,8 +30,8 @@ pub use node::{
 };
 pub use node::{NoiseColor, Wave, GENERATED_MAX_DB, TONE_MAX_HZ, TONE_MIN_HZ};
 pub use soundboard::{
-    Board, HotkeyProblem, ImportJob, ImportStep, Pad, Settings, SoundInfo, SoundLibrary,
-    SoundStatus,
+    Board, HotkeyProblem, ImportJob, ImportStep, Pad, PadProgress, Settings, SoundInfo,
+    SoundLibrary, SoundStatus,
 };
 pub use status::{EngineStatus, Levels, NodeState, NodeStatus};
 pub use template::TemplateError;

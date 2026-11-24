@@ -480,6 +480,8 @@ impl Daemon {
                     .library()
                     .set_boards(boards)
                     .map_err(RpcError::invalid_params)?;
+                // a volume that was moved is heard at once on the sounds that are playing
+                self.sounds.refresh_gains();
                 self.sync_pad_hotkeys();
                 result(())
             }
@@ -566,6 +568,10 @@ impl Daemon {
             m::SoundboardPlaying::NAME => {
                 let p = params::<m::SoundboardPlaying>(p)?;
                 result(self.sounds.playing(&p.board))
+            }
+            m::SoundboardProgress::NAME => {
+                let p = params::<m::SoundboardProgress>(p)?;
+                result(self.sounds.progress(&p.board))
             }
             m::SoundboardsStatus::NAME => {
                 let mut status = self.sounds.status();

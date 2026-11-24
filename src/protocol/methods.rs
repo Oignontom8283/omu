@@ -270,6 +270,10 @@ method!(
     /// The ids of the pads of a soundboard that are playing now.
     SoundboardPlaying, "soundboard.playing", BoardRef => Vec<String>
 );
+method!(
+    /// The pads of a soundboard that are playing now, and how far each one has got.
+    SoundboardProgress, "soundboard.progress", BoardRef => Vec<omu_types::PadProgress>
+);
 /// Parameters of `hotkeys.pause`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HotkeysPause {

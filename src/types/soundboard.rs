@@ -26,6 +26,14 @@ impl SoundInfo {
     }
 }
 
+/// How far a pad that is playing has got.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PadProgress {
+    pub pad: String,
+    /// From 0 (it starts) to 1 (the part that plays is over).
+    pub fraction: f32,
+}
+
 /// One button of a soundboard.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Pad {
