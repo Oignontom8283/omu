@@ -6,13 +6,18 @@ use crate::{AppInfo, Direction, HalError};
 use omu_types::AppTarget;
 use std::collections::{HashMap, HashSet};
 use windows::core::Interface;
-use windows::Win32::Foundation::CloseHandle;
+use windows::core::BOOL;
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
 use windows::Win32::Media::Audio::{
     AudioSessionStateActive, IAudioSessionControl2, IAudioSessionManager2,
 };
 use windows::Win32::System::Com::{CoTaskMemFree, CLSCTX_ALL};
 use windows::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EnumWindows, GetWindowLongW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+    GWL_EXSTYLE, WS_EX_TOOLWINDOW,
 };
 
 /// What `IAudioSessionControl2::IsSystemSoundsSession` answers: S_OK means "this is the system sounds session" and S_FALSE (1)
@@ -107,7 +112,34 @@ fn sessions() -> Result<Vec<Session>, HalError> {
     Ok(out)
 }
 
-/// Applications that have an audio session, once each (a session active on any device counts as active).
+unsafe extern "system" fn collect_window(window: HWND, found: LPARAM) -> BOOL {
+    // SAFETY: `found` is the address of the list `windowed` gives, which outlives the enumeration
+    let found = unsafe { &mut *(found.0 as *mut Vec<(u32, String)>) };
+    if unsafe { IsWindowVisible(window) }.as_bool() {
+        // a tool window (a floating palette, a tooltip...) is not a program the person sees
+        let style = unsafe { GetWindowLongW(window, GWL_EXSTYLE) } as u32;
+        if style & WS_EX_TOOLWINDOW.0 == 0 {
+            let mut pid = 0u32;
+            unsafe { GetWindowThreadProcessId(window, Some(&mut pid)) };
+            let mut text = [0u16; 256];
+            let len = unsafe { GetWindowTextW(window, &mut text) }.max(0) as usize;
+            if pid != 0 && len > 0 {
+                found.push((pid, String::from_utf16_lossy(&text[..len])));
+            }
+        }
+    }
+    true.into()
+}
+
+/// The programs that have a window on the screen (with its title): the programs a person thinks of as "open", with or without sound.
+fn windowed() -> Vec<(u32, String)> {
+    let mut found: Vec<(u32, String)> = vec![];
+    let _ = unsafe { EnumWindows(Some(collect_window), LPARAM(&mut found as *mut _ as isize)) };
+    found
+}
+
+/// The programs that have an audio session, and the other programs that are open on the screen, once each. A session active on any
+/// device counts as active: the programs that make sound come first.
 pub fn list_apps() -> Result<Vec<AppInfo>, HalError> {
     let procs: HashMap<u32, String> = processes().into_iter().map(|p| (p.pid, p.exe)).collect();
     let mut apps: HashMap<u32, AppInfo> = HashMap::new();
@@ -126,6 +158,22 @@ pub fn list_apps() -> Result<Vec<AppInfo>, HalError> {
         if entry.title.is_none() {
             entry.title = s.title;
         }
+    }
+    // a program is listed once by its executable: another process of it that has a session already says it
+    let me = std::process::id();
+    for (pid, title) in windowed() {
+        let Some(name) = procs.get(&pid) else {
+            continue;
+        };
+        if pid == me || apps.values().any(|a| a.name.eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        apps.entry(pid).or_insert(AppInfo {
+            pid,
+            name: name.clone(),
+            title: Some(title),
+            active: false,
+        });
     }
     let mut out: Vec<AppInfo> = apps.into_values().collect();
     out.sort_by(|a, b| {
