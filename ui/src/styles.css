@@ -23,6 +23,7 @@
 
   /* the five families of blocks (a condition is red) */
   --cat-input: #0f9d8a;
+  --cat-generated: #c2417a;
   --cat-output: #2f6fd6;
   --cat-processing: #8a4ad6;
   --cat-condition: #d4332b;
@@ -64,6 +65,7 @@
   --solid-bad: #f87171;
 
   --cat-input: #2dd4bf;
+  --cat-generated: #f472b6;
   --cat-output: #6aa0ff;
   --cat-processing: #c08bff;
   --cat-condition: #f87171;
@@ -353,6 +355,9 @@ button.inline:where(:not(.kit-button)) {
 
 .cat-input {
   --cat: var(--cat-input);
+}
+.cat-generated {
+  --cat: var(--cat-generated);
 }
 .cat-output {
   --cat: var(--cat-output);

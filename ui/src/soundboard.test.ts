@@ -24,9 +24,9 @@ import type { Board, GraphSpec, NodeSpec, SoundInfo } from './types.ts';
 const sound = (id: string, name: string): SoundInfo => ({ id, name, channels: 2, frames: 96_000, bytes: 384_000 });
 const board = (id: string, pads: string[]): Board => ({ id, name: id, pads: pads.map((p) => ({ id: p, name: p, sound: null })) });
 
-test('the soundboard block is an input with one sound output', () => {
-  assert.equal(categoryOf('soundboard'), 'input');
-  assert.ok(KINDS_BY_CATEGORY.input.includes('soundboard'));
+test('the soundboard block makes sound by itself and has one sound output', () => {
+  assert.equal(categoryOf('soundboard'), 'generated');
+  assert.ok(KINDS_BY_CATEGORY.generated.includes('soundboard'));
   assert.deepEqual(PORTS.soundboard.map((q) => `${q.dir}:${q.name}:${q.flow}`), ['out:out:audio']);
   assert.deepEqual(defaultKind('soundboard'), { type: 'soundboard', board: '' });
 });
