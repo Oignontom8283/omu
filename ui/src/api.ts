@@ -238,6 +238,7 @@ export const api = (rpc: Rpc) => ({
   removeModule: (id: string) => rpc.request<null>('modules.remove', { id }),
   compressSound: (id: string) => rpc.request<SoundInfo>('sounds.compress', { id }),
   removeSound: (id: string) => rpc.request<boolean>('sounds.remove', { id }),
+  revealSound: (id: string) => rpc.request<null>('sounds.reveal', { id }),
   playPad: (board: string, pad: string) => rpc.request<null>('soundboard.play', { board, pad }),
   stopPad: (board: string, pad?: string) => rpc.request<null>('soundboard.stop', pad ? { board, pad } : { board }),
   playing: (board: string) => rpc.request<string[]>('soundboard.playing', { board }),

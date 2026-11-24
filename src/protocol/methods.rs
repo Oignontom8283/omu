@@ -255,6 +255,10 @@ method!(
     SoundsRemove, "sounds.remove", SoundRef => bool
 );
 method!(
+    /// Shows the stored file of a sound in the file manager of the computer the daemon runs on.
+    SoundsReveal, "sounds.reveal", SoundRef => ()
+);
+method!(
     /// Plays a pad of a soundboard that is in the running graph.
     SoundboardPlay, "soundboard.play", PadRef => ()
 );
@@ -381,6 +385,7 @@ pub const ALL_METHODS: &[&str] = &[
     ModulesRemove::NAME,
     SoundsCompress::NAME,
     SoundsRemove::NAME,
+    SoundsReveal::NAME,
     SoundboardPlay::NAME,
     SoundboardStop::NAME,
     SoundboardPlaying::NAME,
