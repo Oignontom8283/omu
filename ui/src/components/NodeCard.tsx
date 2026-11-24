@@ -175,24 +175,50 @@ function NoiseEditor({ spec }: { spec: Of<'noise'> }) {
   );
 }
 
-/** A file: which of the sounds that were imported it plays, whether it loops, and its level. */
+// the entry of the list that opens the file chooser (no sound has this identifier)
+const CHOOSE_FILE = ' choose';
+const IMPORTING = ' importing';
+
+/**
+ * A file: the first entry of its list imports a file of the computer (the block keeps its size: the progress is written in the list
+ * itself), the others are the sounds that were imported already. It also says whether it loops, and its level.
+ */
 function AudioFileEditor({ spec }: { spec: Of<'audio_file'> }) {
-  const { library, update } = useEditor();
+  const { library, update, chooseSound, soundImport } = useEditor();
   const t = useT();
-  const set = (patch: Partial<Of<'audio_file'>>) => update(spec.id, { ...spec, ...patch });
+  // the block as it is when the import ends (it may have been changed meanwhile)
+  const latest = useRef(spec);
+  latest.current = spec;
+  const set = (patch: Partial<Of<'audio_file'>>) => update(spec.id, { ...latest.current, ...patch });
   const known = library.sounds.some((s) => s.id === spec.sound);
   const missing = !known && spec.sound !== '';
+  const job = soundImport(spec.id);
+  const running = !!job && !job.importing.error;
+  const failed = job?.importing.error;
+  const percent = job?.fraction == null ? '' : ` ${Math.round(job.fraction * 100)} %`;
   return (
     <>
-      <div className={`field${missing ? ' warned' : ''}`} title={missing ? t('field.soundMissing') : undefined}>
+      <div className={`field${missing || failed ? ' warned' : ''}`} title={failed ?? (missing ? t('field.soundMissing') : undefined)}>
         <span>
-          {missing && <Icon name="warning" size={12} />}
+          {(missing || failed) && <Icon name="warning" size={12} />}
           {t('field.sound')}
         </span>
         <Select
-          value={spec.sound}
-          options={[...(known ? [] : [{ value: spec.sound, label: spec.sound ? t('field.notFound') : t('field.chooseSound') }]), ...library.sounds.map((s) => ({ value: s.id, label: s.name }))]}
-          onChange={(sound) => set({ sound })}
+          value={running ? IMPORTING : spec.sound}
+          disabled={running}
+          options={
+            running
+              ? [{ value: IMPORTING, label: `${t('field.importing')}${percent}` }]
+              : [
+                  { value: CHOOSE_FILE, label: t('field.chooseFile') },
+                  ...(known ? [] : [{ value: spec.sound, label: spec.sound ? t('field.notFound') : t('field.chooseSound') }]),
+                  ...library.sounds.map((s) => ({ value: s.id, label: s.name })),
+                ]
+          }
+          onChange={(sound) => {
+            if (sound === CHOOSE_FILE) chooseSound(spec.id, (picked) => set({ sound: picked.id }));
+            else set({ sound });
+          }}
         />
       </div>
       <div className="field">

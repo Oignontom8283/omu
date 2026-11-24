@@ -1146,6 +1146,16 @@ button.inline:where(:not(.kit-button)) {
   overflow-wrap: anywhere;
 }
 /* the library: a table that scrolls, only the rows in view exist */
+.sounds-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sounds-importing {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
 .library {
   display: flex;
   flex-direction: column;

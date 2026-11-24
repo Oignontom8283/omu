@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { IN_DESKTOP_WINDOW, ON_THE_DAEMON_COMPUTER, RpcError, pickSoundFiles, uploadSound, type api } from '../api.ts';
-import { MODULE_NEEDED } from '../modules.ts';
+import { IN_DESKTOP_WINDOW, ON_THE_DAEMON_COMPUTER, type api } from '../api.ts';
+import type { ImportJobSpec, SoundImports } from '../imports.tsx';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button, TextInput } from '../kit/controls.tsx';
 import { ask } from '../kit/dialogs.tsx';
 import {
-  cleanCacheMb,
-  cleanCompressMb,
-  MIN_CACHE_MB,
   newBoardName,
   orphanSounds,
   padFor,
@@ -17,56 +14,44 @@ import {
   withPadRemoved,
   withPadsAdded,
 } from '../soundboard.ts';
-import type { Board, ImportJob, Pad, Settings, SoundInfo, SoundLibrary as Library, SoundStatus } from '../types.ts';
+import { useSoundLibrary } from '../soundLibrary.ts';
+import type { Board, Pad, SoundInfo, SoundLibrary as Library } from '../types.ts';
 import { ContextMenu, type MenuItem } from './ContextMenu.tsx';
 import { FloatingWindow } from './FloatingWindow.tsx';
 import { Icon } from './Icon.tsx';
 import { ImportCard, PadCard } from './PadCard.tsx';
 import { PadSettings } from './PadSettings.tsx';
-import { SoundLibrary } from './SoundLibrary.tsx';
+import { SoundsManager } from './SoundsManager.tsx';
 import { useWindowStack } from './windows.ts';
 
 type Daemon = ReturnType<typeof api>;
 
 type Props = {
   daemon: Daemon;
-  token: string;
   library: Library;
   setLibrary: (l: Library) => void;
   /** The board to show first. */
   initialBoard?: string;
   notify: (text: string) => void;
-  /** Opens the panel of the optional modules. */
-  onOpenModules: () => void;
+  /** The imports of the program: a sound that is dropped here is imported by them. */
+  imports: SoundImports;
   /** The sounds the blocks of the graph play: removing a soundboard or a pad never takes them away. */
   graphSounds?: Set<string>;
 };
 
-/** A sound on its way in: it has a card of its own until it is a pad. */
-type Importing = { job: string; board: string; label: string; error?: string };
-
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** The page of the soundboards: a tab per soundboard, and under it a card for each of its sounds. */
-export function Soundboards({ daemon, token, library, setLibrary, initialBoard, notify, onOpenModules, graphSounds }: Props) {
+export function Soundboards({ daemon, library, setLibrary, initialBoard, notify, imports, graphSounds }: Props) {
   const t = useT();
   const [boardId, setBoardId] = useState<string | undefined>(initialBoard ?? library.boards[0]?.id);
   const [playing, setPlaying] = useState<string[]>([]);
-  const [status, setStatus] = useState<SoundStatus | null>(null);
-  const [settings, setSettings] = useState<Settings | null>(null);
-  const [cacheText, setCacheText] = useState('');
-  const [compressText, setCompressText] = useState('');
-  const [compressing, setCompressing] = useState<string | null>(null);
-  const [importing, setImporting] = useState<Importing[]>([]);
-  const [progress, setProgress] = useState<Record<string, ImportJob>>({});
   const [over, setOver] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [editingTab, setEditingTab] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const windows = useWindowStack<string>();
-  // a file that needs an optional module (its id), until the question is answered
-  const [needModule, setNeedModule] = useState<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
+  const { status, compressing, compressSound } = useSoundLibrary({ daemon, setLibrary, notify });
 
   // the latest values, for the work that outlives a render (an import takes a while)
   const libraryRef = useRef(library);
@@ -96,39 +81,6 @@ export function Soundboards({ daemon, token, library, setLibrary, initialBoard, 
     }, 250);
     return () => clearInterval(timer);
   }, [daemon, current, active]);
-  useEffect(() => {
-    const read = () => daemon.soundStatus().then(setStatus).catch(() => undefined);
-    void read();
-    const timer = setInterval(read, 1500);
-    return () => clearInterval(timer);
-  }, [daemon]);
-  useEffect(() => {
-    daemon
-      .settings()
-      .then((s) => {
-        setSettings(s);
-        setCacheText(String(s.sound_cache_mb));
-        setCompressText(String(s.compress_above_mb));
-      })
-      .catch(() => undefined);
-  }, [daemon]);
-  // how far the imports are, asked of the daemon while there are some
-  const running = importing.some((i) => !i.error);
-  useEffect(() => {
-    if (!running) {
-      setProgress({});
-      return;
-    }
-    const read = () =>
-      daemon
-        .imports()
-        .then((jobs) => setProgress(Object.fromEntries(jobs.map((j) => [j.job, j]))))
-        .catch(() => undefined);
-    void read();
-    const timer = setInterval(read, 300);
-    return () => clearInterval(timer);
-  }, [daemon, running]);
-
   const reload = useCallback(async () => {
     try {
       const fresh = await daemon.soundboards();
@@ -193,43 +145,28 @@ export function Soundboards({ daemon, token, library, setLibrary, initialBoard, 
       void reload();
     }
   };
-  const importAll = async (jobs: { label: string; run: (job: string) => Promise<SoundInfo> }[]) => {
-    if (jobs.length === 0) return;
-    // dropped on no soundboard at all: the first one is made
-    let boards = libraryRef.current.boards;
-    let target = boardRef.current && boards.some((b) => b.id === boardRef.current) ? boardRef.current : undefined;
-    if (!target) {
-      const created: Board = { id: newId(), name: newBoardName(boards, t('soundboards.boardBase')), pads: [] };
-      boards = [...boards, created];
-      target = created.id;
-      await save(boards);
-      setBoardId(target);
-    }
-    const board = target;
-    const queued = jobs.map((j) => ({ ...j, id: newId() }));
-    setImporting((l) => [...l, ...queued.map((j): Importing => ({ job: j.id, board, label: j.label }))]);
-    for (const job of queued) {
-      try {
-        await finishImport(await job.run(job.id), board);
-        setImporting((l) => l.filter((i) => i.job !== job.id));
-      } catch (e) {
-        if (e instanceof RpcError && e.code === MODULE_NEEDED) {
-          setNeedModule(typeof e.data === 'string' ? e.data : 'ffmpeg');
-          setImporting((l) => l.filter((i) => i.job !== job.id));
-        } else {
-          const why = e instanceof RpcError || e instanceof Error ? e.message : String(e);
-          setImporting((l) => l.map((i) => (i.job === job.id ? { ...i, error: why } : i)));
-        }
-      }
-    }
+  // a sound that comes in on a soundboard: it is added to it as a pad once it is stored
+  // the soundboard the sounds go to: the one on screen, or a new one when there is none
+  const ensureBoard = async (): Promise<string> => {
+    const open = boardRef.current;
+    if (open && libraryRef.current.boards.some((b) => b.id === open)) return open;
+    const created: Board = { id: newId(), name: newBoardName(libraryRef.current.boards, t('soundboards.boardBase')), pads: [] };
+    await save([...libraryRef.current.boards, created]);
+    setBoardId(created.id);
+    return created.id;
   };
-  const addFiles = (files: File[]) => void importAll(files.map((f) => ({ label: f.name, run: (job) => uploadSound(token, f, job) })));
-  const addPaths = (paths: string[]) => void importAll(paths.filter((p) => p.trim()).map((p) => ({ label: p.trim().split(/[\\/]/).pop() ?? p, run: (job) => daemon.importSound(p.trim(), job) })));
+  const importAll = async (jobs: ImportJobSpec[]) => {
+    if (jobs.length === 0) return;
+    const board = await ensureBoard();
+    await imports.start(board, jobs, (sound) => finishImport(sound, board));
+  };
+  const addFiles = (files: File[]) => void importAll(imports.fromFiles(files));
+  const addPaths = (paths: string[]) => void importAll(imports.fromPaths(paths));
   const addPathsRef = useRef(addPaths);
   addPathsRef.current = addPaths;
-  const chooseFiles = () => {
-    if (IN_DESKTOP_WINDOW) void pickSoundFiles().then(addPaths).catch((e) => notify(message(e)));
-    else fileInput.current?.click();
+  const chooseFiles = async () => {
+    const board = await ensureBoard();
+    imports.choose(board, (sound) => finishImport(sound, board));
   };
 
   // the desktop window receives the paths of files dropped on it; the browser, the files themselves
@@ -287,54 +224,8 @@ export function Soundboards({ daemon, token, library, setLibrary, initialBoard, 
       .catch((e) => notify(message(e)));
   };
 
-  const removeSound = async (s: SoundInfo, e?: { shiftKey?: boolean }) => {
-    if (!(await ask({ title: t('dialog.removeSound.title', { name: s.name }), message: t('dialog.removeSound.message') }, e))) return;
-    try {
-      await daemon.removeSound(s.id);
-    } catch (e) {
-      notify(message(e));
-    }
-    await reload();
-  };
-
-  const compressSound = async (s: SoundInfo) => {
-    setCompressing(s.id);
-    try {
-      await daemon.compressSound(s.id);
-    } catch (e) {
-      notify(`${s.name}: ${message(e)}`);
-    } finally {
-      setCompressing(null);
-    }
-    await reload();
-  };
-
-  const saveCache = async () => {
-    const mb = cleanCacheMb(cacheText);
-    if (mb === null) {
-      notify(t('soundboards.cacheInvalid', { min: MIN_CACHE_MB }));
-      return;
-    }
-    const packMb = cleanCompressMb(compressText);
-    if (packMb === null) {
-      notify(t('soundboards.compressInvalid'));
-      return;
-    }
-    try {
-      // never defaults over what the daemon holds: when the settings were not read earlier, they are read now
-      const now = settings ?? (await daemon.settings());
-      const next: Settings = { ...now, sound_cache_mb: mb, compress_above_mb: packMb };
-      await daemon.setSettings(next);
-      setSettings(next);
-      setCacheText(String(mb));
-      setCompressText(String(packMb));
-    } catch (e) {
-      notify(message(e));
-    }
-  };
-
   const problemsOf = (pad: Pad) => (status?.hotkey_problems ?? []).filter((h) => h.pad === pad.id).map((h) => h.message);
-  const mine = importing.filter((i) => i.board === current);
+  const mine = imports.entries.filter((i) => i.owner === current);
   const shownPads = (board?.pads ?? []).filter((pad) => {
     const q = query.trim().toLowerCase();
     return !q || pad.name.toLowerCase().includes(q) || (soundOf(pad)?.name.toLowerCase().includes(q) ?? false);
@@ -440,28 +331,6 @@ export function Soundboards({ daemon, token, library, setLibrary, initialBoard, 
       </nav>
 
       <div className="boards-page">
-        {needModule && (
-          <div className="banner warn" role="alert">
-            {t('modules.needed', { name: needModule === 'ffmpeg' ? 'FFmpeg' : needModule })}{' '}
-            <Button
-              size="small"
-              variant="primary"
-              onClick={() => {
-                const id = needModule;
-                setNeedModule(null);
-                // the question was the consent: the module is installed, and its panel shows the download
-                daemon.installModule(id).catch((e) => notify(message(e)));
-                onOpenModules();
-              }}
-            >
-              {t('modules.neededInstall')}
-            </Button>{' '}
-            <Button size="small" onClick={() => setNeedModule(null)}>
-              {t('modules.neededLater')}
-            </Button>
-          </div>
-        )}
-
         {!board && (
           <div className="boards-empty">
             <p>{t('soundboards.none')}</p>
@@ -477,17 +346,6 @@ export function Soundboards({ daemon, token, library, setLibrary, initialBoard, 
               <Button variant="primary" icon="plus" onClick={chooseFiles}>
                 {t('soundboards.addSounds')}
               </Button>
-              <input
-                ref={fileInput}
-                type="file"
-                hidden
-                multiple
-                accept=".wav,.mp3,.flac,.ogg,.oga,.aac,.m4a,.mp4,.m4v,.mov,.mkv,.webm,audio/*,video/*"
-                onChange={(e) => {
-                  addFiles(Array.from(e.target.files ?? []));
-                  e.target.value = '';
-                }}
-              />
               {board.pads.length > 0 && <TextInput code={false} className="boards-filter" placeholder={t('soundboards.filter')} value={query} onChange={setQuery} />}
               <span className="muted boards-hint">{IN_DESKTOP_WINDOW ? t('soundboards.dropHintDesktop') : t('soundboards.dropHint')}</span>
             </div>
@@ -510,7 +368,7 @@ export function Soundboards({ daemon, token, library, setLibrary, initialBoard, 
                 />
               ))}
               {mine.map((i) => (
-                <ImportCard key={i.job} job={progress[i.job]} label={i.label} error={i.error} onDismiss={() => setImporting((l) => l.filter((x) => x.job !== i.job))} />
+                <ImportCard key={i.job} job={imports.progress[i.job]} label={i.label} error={i.error} onDismiss={() => imports.dismiss(i.job)} />
               ))}
               {query.trim() === '' && (
                 <button type="button" className="pad-add nodrag" onClick={chooseFiles} aria-label={t('soundboards.addSounds')}>
@@ -529,25 +387,7 @@ export function Soundboards({ daemon, token, library, setLibrary, initialBoard, 
         if (w.key === 'library') {
           return (
             <FloatingWindow key={w.key} className="lib-window cat-input" title={t('soundboards.libraryTitle')} x={w.x} y={w.y} order={order} onMove={(x, y) => windows.move(w.key, x, y)} onFocus={() => windows.front(w.key)} onClose={() => windows.close(w.key)}>
-              <SoundLibrary
-                library={library}
-                status={status}
-                settings={settings}
-                cacheText={cacheText}
-                compressText={compressText}
-                compressing={compressing}
-                onCacheText={setCacheText}
-                onCompressText={setCompressText}
-                onSaveSettings={() => void saveCache()}
-                onRemove={(id, e) => {
-                  const s = library.sounds.find((x) => x.id === id);
-                  if (s) void removeSound(s, e);
-                }}
-                onCompress={(id) => {
-                  const s = library.sounds.find((x) => x.id === id);
-                  if (s) void compressSound(s);
-                }}
-              />
+              <SoundsManager daemon={daemon} library={library} setLibrary={setLibrary} imports={imports} notify={notify} />
             </FloatingWindow>
           );
         }

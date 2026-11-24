@@ -1,5 +1,6 @@
 import { createContext, useContext } from 'react';
-import type { AppInfo, ControlAction, DeviceInfo, InputValue, NodeKind, NodeStatus, SoundLibrary } from './types.ts';
+import type { SoundImports } from './imports.tsx';
+import type { AppInfo, ControlAction, DeviceInfo, InputValue, NodeKind, NodeStatus, SoundInfo, SoundLibrary } from './types.ts';
 
 /** What every block card needs from the editor. */
 export type EditorContext = {
@@ -7,6 +8,10 @@ export type EditorContext = {
   devices: DeviceInfo[];
   /** The soundboards and sounds the daemon keeps (a soundboard block picks one of the boards). */
   library: SoundLibrary;
+  /** Opens the file chooser of the system to import a sound for a block, and tells which sound it became (nothing when the choice is dismissed or fails). */
+  chooseSound: (node: string, onPicked: (sound: SoundInfo) => void) => void;
+  /** The import a block has started: how far it is (`null` when it cannot be told), or why it failed. Nothing when there is none. */
+  soundImport: (node: string) => ReturnType<SoundImports['of']>;
   /** Opens the soundboards panel, on this board when one is given. */
   openSoundboards: (board?: string) => void;
   /** Opens the panel of the optional modules. */

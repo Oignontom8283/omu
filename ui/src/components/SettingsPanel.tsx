@@ -4,15 +4,21 @@ import { LANGUAGES, languageName, useI18n } from '../i18n/index.tsx';
 import { SETTING_DECLS, SETTING_SECTIONS, type SettingDecl } from '../settingsRegistry.ts';
 import { applyThemeVars, loadThemeVars, useTheme, type ThemeChoice } from '../theme.tsx';
 import { Select, Switch, TextInput } from '../kit/controls.tsx';
-import type { Settings } from '../types.ts';
+import type { SoundImports } from '../imports.tsx';
+import type { Settings, SoundLibrary } from '../types.ts';
 import type { Overrides } from '../keybindings.ts';
 import { Shortcuts } from './Shortcuts.tsx';
 import { Certificates } from './Certificates.tsx';
 import { RemoteAccess } from './RemoteAccess.tsx';
+import { SoundsManager } from './SoundsManager.tsx';
 
 type Props = {
   daemon: ReturnType<typeof api>;
   notify: (text: string) => void;
+  /** The sounds that were imported, and the imports of the program. */
+  library: SoundLibrary;
+  setLibrary: (l: SoundLibrary) => void;
+  imports: SoundImports;
   /** A setting to show: the page scrolls to it and makes it stand out for a moment. */
   focus?: { id: string; nonce: number };
   /** The shortcuts the person changed, and how to change them. */
@@ -23,7 +29,7 @@ type Props = {
 type Binding = { value: string | boolean; options?: { value: string; label: string }[]; set: (value: string | boolean) => void; disabled?: boolean };
 
 /** The settings of the program itself (not of one block), drawn from the declarations of `settingsRegistry.ts`. */
-export function SettingsPanel({ daemon, notify, focus, shortcuts }: Props) {
+export function SettingsPanel({ daemon, notify, library, setLibrary, imports, focus, shortcuts }: Props) {
   const { t, language, setLanguage } = useI18n();
   const { choice, setChoice } = useTheme();
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -125,6 +131,11 @@ export function SettingsPanel({ daemon, notify, focus, shortcuts }: Props) {
           {section.id === 'security' && <Certificates daemon={daemon} settings={settings} notify={notify} onFolder={(folder) => void change({ certificates_dir: folder || undefined })} />}
         </section>
       ))}
+      <section data-setting="sounds">
+        <h3>{t('settings.section.sounds')}</h3>
+        <p className="muted">{t('settings.soundsHint')}</p>
+        <SoundsManager daemon={daemon} library={library} setLibrary={setLibrary} imports={imports} notify={notify} />
+      </section>
       <section>
         <h3>{t('settings.section.colours')}</h3>
         <p className="muted">{t('settings.coloursHint')}</p>
