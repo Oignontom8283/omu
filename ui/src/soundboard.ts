@@ -43,9 +43,16 @@ export function padFor(sound: SoundInfo): Pad {
   return { id: newId(), name: nameFromFile(sound.name), sound: sound.id, gain_db: 0, looped: false };
 }
 
-/** An empty pad. */
-export function emptyPad(name: string): Pad {
-  return { id: newId(), name, sound: null, gain_db: 0, looped: false };
+/** How far an import is, from 0 to 1; `null` when it cannot be told (the file does not say how long it is, or nothing has begun). */
+export function importFraction(done: number, total: number): number | null {
+  if (!(total > 0)) return null;
+  return Math.min(1, Math.max(0, done / total));
+}
+
+/** `-3 dB`, `+2.5 dB`, `0 dB`: a volume, as it is written on a card. */
+export function formatDb(db: number): string {
+  const rounded = Math.round(db * 10) / 10;
+  return `${rounded > 0 ? '+' : rounded < 0 ? '−' : ''}${Math.abs(rounded)} dB`;
 }
 
 /** Replaces one pad of a board. */

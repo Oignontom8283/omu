@@ -17,7 +17,7 @@ use super::{
 };
 use omu_audiofile::stored::Stored;
 use omu_dsp::db_to_linear;
-use omu_types::{Board, Pad, Settings, SoundInfo, SoundStatus};
+use omu_types::{Board, ImportJob, ImportStep, Pad, Settings, SoundInfo, SoundStatus};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -98,6 +98,8 @@ struct Shared {
     /// One sound is loaded at a time.
     load_gate: Mutex<()>,
     runtimes: Mutex<HashMap<String, Arc<BoardRuntime>>>,
+    /// The imports in progress, by the id the page gave them.
+    imports: Mutex<HashMap<String, ImportJob>>,
     new_jobs: Mutex<Vec<StreamJob>>,
     streams: AtomicUsize,
 }
@@ -186,6 +188,7 @@ impl SoundEngine {
                 }),
                 load_gate: Mutex::new(()),
                 runtimes: Mutex::new(HashMap::new()),
+                imports: Mutex::new(HashMap::new()),
                 new_jobs: Mutex::new(vec![]),
                 streams: AtomicUsize::new(0),
             }),
@@ -302,11 +305,60 @@ impl SoundEngine {
         lock(&self.shared.runtimes).get(board).cloned()
     }
 
+    /// The sounds that are being imported now, with how far each one is (what the page shows on their cards).
+    pub fn imports(&self) -> Vec<ImportJob> {
+        let mut jobs: Vec<ImportJob> = lock(&self.shared.imports).values().cloned().collect();
+        jobs.sort_by(|a, b| a.job.cmp(&b.job));
+        jobs
+    }
+
+    /// Notes that an import is at `step`, `done` of `total` in (0: unknown).
+    pub fn note_import(&self, job: &str, name: &str, step: ImportStep, done: u64, total: u64) {
+        lock(&self.shared.imports).insert(
+            job.to_owned(),
+            ImportJob {
+                job: job.to_owned(),
+                name: name.to_owned(),
+                step,
+                done,
+                total,
+            },
+        );
+    }
+
+    /// Forgets an import that is over (it worked or it did not).
+    pub fn end_import(&self, job: &str) {
+        lock(&self.shared.imports).remove(job);
+    }
+
     /// Imports a file as a sound (converted once to the stored format); long files take a while.
     pub fn import(
         &self,
         source: &std::path::Path,
         name: Option<&str>,
+    ) -> Result<SoundInfo, SoundError> {
+        self.import_job(source, name, None)
+    }
+
+    /// The same, and with `job` the import can be followed (see [`SoundEngine::imports`]).
+    pub fn import_job(
+        &self,
+        source: &std::path::Path,
+        name: Option<&str>,
+        job: Option<&str>,
+    ) -> Result<SoundInfo, SoundError> {
+        let result = self.import_followed(source, name, job);
+        if let Some(job) = job {
+            self.end_import(job);
+        }
+        result
+    }
+
+    fn import_followed(
+        &self,
+        source: &std::path::Path,
+        name: Option<&str>,
+        job: Option<&str>,
     ) -> Result<SoundInfo, SoundError> {
         let id = new_id();
         let name = name
@@ -314,7 +366,19 @@ impl SoundEngine {
             .or_else(|| source.file_name().map(|n| n.to_string_lossy().into_owned()))
             .unwrap_or_else(|| "sound".into());
         let destination = self.shared.library.path_of(&id);
-        let info = match omu_audiofile::import::import_file(source, &destination, &id, &name) {
+        let note = |step: ImportStep, done: u64, total: u64| {
+            if let Some(job) = job {
+                self.note_import(job, &name, step, done, total);
+            }
+        };
+        note(ImportStep::Converting, 0, 0);
+        let info = match omu_audiofile::import::import_file_with_progress(
+            source,
+            &destination,
+            &id,
+            &name,
+            &mut |done, total| note(ImportStep::Converting, done, total),
+        ) {
             Ok(info) => info,
             // this program cannot read it: FFmpeg, if the module is on, may
             Err(omu_audiofile::import::ImportError::Unsupported(why)) => {
@@ -338,6 +402,7 @@ impl SoundEngine {
         let above = self.shared.library.settings().compress_above_mb as u64 * 1024 * 1024;
         let raw = info.frames * info.channels as u64 * 2;
         if above > 0 && raw > above {
+            note(ImportStep::Packing, 0, 0);
             match self.compress(&id) {
                 Ok(packed) => return Ok(packed),
                 Err(e) => tracing::warn!("cannot compress the sound {id}: {e}"),
@@ -395,8 +460,9 @@ impl SoundEngine {
         &self,
         path: &std::path::Path,
         name: &str,
+        job: Option<&str>,
     ) -> Result<SoundInfo, SoundError> {
-        let result = self.import(path, Some(name));
+        let result = self.import_job(path, Some(name), job);
         let _ = std::fs::remove_file(path);
         result
     }
@@ -405,7 +471,7 @@ impl SoundEngine {
     pub fn import_bytes(&self, bytes: &[u8], name: &str) -> Result<SoundInfo, SoundError> {
         let slot = self.upload_slot(name)?;
         std::fs::write(&slot, bytes).map_err(|e| SoundError::Io(e.to_string()))?;
-        self.finish_upload(&slot, name)
+        self.finish_upload(&slot, name, None)
     }
 
     /// Removes a sound for good (its stored file too), and from memory if nobody is playing it.

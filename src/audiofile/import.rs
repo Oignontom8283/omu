@@ -58,6 +58,18 @@ pub fn import_file(
     id: &str,
     name: &str,
 ) -> Result<SoundInfo, ImportError> {
+    import_file_with_progress(source, destination, id, name, &mut |_, _| {})
+}
+
+/// The same, and `progress(read, total)` is called as the file is read: the frames of the file read so far, and how many it has
+/// (0 when the file does not say).
+pub fn import_file_with_progress(
+    source: &Path,
+    destination: &Path,
+    id: &str,
+    name: &str,
+    progress: &mut dyn FnMut(u64, u64),
+) -> Result<SoundInfo, ImportError> {
     let file = File::open(source).map_err(|e| format!("cannot open {}: {e}", source.display()))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -80,6 +92,7 @@ pub fn import_file(
         ImportError::Unsupported("there is no sound in this file that can be read".into())
     })?;
     let track_id = track.id;
+    let total_frames = track.num_frames.unwrap_or(0);
     let params = track
         .codec_params
         .as_ref()
@@ -99,7 +112,14 @@ pub fn import_file(
         std::fs::create_dir_all(dir)
             .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
     }
-    let result = convert(&mut format, &mut decoder, track_id, destination);
+    let result = convert(
+        &mut format,
+        &mut decoder,
+        track_id,
+        destination,
+        total_frames,
+        progress,
+    );
     match result {
         Ok((channels, frames)) => {
             let bytes = std::fs::metadata(destination).map(|m| m.len()).unwrap_or(0);
@@ -128,7 +148,10 @@ fn convert(
     decoder: &mut Box<dyn symphonia::core::codecs::audio::AudioDecoder>,
     track_id: u32,
     destination: &Path,
+    total_frames: u64,
+    progress: &mut dyn FnMut(u64, u64),
 ) -> Result<(usize, u64), String> {
+    let mut read_frames = 0u64;
     let mut writer: Option<WavWriter> = None;
     let mut channels = 0usize;
     let mut resampler: Option<(StreamResampler, f64)> = None;
@@ -167,6 +190,8 @@ fn convert(
                 ));
             }
         }
+        read_frames += buffer.frames() as u64;
+        progress(read_frames, total_frames);
         decoded.resize(buffer.samples_interleaved(), 0.0);
         buffer.copy_to_slice_interleaved(&mut decoded);
         // keep the first two channels
@@ -270,6 +295,29 @@ mod tests {
             b.extend_from_slice(&s.to_le_bytes());
         }
         std::fs::write(path, b).unwrap();
+    }
+
+    #[test]
+    fn the_progress_of_an_import_goes_up_to_the_whole_file() {
+        let dir = temp("progress");
+        let source = dir.join("in.wav");
+        wav(&source, 44_100, 1, &tone(44_100, 2.0, 440.0));
+        let mut seen: Vec<(u64, u64)> = vec![];
+        let info = import_file_with_progress(
+            &source,
+            &dir.join("out.wav"),
+            "id",
+            "name",
+            &mut |read, total| seen.push((read, total)),
+        )
+        .unwrap();
+        assert!(info.frames > 0);
+        assert!(seen.len() > 1, "reported more than once");
+        assert!(seen.windows(2).all(|w| w[0].0 <= w[1].0), "never goes back");
+        let (read, total) = *seen.last().unwrap();
+        assert_eq!(total, 88_200, "the file says how long it is");
+        assert_eq!(read, total, "ends with the whole file read");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn tone(rate: u32, seconds: f32, hz: f32) -> Vec<i16> {

@@ -274,6 +274,16 @@ async fn upload(
         return r;
     }
     let name = query.get("name").cloned().unwrap_or_else(|| "sound".into());
+    // the page follows an upload by the id it gave it; the length it announces is what the progress is counted against
+    let job = query
+        .get("job")
+        .cloned()
+        .filter(|j| !j.is_empty() && j.len() <= 64);
+    let announced = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
     let sounds = state.daemon.sounds().clone();
     let failure_with = |status: StatusCode, error: RpcError| {
         let reply = RpcResponse::err(None, error);
@@ -297,9 +307,21 @@ async fn upload(
             .map_err(|e| e.to_string())?;
         let mut total = 0u64;
         let mut stream = body.into_data_stream();
+        if let Some(job) = &job {
+            sounds.note_import(job, &name, omu_types::ImportStep::Receiving, 0, announced);
+        }
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| e.to_string())?;
             total += chunk.len() as u64;
+            if let Some(job) = &job {
+                sounds.note_import(
+                    job,
+                    &name,
+                    omu_types::ImportStep::Receiving,
+                    total,
+                    announced,
+                );
+            }
             if total > MAX_UPLOAD_BYTES {
                 return Err("the file is too big (the most is 4 GB)".to_string());
             }
@@ -309,11 +331,15 @@ async fn upload(
     };
     if let Err(e) = received.await {
         let _ = std::fs::remove_file(&path);
+        if let Some(job) = &job {
+            sounds.end_import(job);
+        }
         return failure(StatusCode::BAD_REQUEST, e);
     }
     let imported = {
-        let (sounds, path, name) = (sounds.clone(), path.clone(), name.clone());
-        tokio::task::spawn_blocking(move || sounds.finish_upload(&path, &name)).await
+        let (sounds, path, name, job) = (sounds.clone(), path.clone(), name.clone(), job.clone());
+        tokio::task::spawn_blocking(move || sounds.finish_upload(&path, &name, job.as_deref()))
+            .await
     };
     match imported {
         Ok(Ok(info)) => (

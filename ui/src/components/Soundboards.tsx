@@ -3,16 +3,10 @@ import { IN_DESKTOP_WINDOW, RpcError, pickSoundFiles, uploadSound, type api } fr
 import { MODULE_NEEDED } from '../modules.ts';
 import { newId } from '../graph.ts';
 import { useT } from '../i18n/index.tsx';
-import { Button, ColorField, NumberField, Select, Slider, Switch, TextInput } from '../kit/controls.tsx';
-import { ShortcutField } from './ShortcutField.tsx';
-import { partChange } from '../soundboard.ts';
+import { Button, TextInput } from '../kit/controls.tsx';
 import {
-  boardInGraph,
   cleanCacheMb,
   cleanCompressMb,
-  emptyPad,
-  formatBytes,
-  formatDuration,
   MIN_CACHE_MB,
   newBoardName,
   padFor,
@@ -21,31 +15,35 @@ import {
   withPadRemoved,
   withPadsAdded,
 } from '../soundboard.ts';
-import type { Board, GraphSpec, Pad, Settings, SoundInfo, SoundLibrary, SoundStatus } from '../types.ts';
+import type { Board, ImportJob, Pad, Settings, SoundInfo, SoundLibrary as Library, SoundStatus } from '../types.ts';
+import { FloatingWindow } from './FloatingWindow.tsx';
+import { Icon } from './Icon.tsx';
+import { ImportCard, PadCard } from './PadCard.tsx';
+import { PadSettings } from './PadSettings.tsx';
+import { SoundLibrary } from './SoundLibrary.tsx';
+import { useWindowStack } from './windows.ts';
 
 type Daemon = ReturnType<typeof api>;
 
 type Props = {
   daemon: Daemon;
   token: string;
-  library: SoundLibrary;
-  setLibrary: (l: SoundLibrary) => void;
-  /** The graph the daemon is running, and the one on screen (a block may be there and not applied yet). */
-  applied: GraphSpec;
-  shown: GraphSpec;
+  library: Library;
+  setLibrary: (l: Library) => void;
   /** The board to show first. */
   initialBoard?: string;
-  /** Adds a soundboard block for this board to the editor. */
-  onAddBlock: (board: string) => void;
   notify: (text: string) => void;
   /** Opens the panel of the optional modules. */
   onOpenModules: () => void;
 };
 
+/** A sound on its way in: it has a card of its own until it is a pad. */
+type Importing = { job: string; board: string; label: string; error?: string };
+
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-/** The panel of the soundboards: boards, their pads, the sounds, and the memory they may use. */
-export function Soundboards({ daemon, token, library, setLibrary, applied, shown, initialBoard, onAddBlock, notify, onOpenModules }: Props) {
+/** The page of the soundboards: a tab per soundboard, and under it a card for each of its sounds. */
+export function Soundboards({ daemon, token, library, setLibrary, initialBoard, notify, onOpenModules }: Props) {
   const t = useT();
   const [boardId, setBoardId] = useState<string | undefined>(initialBoard ?? library.boards[0]?.id);
   const [playing, setPlaying] = useState<string[]>([]);
@@ -54,10 +52,13 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
   const [cacheText, setCacheText] = useState('');
   const [compressText, setCompressText] = useState('');
   const [compressing, setCompressing] = useState<string | null>(null);
-  const [importing, setImporting] = useState<string[]>([]);
+  const [importing, setImporting] = useState<Importing[]>([]);
+  const [progress, setProgress] = useState<Record<string, ImportJob>>({});
   const [over, setOver] = useState(false);
-  const [path, setPath] = useState('');
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [editingTab, setEditingTab] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const windows = useWindowStack<string>();
   // a file that needs an optional module (its id), until the question is answered
   const [needModule, setNeedModule] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -104,6 +105,22 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       })
       .catch(() => undefined);
   }, [daemon]);
+  // how far the imports are, asked of the daemon while there are some
+  const running = importing.some((i) => !i.error);
+  useEffect(() => {
+    if (!running) {
+      setProgress({});
+      return;
+    }
+    const read = () =>
+      daemon
+        .imports()
+        .then((jobs) => setProgress(Object.fromEntries(jobs.map((j) => [j.job, j]))))
+        .catch(() => undefined);
+    void read();
+    const timer = setInterval(read, 300);
+    return () => clearInterval(timer);
+  }, [daemon, running]);
   // a second click within 4 s confirms a removal
   useEffect(() => {
     if (!confirm) return;
@@ -136,12 +153,14 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
     [daemon, setLibrary, notify, reload],
   );
 
+  // ---- soundboards (the tabs)
   const addBoard = async () => {
     const created: Board = { id: newId(), name: newBoardName(libraryRef.current.boards, t('soundboards.boardBase')), pads: [] };
     await save([...libraryRef.current.boards, created]);
     setBoardId(created.id);
+    setEditingTab(created.id);
   };
-  const renameBoard = (name: string) => void save(libraryRef.current.boards.map((b) => (b.id === current ? { ...b, name } : b)));
+  const renameBoard = (id: string, name: string) => void save(libraryRef.current.boards.map((b) => (b.id === id ? { ...b, name: name.trim() || b.name } : b)));
   const removeBoard = async () => {
     if (!current) return;
     if (confirm !== `board:${current}`) {
@@ -153,19 +172,12 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
     await save(libraryRef.current.boards.filter((b) => b.id !== current));
   };
 
-  // ---- importing: sounds come in, and each one becomes a pad of the board on screen
-  const finishImport = async (sounds: SoundInfo[]) => {
-    if (sounds.length === 0) return;
+  // ---- importing: a sound comes in as a card with a bar, then it is a pad of the soundboard it was dropped on
+  const finishImport = async (sound: SoundInfo, target: string) => {
     let boards = libraryRef.current.boards;
-    let target = boardRef.current && boards.some((b) => b.id === boardRef.current) ? boardRef.current : undefined;
-    if (!target) {
-      const created: Board = { id: newId(), name: newBoardName(boards, t('soundboards.boardBase')), pads: [] };
-      boards = [...boards, created];
-      target = created.id;
-      setBoardId(target);
-    }
-    boards = withPadsAdded(boards, target, sounds.map(padFor));
-    // the daemon knows the new sounds already: take them, with the boards
+    if (!boards.some((b) => b.id === target)) return;
+    boards = withPadsAdded(boards, target, [padFor(sound)]);
+    // the daemon knows the new sound already: take it, with the boards
     try {
       const fresh = await daemon.soundboards();
       libraryRef.current = { ...fresh, boards };
@@ -176,28 +188,44 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
       void reload();
     }
   };
-  const importAll = async (jobs: { label: string; run: () => Promise<SoundInfo> }[]) => {
-    const done: SoundInfo[] = [];
-    setImporting((l) => [...l, ...jobs.map((j) => j.label)]);
-    for (const job of jobs) {
+  const importAll = async (jobs: { label: string; run: (job: string) => Promise<SoundInfo> }[]) => {
+    if (jobs.length === 0) return;
+    // dropped on no soundboard at all: the first one is made
+    let boards = libraryRef.current.boards;
+    let target = boardRef.current && boards.some((b) => b.id === boardRef.current) ? boardRef.current : undefined;
+    if (!target) {
+      const created: Board = { id: newId(), name: newBoardName(boards, t('soundboards.boardBase')), pads: [] };
+      boards = [...boards, created];
+      target = created.id;
+      await save(boards);
+      setBoardId(target);
+    }
+    const board = target;
+    const queued = jobs.map((j) => ({ ...j, id: newId() }));
+    setImporting((l) => [...l, ...queued.map((j): Importing => ({ job: j.id, board, label: j.label }))]);
+    for (const job of queued) {
       try {
-        done.push(await job.run());
+        await finishImport(await job.run(job.id), board);
+        setImporting((l) => l.filter((i) => i.job !== job.id));
       } catch (e) {
-        if (e instanceof RpcError && e.code === MODULE_NEEDED) setNeedModule(typeof e.data === 'string' ? e.data : 'ffmpeg');
-        else notify(`${job.label}: ${e instanceof RpcError || e instanceof Error ? e.message : String(e)}`);
-      } finally {
-        setImporting((l) => {
-          const i = l.indexOf(job.label);
-          return i < 0 ? l : [...l.slice(0, i), ...l.slice(i + 1)];
-        });
+        if (e instanceof RpcError && e.code === MODULE_NEEDED) {
+          setNeedModule(typeof e.data === 'string' ? e.data : 'ffmpeg');
+          setImporting((l) => l.filter((i) => i.job !== job.id));
+        } else {
+          const why = e instanceof RpcError || e instanceof Error ? e.message : String(e);
+          setImporting((l) => l.map((i) => (i.job === job.id ? { ...i, error: why } : i)));
+        }
       }
     }
-    await finishImport(done);
   };
-  const addFiles = (files: File[]) => void importAll(files.map((f) => ({ label: f.name, run: () => uploadSound(token, f) })));
-  const addPaths = (paths: string[]) => void importAll(paths.filter((p) => p.trim()).map((p) => ({ label: p, run: () => daemon.importSound(p.trim()) })));
+  const addFiles = (files: File[]) => void importAll(files.map((f) => ({ label: f.name, run: (job) => uploadSound(token, f, job) })));
+  const addPaths = (paths: string[]) => void importAll(paths.filter((p) => p.trim()).map((p) => ({ label: p.trim().split(/[\\/]/).pop() ?? p, run: (job) => daemon.importSound(p.trim(), job) })));
   const addPathsRef = useRef(addPaths);
   addPathsRef.current = addPaths;
+  const chooseFiles = () => {
+    if (IN_DESKTOP_WINDOW) void pickSoundFiles().then(addPaths).catch((e) => notify(message(e)));
+    else fileInput.current?.click();
+  };
 
   // the desktop window receives the paths of files dropped on it; the browser, the files themselves
   useEffect(() => {
@@ -223,11 +251,27 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
   }, []);
 
   // ---- pads
-  const change = (pad: Pad, patch: Partial<Pad>) => current && void save(withPad(libraryRef.current.boards, current, pad.id, patch));
-  const removePad = (pad: Pad) => {
+  const soundOf = (pad: Pad) => library.sounds.find((s) => s.id === pad.sound);
+  // a pad is changed on its own soundboard, whichever one is on screen (its window may stay open when the tab changes)
+  const change = (pad: Pad, patch: Partial<Pad>) => {
+    const owner = libraryRef.current.boards.find((b) => b.pads.some((p) => p.id === pad.id));
+    if (owner) void save(withPad(libraryRef.current.boards, owner.id, pad.id, patch));
+  };
+  const removePad = async (pad: Pad) => {
     if (!current) return;
+    if (confirm !== `pad:${pad.id}`) {
+      setConfirm(`pad:${pad.id}`);
+      return;
+    }
+    setConfirm(null);
     void daemon.stopPad(current, pad.id).catch(() => undefined);
-    void save(withPadRemoved(libraryRef.current.boards, current, pad.id));
+    const boards = withPadRemoved(libraryRef.current.boards, current, pad.id);
+    await save(boards);
+    // a sound that no pad plays any more is not kept
+    if (pad.sound && padsUsing(boards, pad.sound) === 0) {
+      await daemon.removeSound(pad.sound).catch((e) => notify(message(e)));
+      await reload();
+    }
   };
   const play = async (pad: Pad) => {
     if (!current) return;
@@ -285,8 +329,8 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
     }
     try {
       // never defaults over what the daemon holds: when the settings were not read earlier, they are read now
-      const current = settings ?? (await daemon.settings());
-      const next: Settings = { ...current, sound_cache_mb: mb, compress_above_mb: packMb };
+      const now = settings ?? (await daemon.settings());
+      const next: Settings = { ...now, sound_cache_mb: mb, compress_above_mb: packMb };
       await daemon.setSettings(next);
       setSettings(next);
       setCacheText(String(mb));
@@ -296,20 +340,30 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
     }
   };
 
-  const inApplied = current ? boardInGraph(applied, current) : false;
-  const inShown = current ? boardInGraph(shown, current) : false;
-  const soundName = (id: string | null | undefined) => library.sounds.find((s) => s.id === id)?.name;
+  const problemsOf = (pad: Pad) => (status?.hotkey_problems ?? []).filter((h) => h.pad === pad.id).map((h) => h.message);
+  const mine = importing.filter((i) => i.board === current);
+  const shownPads = (board?.pads ?? []).filter((pad) => {
+    const q = query.trim().toLowerCase();
+    return !q || pad.name.toLowerCase().includes(q) || (soundOf(pad)?.name.toLowerCase().includes(q) ?? false);
+  });
+  // a window of a sound that is gone (its card was removed) goes with it
+  useEffect(() => {
+    windows.prune((key) => key === 'library' || library.boards.some((b) => b.pads.some((p) => `pad:${p.id}` === key)));
+  }, [library, windows]);
+  const place = (e: React.MouseEvent) => ({ x: e.clientX + 12, y: e.clientY + 12 });
 
   return (
     <aside
-      className={`boards${over ? ' over' : ''}`}
+      className={`boards soundboards-page${over ? ' over' : ''}`}
       aria-label={t('soundboards.title')}
       onDragOver={(e) => {
         if (IN_DESKTOP_WINDOW) return;
         e.preventDefault();
         setOver(true);
       }}
-      onDragLeave={() => setOver(false)}
+      onDragLeave={(e) => {
+        if (e.currentTarget === e.target) setOver(false);
+      }}
       onDrop={(e) => {
         if (IN_DESKTOP_WINDOW) return;
         e.preventDefault();
@@ -317,262 +371,184 @@ export function Soundboards({ daemon, token, library, setLibrary, applied, shown
         addFiles(Array.from(e.dataTransfer.files));
       }}
     >
-      <header>
-        <h2>{t('soundboards.title')}</h2>
-      </header>
-
-      <div className="row">
-        <Select
-          label={t('soundboards.board')}
-          value={current ?? ''}
-          options={library.boards.length === 0 ? [{ value: '', label: t('soundboards.none') }] : library.boards.map((b) => ({ value: b.id, label: b.name }))}
-          disabled={library.boards.length === 0}
-          onChange={setBoardId}
-        />
-        <Button icon="plus" onClick={() => void addBoard()}>
-          {t('soundboards.newBoard')}
+      <nav className="board-tabs" aria-label={t('soundboards.board')}>
+        <div className="board-tab-list" role="tablist">
+          {library.boards.map((b) => {
+            const on = b.id === current;
+            const asking = confirm === `board:${b.id}`;
+            return (
+              <div key={b.id} className={`board-tab${on ? ' on' : ''}${asking ? ' asking' : ''}`} role="presentation">
+                {editingTab === b.id ? (
+                  <input
+                    className="board-tab-input"
+                    autoFocus
+                    defaultValue={b.name}
+                    aria-label={t('soundboards.rename')}
+                    onFocus={(e) => e.currentTarget.select()}
+                    onBlur={(e) => {
+                      renameBoard(b.id, e.currentTarget.value);
+                      setEditingTab(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') e.currentTarget.blur();
+                      if (e.key === 'Escape') setEditingTab(null);
+                    }}
+                  />
+                ) : (
+                  <button type="button" role="tab" aria-selected={on} title={t('soundboards.tabHint')} onClick={() => setBoardId(b.id)} onDoubleClick={() => setEditingTab(b.id)}>
+                    {asking ? t('soundboards.deleteBoardAsk', { name: b.name }) : b.name}
+                  </button>
+                )}
+                {on && editingTab !== b.id && (
+                  <button type="button" className="tab-x" title={asking ? t('soundboards.deleteConfirm') : t('soundboards.deleteBoard')} aria-label={t('soundboards.deleteBoard')} onClick={() => void removeBoard()}>
+                    <Icon name="trash" size={12} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          <Button variant="flat" size="small" icon="plus" className="board-tab-add" title={t('soundboards.newBoard')} onClick={() => void addBoard()} />
+        </div>
+        <span className="spacer" />
+        {playing.length > 0 && (
+          <Button size="small" icon="stop" onClick={() => stop()}>
+            {t('soundboards.stopAll')}
+          </Button>
+        )}
+        <Button variant="flat" size="small" icon="list" title={t('soundboards.libraryTitle')} onClick={(e) => windows.open('library', { x: e.clientX - 760, y: e.clientY + 16 })}>
+          {t('soundboards.library', { count: library.sounds.length })}
         </Button>
+      </nav>
+
+      <div className="boards-page">
+        {needModule && (
+          <div className="banner warn" role="alert">
+            {t('modules.needed', { name: needModule === 'ffmpeg' ? 'FFmpeg' : needModule })}{' '}
+            <Button
+              size="small"
+              variant="primary"
+              onClick={() => {
+                const id = needModule;
+                setNeedModule(null);
+                // the question was the consent: the module is installed, and its panel shows the download
+                daemon.installModule(id).catch((e) => notify(message(e)));
+                onOpenModules();
+              }}
+            >
+              {t('modules.neededInstall')}
+            </Button>{' '}
+            <Button size="small" onClick={() => setNeedModule(null)}>
+              {t('modules.neededLater')}
+            </Button>
+          </div>
+        )}
+
+        {!board && (
+          <div className="boards-empty">
+            <p>{t('soundboards.none')}</p>
+            <Button variant="primary" icon="plus" onClick={() => void addBoard()}>
+              {t('soundboards.newBoard')}
+            </Button>
+          </div>
+        )}
+
         {board && (
           <>
-            <TextInput className="grow" code={false} title={t('soundboards.rename')} value={board.name} onChange={renameBoard} />
-            <Button variant={confirm === `board:${board.id}` ? 'danger' : 'secondary'} icon="trash" onClick={() => void removeBoard()}>
-              {confirm === `board:${board.id}` ? t('soundboards.deleteConfirm') : t('soundboards.deleteBoard')}
-            </Button>
+            <div className="boards-toolbar">
+              <Button variant="primary" icon="plus" onClick={chooseFiles}>
+                {t('soundboards.addSounds')}
+              </Button>
+              <input
+                ref={fileInput}
+                type="file"
+                hidden
+                multiple
+                accept=".wav,.mp3,.flac,.ogg,.oga,.aac,.m4a,.mp4,.m4v,.mov,.mkv,.webm,audio/*,video/*"
+                onChange={(e) => {
+                  addFiles(Array.from(e.target.files ?? []));
+                  e.target.value = '';
+                }}
+              />
+              {board.pads.length > 0 && <TextInput code={false} className="boards-filter" placeholder={t('soundboards.filter')} value={query} onChange={setQuery} />}
+              <span className="muted boards-hint">{IN_DESKTOP_WINDOW ? t('soundboards.dropHintDesktop') : t('soundboards.dropHint')}</span>
+            </div>
+
+            <div className="pad-cards">
+              {shownPads.map((pad) => (
+                <PadCard
+                  key={pad.id}
+                  pad={pad}
+                  sound={soundOf(pad)}
+                  playing={playing.includes(pad.id)}
+                  canPlay={active}
+                  problems={problemsOf(pad)}
+                  confirming={confirm === `pad:${pad.id}`}
+                  onChange={(patch) => change(pad, patch)}
+                  onPlay={() => void play(pad)}
+                  onStop={() => stop(pad)}
+                  onSettings={(e) => windows.open(`pad:${pad.id}`, place(e))}
+                  onRemove={() => void removePad(pad)}
+                />
+              ))}
+              {mine.map((i) => (
+                <ImportCard key={i.job} job={progress[i.job]} label={i.label} waiting={!progress[i.job]} error={i.error} onDismiss={() => setImporting((l) => l.filter((x) => x.job !== i.job))} />
+              ))}
+              {query.trim() === '' && (
+                <button type="button" className="pad-add nodrag" onClick={chooseFiles} aria-label={t('soundboards.addSounds')}>
+                  <Icon name="plus" size={20} />
+                </button>
+              )}
+            </div>
+            {query.trim() !== '' && shownPads.length === 0 && <p className="muted">{t('soundboards.noMatch')}</p>}
           </>
         )}
       </div>
 
-      {board && !inApplied && (
-        <div className="banner info">
-          {inShown ? t('soundboards.notAppliedYet') : t('soundboards.notInGraph')}{' '}
-          {!inShown && (
-            <Button size="small" icon="plus" onClick={() => onAddBlock(board.id)}>
-              {t('soundboards.addBlock')}
-            </Button>
-          )}
-        </div>
-      )}
-
-      {board && (
-        <>
-          <div className="row">
-            {IN_DESKTOP_WINDOW ? (
-              <>
-                <Button variant="primary" icon="folder" onClick={() => void pickSoundFiles().then((paths) => addPaths(paths)).catch((e) => notify(message(e)))}>
-                  {t('soundboards.addSounds')}
-                </Button>
-                <TextInput
-                  className="grow"
-                  value={path}
-                  placeholder={t('soundboards.pathPlaceholder')}
-                  onChange={setPath}
-                  onEnter={() => {
-                    if (!path.trim()) return;
-                    addPaths([path]);
-                    setPath('');
-                  }}
-                />
-                <Button
-                  icon="plus"
-                  disabled={!path.trim()}
-                  onClick={() => {
-                    addPaths([path]);
-                    setPath('');
-                  }}
-                >
-                  {t('soundboards.addSound')}
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button variant="primary" icon="folder" onClick={() => fileInput.current?.click()}>
-                  {t('soundboards.addSounds')}
-                </Button>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  hidden
-                  multiple
-                  accept=".wav,.mp3,.flac,.ogg,.oga,.aac,.m4a,.mp4,.m4v,.mov,.mkv,.webm,audio/*,video/*"
-                  onChange={(e) => {
-                    addFiles(Array.from(e.target.files ?? []));
-                    e.target.value = '';
-                  }}
-                />
-              </>
-            )}
-            <Button icon="plus" onClick={() => current && void save(withPadsAdded(libraryRef.current.boards, current, [emptyPad(t('soundboards.padBase'))]))}>
-              {t('soundboards.addPad')}
-            </Button>
-            <span className="spacer" />
-            <Button icon="stop" onClick={() => stop()} disabled={playing.length === 0}>
-              {t('soundboards.stopAll')}
-            </Button>
-          </div>
-          <p className="muted drop-hint">{IN_DESKTOP_WINDOW ? t('soundboards.dropHintDesktop') : t('soundboards.dropHint')}</p>
-        </>
-      )}
-      {needModule && (
-        <div className="banner warn" role="alert">
-          {t('modules.needed', { name: needModule === 'ffmpeg' ? 'FFmpeg' : needModule })}{' '}
-          <Button
-            size="small"
-            variant="primary"
-            onClick={() => {
-              const id = needModule;
-              setNeedModule(null);
-              // the question was the consent: the module is installed, and its panel shows the download
-              daemon.installModule(id).catch((e) => notify(message(e)));
-              onOpenModules();
-            }}
-          >
-            {t('modules.neededInstall')}
-          </Button>{' '}
-          <Button size="small" onClick={() => setNeedModule(null)}>
-            {t('modules.neededLater')}
-          </Button>
-        </div>
-      )}
-      {importing.length > 0 && (
-        <div className="banner info" role="status">
-          {t('soundboards.importing', { count: importing.length })}: {importing[0]}
-        </div>
-      )}
-
-      {board && board.pads.length === 0 && importing.length === 0 && <p className="muted">{t('soundboards.noPads')}</p>}
-      <div className="pads">
-        {board?.pads.map((pad) => {
-          const isPlaying = playing.includes(pad.id);
+      {windows.list.map((w, order) => {
+        if (w.key === 'library') {
           return (
-            <div key={pad.id} className={`pad${isPlaying ? ' playing' : ''}${pad.sound ? '' : ' no-sound'}`} style={pad.color ? ({ '--pad': pad.color } as React.CSSProperties) : undefined}>
-              <div className="pad-top">
-                <Button className="pad-play" icon="play" disabled={!pad.sound || !active} title={!active ? t('soundboards.cannotPlay') : (soundName(pad.sound) ?? '')} onClick={() => void play(pad)}>
-                  {pad.name || t('soundboards.unnamedPad')}
-                </Button>
-                {isPlaying && <Button icon="stop" title={t('soundboards.stopPad')} onClick={() => stop(pad)} />}
-                <Button icon="trash" title={t('soundboards.removePad')} onClick={() => removePad(pad)} />
-              </div>
-              <TextInput code={false} title={t('soundboards.padName')} value={pad.name} onChange={(name) => change(pad, { name })} />
-              <Select
-                label={t('soundboards.padSound')}
-                value={pad.sound ?? ''}
-                options={[{ value: '', label: t('soundboards.noSound') }, ...library.sounds.map((s) => ({ value: s.id, label: `${s.name} (${formatDuration(s.frames)})` }))]}
-                onChange={(sound) => change(pad, { sound: sound || null })}
+            <FloatingWindow key={w.key} className="lib-window cat-input" title={t('soundboards.libraryTitle')} x={w.x} y={w.y} order={order} onMove={(x, y) => windows.move(w.key, x, y)} onFocus={() => windows.front(w.key)} onClose={() => windows.close(w.key)}>
+              <SoundLibrary
+                library={library}
+                status={status}
+                settings={settings}
+                cacheText={cacheText}
+                compressText={compressText}
+                confirm={confirm}
+                compressing={compressing}
+                onCacheText={setCacheText}
+                onCompressText={setCompressText}
+                onSaveSettings={() => void saveCache()}
+                onRemove={(id) => {
+                  const s = library.sounds.find((x) => x.id === id);
+                  if (s) void removeSound(s);
+                }}
+                onCompress={(id) => {
+                  const s = library.sounds.find((x) => x.id === id);
+                  if (s) void compressSound(s);
+                }}
               />
-              <div className="field">
-                <span>
-                  {t('field.gain')}: {(pad.gain_db ?? 0) > 0 ? '+' : ''}
-                  {pad.gain_db ?? 0} dB
-                </span>
-                <Slider label={t('field.gain')} min={-30} max={12} step={0.5} value={pad.gain_db ?? 0} onChange={(gain_db) => change(pad, { gain_db })} />
-              </div>
-              <div className="field">
-                <span>{t('soundboards.padKey')}</span>
-                <ShortcutField value={pad.key ?? ''} onChange={(keys) => change(pad, { key: keys || null })} />
-                {(status?.hotkey_problems ?? [])
-                  .filter((h) => h.board === current && h.pad === pad.id)
-                  .map((h) => (
-                    <small key={h.message} className="warn">
-                      {h.message}
-                    </small>
-                  ))}
-                {pad.key && (
-                  <Switch checked={pad.hold ?? false} title={t('soundboards.holdHint')} onChange={(hold) => change(pad, { hold })}>
-                    {t('soundboards.hold')}
-                  </Switch>
-                )}
-                {pad.key && !active && <small className="muted">{t('soundboards.keyIdle')}</small>}
-              </div>
-              <div className="checks">
-                <Switch checked={pad.looped ?? false} title={t('soundboards.loopHint')} onChange={(looped) => change(pad, { looped })}>
-                  {t('soundboards.loop')}
-                </Switch>
-                <Switch checked={pad.exclusive ?? false} title={t('soundboards.exclusiveHint')} onChange={(exclusive) => change(pad, { exclusive })}>
-                  {t('soundboards.exclusive')}
-                </Switch>
-              </div>
-              <div className="field" title={t('soundboards.fadeHint')}>
-                <span>
-                  {t('soundboards.fade')}: {pad.fade_ms ? `${pad.fade_ms} ms` : t('soundboards.fadeShort')}
-                </span>
-                <Slider label={t('soundboards.fade')} min={0} max={5000} step={50} value={pad.fade_ms ?? 0} onChange={(fade_ms) => change(pad, { fade_ms })} />
-              </div>
-              <div className="range-row" title={t('soundboards.partHint')}>
-                <div>
-                  <span>{t('soundboards.start')}</span>
-                  <NumberField min={0} step={0.1} unit="s" value={(pad.start_ms ?? 0) / 1000} onChange={(s) => change(pad, partChange(pad, 'start_ms', String(s)))} />
-                </div>
-                <div>
-                  <span>{t('soundboards.end')}</span>
-                  <NumberField min={0} step={0.1} unit="s" value={(pad.end_ms ?? 0) / 1000} onChange={(s) => change(pad, partChange(pad, 'end_ms', String(s)))} />
-                </div>
-              </div>
-              <div className="color-row">
-                <span>{t('soundboards.color')}</span>
-                <ColorField label={t('soundboards.color')} value={pad.color ?? '#0f9d8a'} onChange={(color) => change(pad, { color })} />
-                {pad.color && <Button variant="flat" icon="close" title={t('soundboards.colorReset')} onClick={() => change(pad, { color: null })} />}
-              </div>
-            </div>
+            </FloatingWindow>
           );
-        })}
-      </div>
-
-      <details className="sounds">
-        <summary>{t('soundboards.library', { count: library.sounds.length })}</summary>
-        {library.sounds.length === 0 && <p className="muted">{t('soundboards.libraryEmpty')}</p>}
-        <ul>
-          {library.sounds.map((s) => {
-            const uses = padsUsing(library.boards, s.id);
-            return (
-              <li key={s.id}>
-                <span className="grow" title={s.name}>
-                  {s.name}
-                </span>
-                <small className="muted">
-                  {formatDuration(s.frames)} · {formatBytes(s.bytes)}
-                  {s.compressed ? ` · ${t('soundboards.compressed')}` : ''} · {t('soundboards.usedBy', { count: uses })}
-                </small>
-                {!s.compressed && (
-                  <Button size="small" icon="stack" disabled={compressing !== null} title={t('soundboards.compressNow')} onClick={() => void compressSound(s)}>
-                    {compressing === s.id ? t('soundboards.compressing') : t('soundboards.compress')}
-                  </Button>
-                )}
-                <Button size="small" variant={confirm === `sound:${s.id}` ? 'danger' : 'secondary'} icon="trash" title={t('soundboards.removeSound')} onClick={() => void removeSound(s)}>
-                  {confirm === `sound:${s.id}` ? t('soundboards.deleteConfirm') : undefined}
-                </Button>
-              </li>
-            );
-          })}
-        </ul>
-      </details>
-
-      <section className="memory">
-        <h3>{t('soundboards.memory')}</h3>
-        <p className="muted">
-          {status?.active
-            ? t('soundboards.memoryUsed', { used: formatBytes(status.cache_used_bytes), limit: formatBytes(status.cache_limit_bytes), loaded: status.sounds_loaded })
-            : t('soundboards.memoryIdle')}
-          {status && status.streams > 0 ? ` · ${t('soundboards.streams', { count: status.streams })}` : ''}
-        </p>
-        {status && status.late_frames > 0 && <p className="warn">{t('soundboards.late')}</p>}
-        <div className="row">
-          <div className="field grow">
-            <span>{t('soundboards.cacheLimit')}</span>
-            <NumberField whole min={MIN_CACHE_MB} step={16} value={Number(cacheText) || 0} onChange={(n) => setCacheText(String(n))} />
-          </div>
-        </div>
-        <div className="row">
-          <div className="field grow">
-            <span>{t('soundboards.compressAbove')}</span>
-            <NumberField whole min={0} step={1} value={Number(compressText) || 0} onChange={(n) => setCompressText(String(n))} />
-          </div>
-          <Button icon="save" onClick={() => void saveCache()} disabled={settings !== null && String(settings.sound_cache_mb) === cacheText && String(settings.compress_above_mb) === compressText}>
-            {t('soundboards.cacheSave')}
-          </Button>
-        </div>
-        <small className="muted">{t('soundboards.compressHint')}</small>
-        <small className="muted">{t('soundboards.cacheHint')}</small>
-      </section>
+        }
+        const pad = library.boards.flatMap((b) => b.pads).find((p) => `pad:${p.id}` === w.key);
+        if (!pad) return null;
+        return (
+          <FloatingWindow key={w.key} className="pad-window cat-input" title={pad.name || t('soundboards.unnamedPad')} x={w.x} y={w.y} order={order} onMove={(x, y) => windows.move(w.key, x, y)} onFocus={() => windows.front(w.key)} onClose={() => windows.close(w.key)}>
+            <PadSettings
+              pad={pad}
+              sound={soundOf(pad)}
+              problems={problemsOf(pad)}
+              compressing={compressing === pad.sound}
+              onChange={(patch) => change(pad, patch)}
+              onCompress={() => {
+                const s = soundOf(pad);
+                if (s) void compressSound(s);
+              }}
+            />
+          </FloatingWindow>
+        );
+      })}
     </aside>
   );
 }

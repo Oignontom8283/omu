@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 // In development the panel is served by Vite and talks to a running daemon: find it through the discovery file the
-// daemon writes (the same one the command line reads), proxy /rpc and /ws to it, and pass the token to the page.
+// daemon writes (the same one the command line reads), proxy /rpc, /ws and /sounds to it, and pass the token to the page.
 function daemonDiscovery(): { address: string; token: string } | null {
   const dir =
     process.env.OMU_DATA_DIR ??
@@ -59,6 +59,8 @@ export default defineConfig(({ command }) => ({
     proxy: {
       '/rpc': { target, changeOrigin: true, configure: asDaemonOrigin },
       '/ws': { target, changeOrigin: true, ws: true, configure: asDaemonOrigin },
+      // a browser sends the sound files it imports to /sounds
+      '/sounds': { target, changeOrigin: true, configure: asDaemonOrigin },
     },
   },
   build: { outDir: 'dist', emptyOutDir: true, sourcemap: false },

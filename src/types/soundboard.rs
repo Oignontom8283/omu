@@ -79,6 +79,30 @@ pub struct SoundLibrary {
     pub boards: Vec<Board>,
 }
 
+/// Where an import is (`sounds.imports`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImportStep {
+    /// The file is arriving (a browser sends it).
+    Receiving,
+    /// The sound is being read and converted to the stored format.
+    Converting,
+    /// The sound is being stored compressed.
+    Packing,
+}
+
+/// A sound that is being imported: what the page shows on its card until it is ready.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImportJob {
+    /// The id the page gave to this import, to find its card.
+    pub job: String,
+    pub name: String,
+    pub step: ImportStep,
+    /// How far the step is, in the unit of the step (bytes received, frames read), and how much it makes in all (0 when unknown).
+    pub done: u64,
+    pub total: u64,
+}
+
 /// How the soundboards' memory is used (`soundboards.status`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SoundStatus {
