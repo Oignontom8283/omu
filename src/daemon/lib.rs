@@ -2012,7 +2012,6 @@ mod tests {
                 "sb",
                 NodeKind::Soundboard {
                     board: "ghost".into(),
-                    triggers: vec![],
                 },
             )],
             edges: vec![],
@@ -2035,7 +2034,6 @@ mod tests {
                 "sb",
                 NodeKind::Soundboard {
                     board: String::new(),
-                    triggers: vec![],
                 },
             )],
             edges: vec![],
@@ -2049,13 +2047,7 @@ mod tests {
         // the real graph: soundboard -> virtual microphone
         let graph = GraphSpec {
             nodes: vec![
-                NodeSpec::new(
-                    "sb",
-                    NodeKind::Soundboard {
-                        board: "b1".into(),
-                        triggers: vec![],
-                    },
-                ),
+                NodeSpec::new("sb", NodeKind::Soundboard { board: "b1".into() }),
                 NodeSpec::new("mic", NodeKind::VirtualMic { name: "SB".into() }),
             ],
             edges: vec![EdgeSpec {
@@ -2216,13 +2208,7 @@ mod tests {
 
         let graph = GraphSpec {
             nodes: vec![
-                NodeSpec::new(
-                    "sb",
-                    NodeKind::Soundboard {
-                        board: "b1".into(),
-                        triggers: vec![],
-                    },
-                ),
+                NodeSpec::new("sb", NodeKind::Soundboard { board: "b1".into() }),
                 NodeSpec::new("mic", NodeKind::VirtualMic { name: "K".into() }),
             ],
             edges: vec![EdgeSpec {
@@ -2280,10 +2266,7 @@ mod tests {
         let graph = GraphSpec {
             nodes: vec![NodeSpec::new(
                 "sb",
-                NodeKind::Soundboard {
-                    board: "b1".into(),
-                    triggers: vec![],
-                },
+                NodeKind::Soundboard { board: "b1".into() },
             )],
             edges: vec![],
         };
@@ -2326,10 +2309,7 @@ mod tests {
         let graph = GraphSpec {
             nodes: vec![NodeSpec::new(
                 "sb",
-                NodeKind::Soundboard {
-                    board: "b1".into(),
-                    triggers: vec![],
-                },
+                NodeKind::Soundboard { board: "b1".into() },
             )],
             edges: vec![],
         };
@@ -2357,7 +2337,7 @@ mod tests {
     }
 
     #[test]
-    fn the_graph_can_play_and_stop_the_pads_of_a_soundboard_with_actions() {
+    fn the_graph_plays_and_stops_a_sound_of_a_soundboard_and_reads_how_far_it_has_got() {
         let dir = temp_dir("padtrigger");
         let sim = SimBackend::new();
         let d = daemon_in(&dir, &sim);
@@ -2377,59 +2357,50 @@ mod tests {
             &d,
             "soundboards.set",
             json!([{"id": "b1", "name": "x", "pads": [
-                {"id": "p1", "name": "one", "sound": info.id, "looped": true},
-                {"id": "p2", "name": "two", "sound": info.id, "looped": true}
+                {"id": "p1", "name": "one", "sound": info.id}
             ]}]),
         ));
         let graph = json!({
             "nodes": [
-                {"id": "sb", "type": "soundboard", "board": "b1", "triggers": ["p2", "p1"]},
+                {"id": "ss", "type": "soundboard_sound", "board": "b1", "pad": "p1"},
                 {"id": "k1", "type": "hotkey", "keys": "F5"},
-                {"id": "k2", "type": "hotkey", "keys": "F6"},
-                {"id": "k3", "type": "hotkey", "keys": "F7"}
+                {"id": "k2", "type": "hotkey", "keys": "F6"}
             ],
             "edges": [
-                {"from": {"node": "k1", "port": "pressed"}, "to": {"node": "sb", "port": "play1"}},
-                {"from": {"node": "k2", "port": "pressed"}, "to": {"node": "sb", "port": "play2"}},
-                {"from": {"node": "k3", "port": "pressed"}, "to": {"node": "sb", "port": "stop"}}
+                {"from": {"node": "k1", "port": "pressed"}, "to": {"node": "ss", "port": "play"}},
+                {"from": {"node": "k2", "port": "pressed"}, "to": {"node": "ss", "port": "stop"}}
             ]
         });
         ok(call(&d, "graph.set", graph));
         std::thread::sleep(Duration::from_millis(700));
-        let playing = |d: &Daemon| -> Vec<String> {
-            let mut v: Vec<String> =
-                serde_json::from_value(ok(call(d, "soundboard.playing", json!({"board": "b1"}))))
-                    .unwrap();
-            v.sort();
-            v
+        let progress = |d: &Daemon| -> f64 {
+            d.tick();
+            let status: omu_types::EngineStatus =
+                serde_json::from_value(ok(call(d, "engine.status", json!(null)))).unwrap();
+            status
+                .nodes
+                .iter()
+                .find(|n| n.id.0 == "ss")
+                .and_then(|n| n.value.as_ref())
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(-1.0)
         };
-        assert!(playing(&d).is_empty());
+        assert_eq!(progress(&d), 0.0, "nothing plays yet");
 
-        // play1 is the first trigger: pad p2
+        assert!(sim.press("F5"));
+        std::thread::sleep(Duration::from_millis(400));
+        let at = progress(&d);
+        assert!(at > 10.0 && at < 100.0, "the sound is on its way: {at}");
+        // the sound is over after a second: the number goes back to 0
+        std::thread::sleep(Duration::from_millis(1100));
+        assert_eq!(progress(&d), 0.0, "over");
+        // and a stop stops it while it plays
         assert!(sim.press("F5"));
         std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(playing(&d), vec!["p2".to_string()]);
-        // play2 is p1
+        assert!(progress(&d) > 0.0);
         assert!(sim.press("F6"));
         std::thread::sleep(Duration::from_millis(300));
-        assert_eq!(playing(&d), vec!["p1".to_string(), "p2".to_string()]);
-        // stop stops the whole soundboard
-        assert!(sim.press("F7"));
-        std::thread::sleep(Duration::from_millis(300));
-        assert!(playing(&d).is_empty());
-
-        // a link to a trigger that the block does not have is refused
-        let bad = json!({
-            "nodes": [
-                {"id": "sb", "type": "soundboard", "board": "b1", "triggers": ["p1"]},
-                {"id": "k", "type": "hotkey", "keys": "F5"}
-            ],
-            "edges": [{"from": {"node": "k", "port": "pressed"}, "to": {"node": "sb", "port": "play2"}}]
-        });
-        assert_eq!(
-            call(&d, "graph.set", bad).error.unwrap().code,
-            RpcError::VALIDATION
-        );
+        assert_eq!(progress(&d), 0.0, "stopped");
         drop(d);
         let _ = std::fs::remove_dir_all(&dir);
     }

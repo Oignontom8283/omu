@@ -132,7 +132,9 @@ test('the families send and receive the flows they should', () => {
   for (const t of KINDS_BY_CATEGORY.input) assert.deepEqual([sends(t), receives(t)], [['audio'], []]);
   // what makes sound by itself receives no sound: at most actions (to play it, to stop it)
   for (const t of KINDS_BY_CATEGORY.generated) {
-    assert.deepEqual(sends(t), ['audio'], t);
+    // the sound, and for the blocks that play one sound how far it has got
+    assert.equal(sends(t)[0], 'audio', t);
+    assert.ok(sends(t).slice(1).every((flow) => flow === 'float'), t);
     assert.ok(receives(t).every((flow) => flow === 'action'), t);
   }
   for (const t of KINDS_BY_CATEGORY.output) assert.deepEqual([sends(t), receives(t)], [[], ['audio']]);

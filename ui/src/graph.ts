@@ -68,7 +68,7 @@ export type PortMeta = {
 };
 
 /** What decides a block's ports: its kind, and for the blocks that branch, how many conditions they have. */
-export type KindLike = { type: NodeType; branches?: number; triggers?: string[]; args?: number; graph?: GraphSpec; exposed?: { name: string; node: string; port: string }[] };
+export type KindLike = { type: NodeType; branches?: number; args?: number; graph?: GraphSpec; exposed?: { name: string; node: string; port: string }[] };
 
 /** The most conditions a branching block can have (same as the daemon's). */
 export const MAX_BRANCHES = 16;
@@ -153,16 +153,13 @@ export function portsOf(kind: KindLike): PortMeta[] {
       return [p('out', 'out', 'audio')];
     case 'network_in':
       return [param('port', 'int', 'field.listenPort'), param('stream', 'text', 'field.streamName'), param('from', 'text', 'field.fromComputer'), p('out', 'out', 'audio')];
-    case 'soundboard': {
-      // the sound, then an action input for each pad the graph can play, and one that stops the whole soundboard
-      const n = Math.min(kind.triggers?.length ?? 0, MAX_BRANCHES);
-      if (n === 0) return [p('out', 'out', 'audio')];
-      return [...range(n).map((k) => p(`play${k}`, 'in', 'action', true, { label: 'port.play', n: k })), p('stop', 'in', 'action', true), p('out', 'out', 'audio')];
-    }
+    case 'soundboard':
+      // the sound of its pads, which are played from the soundboard itself
+      return [p('out', 'out', 'audio')];
     case 'soundboard_sound':
     case 'audio_file':
-      // one sound, played when an action reaches `play`, stopped by `stop`
-      return [p('play', 'in', 'action', true), p('stop', 'in', 'action', true), p('out', 'out', 'audio')];
+      // one sound, played when an action reaches `play`, stopped by `stop`; how far it has got comes out as a number (0 to 100)
+      return [p('play', 'in', 'action', true), p('stop', 'in', 'action', true), p('out', 'out', 'audio'), p('progress', 'out', 'float')];
     case 'tone':
     case 'noise':
       return [p('out', 'out', 'audio')];

@@ -697,12 +697,9 @@ impl Inner {
                     // the model is not there (not installed, not switched on): the sound goes through as it is
                     (NodeKind::DeepFilter { .. }, None) => NodeOp::Gain(Plan::gain(0.0)),
                     // a soundboard needs nothing from the system: it plays what its pads are told to play
-                    (NodeKind::Soundboard { board, triggers }, _) => {
+                    (NodeKind::Soundboard { board }, _) => {
                         match self.cfg.sounds.as_ref().and_then(|s| s.runtime(board)) {
-                            Some(runtime) => {
-                                runtime.set_triggers(triggers.clone());
-                                NodeOp::Soundboard(runtime)
-                            }
+                            Some(runtime) => NodeOp::Soundboard(runtime),
                             None => NodeOp::SilentSource,
                         }
                     }

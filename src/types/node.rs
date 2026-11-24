@@ -444,15 +444,9 @@ pub enum NodeKind {
     /// Input: a live stream read through FFmpeg (needs the FFmpeg module): RTMP, RTSP, SRT, RTP, UDP, or HTTP (Icecast, HLS...).
     StreamIn { url: String },
     /// Input: a soundboard: the sound of its pads, as many as are playing at once. The soundboards themselves (their
-    /// pads and sounds) are saved by the daemon, not in the graph: this block only names one.
-    ///
-    /// `triggers` are pads the graph can play: each one is an action input (`play1`, `play2`...) that plays that pad
-    /// every time an action arrives, and `stop` stops the whole soundboard.
-    Soundboard {
-        board: String,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        triggers: Vec<String>,
-    },
+    /// pads and sounds) are saved by the daemon, not in the graph: this block only names one. Its pads are played from
+    /// the soundboard (buttons, shortcuts); a graph plays one sound with a [`NodeKind::SoundboardSound`] block.
+    Soundboard { board: String },
     /// Generated: a sound made of a file that was imported (see the soundboards): it plays each time an action arrives on
     /// `play`, and stops on `stop`. `sound` is the id of the imported sound.
     AudioFile {
@@ -711,19 +705,7 @@ impl NodeKind {
             ],
             NodeKind::WebIn { .. } => vec![port("name", Input, TextFlow, false), out_audio()],
             NodeKind::StreamIn { .. } => vec![port("url", Input, TextFlow, false), out_audio()],
-            NodeKind::Soundboard { triggers, .. } => {
-                let count = (triggers.len() as u32).min(MAX_BRANCHES);
-                let plays = numbered("play", count, Input, Action);
-                if triggers.is_empty() {
-                    vec![out_audio()]
-                } else {
-                    [out_audio()]
-                        .into_iter()
-                        .chain(plays)
-                        .chain([port("stop", Input, Action, true)])
-                        .collect()
-                }
-            }
+            NodeKind::Soundboard { .. } => vec![out_audio()],
             NodeKind::AudioFile { .. } | NodeKind::SoundboardSound { .. } => vec![
                 port("play", Input, Action, true),
                 port("stop", Input, Action, true),
@@ -1075,13 +1057,7 @@ mod tests {
         };
         let outer = GraphSpec {
             nodes: vec![
-                node(
-                    "board",
-                    NodeKind::Soundboard {
-                        board: "b".into(),
-                        triggers: vec![],
-                    },
-                ),
+                node("board", NodeKind::Soundboard { board: "b".into() }),
                 group(
                     "g1",
                     GraphSpec {
@@ -1342,10 +1318,7 @@ mod tests {
             },
             NodeKind::FromCondition,
             NodeKind::ToCondition,
-            NodeKind::Soundboard {
-                board: "b".into(),
-                triggers: vec!["p".into()],
-            },
+            NodeKind::Soundboard { board: "b".into() },
             NodeKind::AudioFile {
                 sound: "s".into(),
                 looped: true,
@@ -1408,7 +1381,9 @@ mod tests {
                 }
                 Category::Output => assert!(outputs.is_empty()),
                 Category::Generated => {
-                    assert!(!outputs.is_empty() && outputs.iter().all(|t| *t == PortType::Audio));
+                    // the sound, and for the blocks that play one sound how far it has got (a number)
+                    assert!(outputs.first() == Some(&PortType::Audio));
+                    assert!(outputs.iter().skip(1).all(|t| *t == PortType::Float));
                     // what makes sound by itself receives no sound: at most actions (to play and stop)
                     assert!(inputs.iter().all(|t| *t == PortType::Action));
                 }

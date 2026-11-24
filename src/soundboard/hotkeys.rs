@@ -174,10 +174,7 @@ mod tests {
                 .map(|(i, b)| {
                     NodeSpec::new(
                         &format!("sb{i}"),
-                        NodeKind::Soundboard {
-                            board: (*b).into(),
-                            triggers: vec![],
-                        },
+                        NodeKind::Soundboard { board: (*b).into() },
                     )
                 })
                 .collect(),

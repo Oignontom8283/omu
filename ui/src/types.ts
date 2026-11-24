@@ -24,7 +24,7 @@ export type NodeKind =
   | { type: 'device_capture'; device: DeviceRef }
   | { type: 'device_render'; device: DeviceRef }
   | { type: 'virtual_speaker'; name: string }
-  | { type: 'soundboard'; board: string; triggers?: string[] }
+  | { type: 'soundboard'; board: string }
   | { type: 'soundboard_sound'; board: string; pad: string }
   | { type: 'audio_file'; sound: string; looped?: boolean; db?: number }
   | { type: 'tone'; wave?: Wave; hz?: number; db?: number }

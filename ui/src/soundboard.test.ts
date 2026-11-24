@@ -118,21 +118,15 @@ test('the memory limit is a whole number of megabytes, 16 at least', () => {
   assert.equal(cleanCacheMb('abc'), null);
 });
 
-test('a soundboard block gets an action input for each pad the graph can play, and one that stops everything', () => {
-  const names = (triggers: string[]) => portsOf({ type: 'soundboard', triggers }).map((q) => `${q.dir}:${q.name}:${q.flow}`);
-  assert.deepEqual(names([]), ['out:out:audio']);
-  assert.deepEqual(names(['a', 'b']), ['in:play1:action', 'in:play2:action', 'in:stop:action', 'out:out:audio']);
-  // an action input takes several links
-  assert.ok(portsOf({ type: 'soundboard', triggers: ['a'] }).filter((q) => q.dir === 'in').every((q) => q.multi));
-  // an action can be linked to them, a sound cannot
+test('a soundboard block only sends sound, and a block that plays one sound also sends how far it has got', () => {
+  const names = (type: 'soundboard' | 'soundboard_sound') => portsOf({ type } as never).map((q) => `${q.dir}:${q.name}:${q.flow}`);
+  assert.deepEqual(names('soundboard'), ['out:out:audio']);
+  assert.deepEqual(names('soundboard_sound'), ['in:play:action', 'in:stop:action', 'out:out:audio', 'out:progress:float']);
+  // the number can feed a block that takes numbers, a sound cannot
   const node = (spec: NodeSpec) => ({ id: spec.id, spec });
-  const nodes = [
-    node({ id: 'sb', type: 'soundboard', board: 'b', triggers: ['a'] }),
-    node({ id: 'k', type: 'hotkey', keys: 'F5' }),
-    node({ id: 'g', type: 'gain', db: 0 }),
-  ];
-  assert.equal(canConnect(nodes, [], { source: 'k', target: 'sb', sourceHandle: 'pressed', targetHandle: 'play1' }), true);
-  assert.equal(canConnect(nodes, [], { source: 'g', target: 'sb', sourceHandle: 'out', targetHandle: 'play1' }), false);
+  const nodes = [node({ id: 'ss', type: 'soundboard_sound', board: 'b', pad: 'p' }), node({ id: 'm', type: 'math', op: 'add' }), node({ id: 'sb', type: 'soundboard', board: 'b' })];
+  assert.equal(canConnect(nodes, [], { source: 'ss', target: 'm', sourceHandle: 'progress', targetHandle: 'a' }), true);
+  assert.equal(canConnect(nodes, [], { source: 'ss', target: 'sb', sourceHandle: 'out', targetHandle: 'play1' }), false);
 });
 
 test('how far an import is: a fraction when the total is known, nothing when it is not', () => {
