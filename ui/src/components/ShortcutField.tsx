@@ -42,9 +42,7 @@ export function ShortcutField({ value, onChange, placeholder }: { value: string;
           }
         }}
       />
-      {value && (
-        <Button variant="flat" icon="close" title={t('app.close')} onClick={() => onChange('')} />
-      )}
+      <Button variant="flat" icon="close" disabled={!value} title={t('soundboards.clearKey')} onClick={() => onChange('')} />
     </div>
   );
 }

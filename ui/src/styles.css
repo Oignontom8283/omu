@@ -856,12 +856,6 @@ button.inline:where(:not(.kit-button)) {
 .board-tab .tab-x:hover {
   background: color-mix(in srgb, var(--text) 14%, transparent);
 }
-.board-tab.asking {
-  border-bottom-color: var(--bad);
-}
-.board-tab.asking button {
-  color: var(--bad);
-}
 .board-tab-input {
   width: 160px;
   height: 26px;
@@ -936,47 +930,28 @@ button.inline:where(:not(.kit-button)) {
 .pad-card-top {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
-.pad-play {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 0;
-  border-radius: 6px;
-  background: var(--pad, var(--primary));
-  color: #fff;
-  cursor: pointer;
-}
-.pad-play:hover:not(:disabled) {
-  filter: brightness(1.12);
-}
-.pad-play:disabled {
-  background: var(--field);
-  color: var(--muted);
-  cursor: not-allowed;
-}
-.pad-card.playing .pad-play {
-  background: var(--ok);
-}
+/* the name is a field, but it looks like a title until it is touched */
 .pad-card-top .pad-name {
   flex: 1;
   min-width: 0;
   height: 28px;
-  font: 600 13.5px var(--font-ui);
+  padding-inline: 4px;
+  border-color: transparent;
+  background: transparent;
+  font: 600 14px var(--font-ui);
 }
-.pad-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13.5px;
-  overflow-wrap: anywhere;
+.pad-card-top .pad-name:hover {
+  border-color: var(--line);
+}
+.pad-card-top .pad-name:focus {
+  background: var(--field);
 }
 /* the file: whole, whatever its length (it is what tells two sounds apart) */
 .pad-file {
   margin: 0;
+  padding-inline: 4px;
   color: var(--muted);
   font-size: 12.5px;
   line-height: 1.3;
@@ -988,17 +963,12 @@ button.inline:where(:not(.kit-button)) {
   font-size: 11.5px;
   opacity: 0.85;
 }
-.pad-card-bottom {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .pad-volume {
   display: flex;
-  flex: 1 1 0;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  padding-inline: 4px;
   color: var(--muted);
 }
 .pad-volume .kit-slider {
@@ -1011,13 +981,64 @@ button.inline:where(:not(.kit-button)) {
   font: 11.5px var(--font-code);
   text-align: right;
 }
-.pad-card-bottom .shortcut {
-  flex: 0 0 120px;
-  min-width: 0;
+.pad-card .shortcut {
+  display: flex;
+  gap: 4px;
 }
-.pad-card-bottom .shortcut .kit-text {
-  height: 24px;
-  font-size: 11.5px;
+.pad-card .shortcut .kit-text {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  font-size: 12px;
+}
+.pad-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 2px;
+}
+.pad-play,
+.pad-stop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  color: #fff;
+  font: 600 13px var(--font-ui);
+  cursor: pointer;
+}
+.pad-play {
+  flex: 1;
+  background: var(--pad, var(--primary));
+}
+.pad-stop {
+  flex: none;
+  width: 32px;
+  padding: 0;
+  background: var(--bad);
+}
+.pad-play:hover:not(:disabled),
+.pad-stop:hover {
+  filter: brightness(1.12);
+}
+.pad-play:disabled {
+  background: var(--field);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.pad-card.importing {
+  justify-content: center;
+  min-height: 72px;
+}
+.progress.thick {
+  height: 10px;
+  border-radius: 5px;
+}
+.progress.thick > span {
+  border-radius: 5px;
 }
 .pad-add {
   display: grid;
@@ -1125,6 +1146,16 @@ button.inline:where(:not(.kit-button)) {
   overflow-wrap: anywhere;
 }
 /* the library: a table that scrolls, only the rows in view exist */
+.sounds-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sounds-importing {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
 .library {
   display: flex;
   flex-direction: column;
@@ -1351,6 +1382,9 @@ button.inline:where(:not(.kit-button)) {
 /* floating windows: they grow with their content up to a limit, then scroll */
 .fwin {
   position: fixed;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 8px);
   /* like the hover of a code editor: as wide as its content, up to about 600 px, then it grows downwards */
   width: max-content;
   min-width: 320px;
@@ -1376,7 +1410,47 @@ button.inline:where(:not(.kit-button)) {
 .fwin-title:active {
   cursor: grabbing;
 }
+/* a window the person has resized is as big as they made it */
+.fwin.sized {
+  max-width: none;
+  max-height: none;
+}
+.fwin.sized .fwin-body {
+  max-height: none;
+}
+.fwin-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 0 55%, color-mix(in srgb, var(--muted) 70%, transparent) 55% 62%, transparent 62% 72%, color-mix(in srgb, var(--muted) 70%, transparent) 72% 79%, transparent 79%);
+  border-radius: 0 0 8px 0;
+}
+/* a question greys the page and keeps it from being used */
+.fwin-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.4);
+}
+.fwin.ask-window {
+  width: 420px;
+  min-width: 320px;
+}
+.ask-message {
+  margin: 4px 0 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.ask-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .fwin-body {
+  flex: 1;
+  min-height: 0;
   max-height: min(55vh, 340px);
   overflow: auto;
   padding: 8px 12px 10px;

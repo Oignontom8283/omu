@@ -24,6 +24,29 @@ pub fn open_target(target: &str) -> Result<(), String> {
     spawn_detached(command)
 }
 
+/// Shows a file in the file manager of the computer, the file selected in its folder (on a system that cannot select it, its folder).
+pub fn reveal(file: &std::path::Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        // the file manager wants backslashes, and the folder it is in may have been given with slashes
+        let path = file.display().to_string().replace('/', "\\");
+        let mut command = std::process::Command::new("explorer.exe");
+        command.arg(format!("/select,{path}"));
+        spawn_detached(command)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut command = std::process::Command::new("open");
+        command.arg("-R").arg(file);
+        spawn_detached(command)
+    }
+    #[cfg(all(not(windows), not(target_os = "macos")))]
+    {
+        let folder = file.parent().unwrap_or(file);
+        open_target(&folder.display().to_string())
+    }
+}
+
 /// Starts a program without waiting for it and without a console window.
 pub fn spawn_detached(mut command: std::process::Command) -> Result<(), String> {
     #[cfg(windows)]

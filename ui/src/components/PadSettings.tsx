@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { ON_THE_DAEMON_COMPUTER } from '../api.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button, ColorField, NumberField, Slider, Switch, TextInput } from '../kit/controls.tsx';
 import { formatBytes, formatDb, formatDuration, partChange } from '../soundboard.ts';
@@ -23,6 +24,7 @@ export function PadSettings({
   compressing,
   onChange,
   onCompress,
+  onReveal,
 }: {
   pad: Pad;
   sound: SoundInfo | undefined;
@@ -30,6 +32,7 @@ export function PadSettings({
   compressing: boolean;
   onChange: (patch: Partial<Pad>) => void;
   onCompress: () => void;
+  onReveal: () => void;
 }) {
   const t = useT();
   const gain = pad.gain_db ?? 0;
@@ -46,6 +49,11 @@ export function PadSettings({
               {formatDuration(sound.frames)} · {formatBytes(sound.bytes)}
               {sound.compressed ? ` · ${t('soundboards.compressed')}` : ''}
             </small>
+            {ON_THE_DAEMON_COMPUTER && (
+              <Button size="small" icon="folder" title={t('soundboards.showFile')} onClick={onReveal}>
+                {t('soundboards.showFileShort')}
+              </Button>
+            )}
             {!sound.compressed && (
               <Button size="small" icon="stack" disabled={compressing} title={t('soundboards.compressNow')} onClick={onCompress}>
                 {compressing ? t('soundboards.compressing') : t('soundboards.compress')}

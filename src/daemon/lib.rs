@@ -497,6 +497,18 @@ impl Daemon {
                 result(info)
             }
             m::SoundsImports::NAME => result(self.sounds.imports()),
+            m::SoundsReveal::NAME => {
+                let p = params::<m::SoundsReveal>(p)?;
+                if self.sounds.library().sound(&p.id).is_none() {
+                    return Err(RpcError::invalid_params(format!(
+                        "there is no sound {:?}",
+                        p.id
+                    )));
+                }
+                let file = self.sounds.library().stored_path(&p.id);
+                open::reveal(&file).map_err(RpcError::internal)?;
+                result(())
+            }
             m::ModulesList::NAME => result(self.sounds.modules().list()),
             m::ModulesInstall::NAME => {
                 let p = params::<m::ModulesInstall>(p)?;
@@ -1120,6 +1132,13 @@ mod tests {
             call(&d, "sounds.imports", Value::Null).result.unwrap(),
             json!([])
         );
+    }
+
+    #[test]
+    fn a_sound_that_is_not_there_cannot_be_shown_in_the_file_explorer() {
+        let d = daemon_in(&temp_dir("reveal"), &SimBackend::new());
+        let r = call(&d, "sounds.reveal", json!({"id": "nope"}));
+        assert_eq!(r.error.unwrap().code, RpcError::INVALID_PARAMS);
     }
 
     #[test]

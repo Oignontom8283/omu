@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-export type MenuItem = { label: string; run: () => void; danger?: boolean };
+export type MenuItem = { label: string; run: (e: React.MouseEvent) => void; danger?: boolean };
 
 /** The menu of a right click: at the pointer, closed by a click elsewhere, by Escape or by the choice. */
 export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
@@ -31,9 +31,9 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
           <button
             role="menuitem"
             className={item.danger ? 'danger' : ''}
-            onClick={() => {
+            onClick={(e) => {
               onClose();
-              item.run();
+              item.run(e);
             }}
           >
             {item.label}

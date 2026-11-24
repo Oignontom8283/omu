@@ -29,6 +29,9 @@ import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Spli
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
+import { DialogHost, ask } from './kit/dialogs.tsx';
+import { soundsInGraph } from './soundboard.ts';
+import { useSoundImports } from './imports.tsx';
 import { ExtensionWindow, JsonWindow } from './components/ToolWindows.tsx';
 import { getSnapshot as extensionsNow, subscribe as onExtensions } from './extensionRegistry.ts';
 import { flashPort } from './components/BlockHelp.tsx';
@@ -63,7 +66,7 @@ import {
 import { useI18n } from './i18n/index.tsx';
 import { SETTING_DECLS } from './settingsRegistry.ts';
 import { useTheme } from './theme.tsx';
-import type { AppInfo, Category, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
+import type { AppInfo, Category, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundInfo, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
 
 const nodeTypes = { omu: NodeCard };
@@ -128,6 +131,10 @@ export function App() {
   // the soundboards the daemon keeps; `boardsFirst` is the board the soundboards tab opens on
   const [library, setLibrary] = useState<SoundLibrary>({ sounds: [], boards: [] });
   const [boardsFirst, setBoardsFirst] = useState<string | undefined>(undefined);
+  // a file that needs an optional module (its id), until the question is answered
+  const [needModule, setNeedModule] = useState<string | null>(null);
+  // every import of a sound goes through here: the soundboards, the file blocks and the list of sounds share it
+  const imports = useSoundImports({ daemon, token: rpc.token, notify: setNotice, onModuleNeeded: setNeedModule });
   // the tab shown: the graph, the soundboards, the optional modules (FFmpeg) or the settings
   const [tab, setTab] = useState<Tab>('nodes');
   // the information windows that are open, the last one in front
@@ -150,6 +157,7 @@ export function App() {
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const graph = useMemo(() => fromFlow(nodes.map((n) => ({ spec: n.data.spec })), edges.map(asEdge)), [nodes, edges]);
+  const graphSounds = useMemo(() => new Set([...soundsInGraph(graph), ...soundsInGraph(applied)]), [graph, applied]);
   const dirty = canonical(graph) !== canonical(applied);
 
   // keep the latest values for the callbacks that must not change identity
@@ -308,19 +316,9 @@ export function App() {
     void load();
   };
 
-  // Stopping the daemon ends all audio and removes the virtual devices: it asks twice (a second click within 4 s).
-  const [confirmShutdown, setConfirmShutdown] = useState(false);
-  useEffect(() => {
-    if (!confirmShutdown) return;
-    const timer = window.setTimeout(() => setConfirmShutdown(false), 4000);
-    return () => window.clearTimeout(timer);
-  }, [confirmShutdown]);
-  const shutdownDaemon = async () => {
-    if (!confirmShutdown) {
-      setConfirmShutdown(true);
-      return;
-    }
-    setConfirmShutdown(false);
+  // Stopping the daemon ends all audio and removes the virtual devices: it asks first (Shift on the click: it does not).
+  const shutdownDaemon = async (e?: { shiftKey?: boolean }) => {
+    if (!(await ask({ title: t('dialog.stopDaemon.title'), message: t('dialog.stopDaemon.message') }, e))) return;
     try {
       await daemon.shutdown();
     } catch (e) {
@@ -353,7 +351,8 @@ export function App() {
     }
   };
 
-  const stopEngine = async () => {
+  const stopEngine = async (e?: { shiftKey?: boolean }) => {
+    if (!(await ask({ title: t('dialog.stopEngine.title'), message: t('dialog.stopEngine.message') }, e))) return;
     try {
       await daemon.stop();
     } catch (e) {
@@ -591,6 +590,13 @@ export function App() {
       apps,
       devices,
       library,
+      chooseSound: (id: string, onPicked: (sound: SoundInfo) => void) =>
+        imports.choose(`node:${id}`, async (sound) => {
+          // the daemon knows the sound already: the list the blocks choose from takes it before the block does
+          setLibrary(await daemon.soundboards());
+          onPicked(sound);
+        }, false),
+      soundImport: (id: string) => imports.of(`node:${id}`),
       openModules: () => setTab('modules'),
       openSoundboards: (first?: string) => {
         setBoardsFirst(first);
@@ -630,7 +636,7 @@ export function App() {
           }),
         ),
     }),
-    [apps, devices, library, status, flow, openDoc, setNodes, setEdges],
+    [apps, devices, library, status, flow, openDoc, setNodes, setEdges, daemon, imports.choose, imports.of],
   );
 
   // the window of a block that is gone goes with it
@@ -780,7 +786,7 @@ export function App() {
             {t('palette.open')} <kbd>F1</kbd>
           </Button>
           {status?.running ? (
-            <Button variant="warning" icon="stop" onClick={stopEngine} disabled={conn !== 'open'}>
+            <Button variant="warning" icon="stop" onClick={(e) => void stopEngine(e)} title={t('dialog.shiftHint')} disabled={conn !== 'open'}>
               {t('app.stopEngine')}
             </Button>
           ) : (
@@ -793,8 +799,8 @@ export function App() {
               {cleaning ? t('app.cleaning') : t('app.cleanDevices', { count: stale.stale.length })}
             </Button>
           )}
-          <Button variant={confirmShutdown ? 'danger' : 'secondary'} icon="power" onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
-            {confirmShutdown ? t('app.stopDaemonConfirm') : t('app.stopDaemon')}
+          <Button icon="power" onClick={(e) => void shutdownDaemon(e)} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
+            {t('app.stopDaemon')}
           </Button>
         </header>
 
@@ -828,7 +834,7 @@ export function App() {
             </div>
           </div>
         )}
-        {(problems.length > 0 || notice || noProvider || (IN_DESKTOP_WINDOW && conn === 'closed')) && (
+        {(problems.length > 0 || notice || noProvider || needModule || (IN_DESKTOP_WINDOW && conn === 'closed')) && (
           <div className="banners">
             {problems.length > 0 && (
               <div className="banner error" role="alert">
@@ -860,6 +866,27 @@ export function App() {
               <div className="banner warn">
                 {notice.startsWith('app.') ? t(notice) : notice}
                 <Button variant="flat" size="small" icon="close" className="banner-close" title={t('app.close')} onClick={() => setNotice(null)} />
+              </div>
+            )}
+            {needModule && (
+              <div className="banner warn" role="alert">
+                {t('modules.needed', { name: needModule === 'ffmpeg' ? 'FFmpeg' : needModule })}{' '}
+                <Button
+                  size="small"
+                  variant="primary"
+                  onClick={() => {
+                    const id = needModule;
+                    setNeedModule(null);
+                    // the question was the consent: the module is installed, and its panel shows the download
+                    daemon.installModule(id).catch((e) => setNotice(message(e)));
+                    setTab('modules');
+                  }}
+                >
+                  {t('modules.neededInstall')}
+                </Button>{' '}
+                <Button size="small" onClick={() => setNeedModule(null)}>
+                  {t('modules.neededLater')}
+                </Button>
               </div>
             )}
             {noProvider && <div className="banner info">{t('app.noProvider', { error: info?.virtual_microphones?.error ? ` (${info.virtual_microphones.error})` : '' })}</div>}
@@ -960,16 +987,16 @@ export function App() {
             <Soundboards
               key={boardsFirst ?? ''}
               daemon={daemon}
-              token={rpc.token}
               library={library}
               setLibrary={setLibrary}
               initialBoard={boardsFirst}
               notify={setNotice}
-              onOpenModules={() => setTab('modules')}
+              imports={imports}
+              graphSounds={graphSounds}
             />
           )}
           {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}
-          {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} focus={settingFocus} shortcuts={{ overrides, onChange: setOverrides }} />}
+          {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} library={library} setLibrary={setLibrary} imports={imports} focus={settingFocus} shortcuts={{ overrides, onChange: setOverrides }} />}
           {showJson && <JsonWindow graph={graph} onClose={() => setShowJson(false)} />}
           {extensions.panels.filter((p) => openPanels.includes(p.id)).map((p) => (
             <ExtensionWindow key={p.id} panel={p} onClose={() => setOpenPanels((open) => open.filter((id) => id !== p.id))} />
@@ -1018,6 +1045,8 @@ export function App() {
         </div>
         <StatusBar dock={dock} setDock={setDock} errors={errors} warnings={warnings} status={status} connected={conn === 'open'} blocks={nodes.length} />
         {palette && <CommandPalette key={`${palette.mode}${palette.initial ?? ''}`} items={paletteItems} mode={palette.mode} initial={palette.initial} onClose={() => setPalette(null)} />}
+        {imports.chooser}
+        <DialogHost />
         {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       </div>
     </Editor.Provider>

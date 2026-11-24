@@ -8,6 +8,8 @@ import {
   formatBytes,
   formatDuration,
   nameFromFile,
+  orphanSounds,
+  soundsInGraph,
   newBoardName,
   padFor,
   padsUsing,
@@ -145,4 +147,22 @@ test('a volume is written with its sign', () => {
   assert.equal(formatDb(-3), '−3 dB');
   assert.equal(formatDb(2.5), '+2.5 dB');
   assert.equal(formatDb(-0.04), '0 dB');
+});
+
+test('the sounds blocks play are found, in groups too', () => {
+  const inner: GraphSpec = { nodes: [{ id: 'b', type: 'audio_file', sound: 's2' } as NodeSpec], edges: [] };
+  const graph: GraphSpec = { nodes: [{ id: 'a', type: 'audio_file', sound: 's1' } as NodeSpec, { id: 'g', type: 'group', graph: inner, exposed: [] } as NodeSpec], edges: [] };
+  assert.deepEqual([...soundsInGraph(graph)].sort(), ['s1', 's2']);
+});
+
+test('only the sounds nothing else uses are orphans', () => {
+  const pads = [
+    { id: 'p1', name: 'one', sound: 'a' },
+    { id: 'p2', name: 'two', sound: 'b' },
+    { id: 'p3', name: 'three', sound: 'c' },
+    { id: 'p4', name: 'four', sound: 'a' },
+  ];
+  const left: Board[] = [{ id: 'other', name: 'other', pads: [{ id: 'x', name: 'x', sound: 'b' }] }];
+  // a is used by no pad left, b by a pad left, c by a block
+  assert.deepEqual(orphanSounds(pads, left, new Set(['c'])), ['a']);
 });

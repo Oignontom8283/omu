@@ -92,6 +92,25 @@ export function boardInGraph(graph: GraphSpec, boardId: string): boolean {
   return graph.nodes.some((n) => (n.type === 'soundboard' && n.board === boardId) || (n.type === 'group' && boardInGraph(n.graph, boardId)));
 }
 
+/** The sounds the blocks of the graph play (the "audio file" blocks), those inside groups too. */
+export function soundsInGraph(graph: GraphSpec): Set<string> {
+  const used = new Set<string>();
+  const walk = (g: GraphSpec) => {
+    for (const n of g.nodes) {
+      if (n.type === 'audio_file' && n.sound) used.add(n.sound);
+      else if (n.type === 'group') walk(n.graph);
+    }
+  };
+  walk(graph);
+  return used;
+}
+
+/** The sounds of some pads that nothing else keeps in use: no other pad of the boards left, no block (what removing them frees). */
+export function orphanSounds(pads: Pad[], boardsLeft: Board[], inGraph: Set<string>): string[] {
+  const ids = new Set(pads.map((p) => p.sound).filter((s): s is string => !!s));
+  return [...ids].filter((id) => padsUsing(boardsLeft, id) === 0 && !inGraph.has(id));
+}
+
 /** A name for a new soundboard that no other has: `Soundboard 1`, `Soundboard 2`... */
 export function newBoardName(boards: Board[], base: string): string {
   const taken = new Set(boards.map((b) => b.name));
