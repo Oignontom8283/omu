@@ -907,17 +907,18 @@ button.inline:where(:not(.kit-button)) {
   gap: 10px;
 }
 .pad-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 10px 10px 12px;
+  gap: 4px;
+  padding: 8px 10px;
+  overflow: hidden;
   background: var(--panel);
   border: 1px solid var(--line);
-  border-left: 4px solid var(--pad, var(--cat-input));
   border-radius: 8px;
   /* a card out of view costs nothing: a soundboard of thousands of sounds stays light */
   content-visibility: auto;
-  contain-intrinsic-size: auto 112px;
+  contain-intrinsic-size: auto 136px;
 }
 .pad-card.playing {
   border-color: var(--ok);
@@ -925,7 +926,7 @@ button.inline:where(:not(.kit-button)) {
 }
 .pad-card.lost,
 .pad-card.failed {
-  border-left-color: var(--bad);
+  border-color: var(--bad);
 }
 .pad-card-top {
   display: flex;
@@ -948,19 +949,23 @@ button.inline:where(:not(.kit-button)) {
 .pad-card-top .pad-name:focus {
   background: var(--field);
 }
-/* the file: whole, whatever its length (it is what tells two sounds apart) */
-.pad-file {
+/* the file, on one line (the end is cut short when it is too long: nothing else moves), and under it its length and size */
+.pad-file,
+.pad-meta {
   margin: 0;
   padding-inline: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--muted);
+}
+.pad-file {
   font-size: 12.5px;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
+  line-height: 16px;
 }
 .pad-meta {
-  margin-left: 8px;
-  white-space: nowrap;
   font-size: 11.5px;
+  line-height: 14px;
   opacity: 0.85;
 }
 .pad-volume {
@@ -983,6 +988,8 @@ button.inline:where(:not(.kit-button)) {
 }
 .pad-card .shortcut {
   display: flex;
+  flex: 1;
+  min-width: 0;
   gap: 4px;
 }
 .pad-card .shortcut .kit-text {
@@ -993,9 +1000,9 @@ button.inline:where(:not(.kit-button)) {
 }
 .pad-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
   margin-top: auto;
-  padding-top: 2px;
 }
 .pad-play,
 .pad-stop {
@@ -1011,7 +1018,8 @@ button.inline:where(:not(.kit-button)) {
   cursor: pointer;
 }
 .pad-play {
-  flex: 1;
+  flex: none;
+  padding-inline: 14px;
   background: var(--pad, var(--primary));
 }
 .pad-stop {
@@ -1021,13 +1029,30 @@ button.inline:where(:not(.kit-button)) {
   background: var(--bad);
 }
 .pad-play:hover:not(:disabled),
-.pad-stop:hover {
+.pad-stop:hover:not(:disabled) {
   filter: brightness(1.12);
 }
-.pad-play:disabled {
+.pad-play:disabled,
+.pad-stop:disabled {
   background: var(--field);
   color: var(--muted);
   cursor: not-allowed;
+}
+.pad-stop:disabled {
+  opacity: 0.5;
+}
+/* how far the sound has got: a thin line along the bottom edge of the card, which takes no room */
+.pad-progress {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 3px;
+  background: transparent;
+}
+.pad-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--pad, var(--primary));
+  transition: width 0.13s linear;
 }
 .pad-card.importing {
   justify-content: center;
@@ -1175,7 +1200,7 @@ button.inline:where(:not(.kit-button)) {
 }
 .lib-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 76px 100px 44px 64px;
+  grid-template-columns: minmax(0, 1fr) 64px 76px 100px 44px 96px;
   align-items: center;
   gap: 8px;
   padding: 0 8px;
@@ -3071,4 +3096,10 @@ body.resizing {
   flex: 1;
   color: var(--muted);
   font-size: 11px;
+}
+
+.settings-reset {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
 }

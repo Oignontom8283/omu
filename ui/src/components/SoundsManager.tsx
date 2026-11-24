@@ -43,6 +43,7 @@ export function SoundsManager({ daemon, library, setLibrary, imports, notify }: 
           const s = library.sounds.find((x) => x.id === id);
           if (s) void lib.removeSound(s, e);
         }}
+        onReveal={(id) => void daemon.revealSound(id).catch((e) => notify(e instanceof Error ? e.message : String(e)))}
         onCompress={(id) => {
           const s = library.sounds.find((x) => x.id === id);
           if (s) void lib.compressSound(s);

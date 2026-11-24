@@ -20,8 +20,10 @@ import {
   withPadsAdded,
   formatDb,
   importFraction,
+  hasUsualSettings,
+  usualPadSettings,
 } from './soundboard.ts';
-import type { Board, GraphSpec, NodeSpec, SoundInfo } from './types.ts';
+import type { Board, GraphSpec, NodeSpec, Pad, SoundInfo } from './types.ts';
 
 const sound = (id: string, name: string): SoundInfo => ({ id, name, channels: 2, frames: 96_000, bytes: 384_000 });
 const board = (id: string, pads: string[]): Board => ({ id, name: id, pads: pads.map((p) => ({ id: p, name: p, sound: null })) });
@@ -159,4 +161,14 @@ test('only the sounds nothing else uses are orphans', () => {
   const left: Board[] = [{ id: 'other', name: 'other', pads: [{ id: 'x', name: 'x', sound: 'b' }] }];
   // a is used by no pad left, b by a pad left, c by a block
   assert.deepEqual(orphanSounds(pads, left, new Set(['c'])), ['a']);
+});
+
+test('the usual settings of a pad are put back, and the name, the file and the shortcut stay', () => {
+  const pad: Pad = { id: 'p', name: 'Applause', sound: 's', key: 'F5', gain_db: -6, looped: true, exclusive: true, hold: true, fade_ms: 500, start_ms: 1000, end_ms: 4000, color: '#ff0000' };
+  assert.equal(hasUsualSettings(pad), false);
+  const back = { ...pad, ...usualPadSettings() };
+  assert.equal(hasUsualSettings(back), true);
+  assert.deepEqual([back.name, back.sound, back.key], ['Applause', 's', 'F5']);
+  // a pad that was never touched has nothing to put back
+  assert.equal(hasUsualSettings({ id: 'q', name: 'x' }), true);
 });

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { ON_THE_DAEMON_COMPUTER } from '../api.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button, ColorField, NumberField, Slider, Switch, TextInput } from '../kit/controls.tsx';
-import { formatBytes, formatDb, formatDuration, partChange } from '../soundboard.ts';
+import { formatBytes, formatDb, formatDuration, hasUsualSettings, partChange, usualPadSettings } from '../soundboard.ts';
 import type { Pad, SoundInfo } from '../types.ts';
 import { ShortcutField } from './ShortcutField.tsx';
 
@@ -109,6 +109,11 @@ export function PadSettings({
           {pad.color && <Button variant="flat" size="small" icon="close" title={t('soundboards.colorReset')} onClick={() => onChange({ color: null })} />}
         </div>
       </Row>
+      <div className="settings-reset">
+        <Button icon="undo" disabled={hasUsualSettings(pad)} title={t('soundboards.resetPadHint')} onClick={() => onChange(usualPadSettings())}>
+          {t('soundboards.resetPad')}
+        </Button>
+      </div>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { ON_THE_DAEMON_COMPUTER } from '../api.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button, NumberField, TextInput } from '../kit/controls.tsx';
 import { VirtualRows } from '../kit/VirtualRows.tsx';
@@ -21,6 +22,7 @@ export function SoundLibrary({
   onSaveSettings,
   onRemove,
   onCompress,
+  onReveal,
 }: {
   library: Library;
   status: SoundStatus | null;
@@ -33,6 +35,7 @@ export function SoundLibrary({
   onSaveSettings: () => void;
   onRemove: (id: string, e: React.MouseEvent) => void;
   onCompress: (id: string) => void;
+  onReveal: (id: string) => void;
 }) {
   const t = useT();
   const [query, setQuery] = useState('');
@@ -110,6 +113,7 @@ export function SoundLibrary({
                     {uses}
                   </span>
                   <span className="lib-actions" role="cell">
+                    {ON_THE_DAEMON_COMPUTER && <Button size="small" variant="flat" icon="folder" title={t('soundboards.showFileShort')} onClick={() => onReveal(s.id)} />}
                     {!s.compressed && <Button size="small" variant="flat" icon="stack" disabled={compressing !== null} title={t('soundboards.compressNow')} onClick={() => onCompress(s.id)} />}
                     <Button size="small" variant="flat" icon="trash" title={t('soundboards.removeSound')} onClick={(e) => onRemove(s.id, e)} />
                   </span>

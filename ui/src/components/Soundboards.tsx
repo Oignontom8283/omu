@@ -46,6 +46,7 @@ export function Soundboards({ daemon, library, setLibrary, initialBoard, notify,
   const t = useT();
   const [boardId, setBoardId] = useState<string | undefined>(initialBoard ?? library.boards[0]?.id);
   const [playing, setPlaying] = useState<string[]>([]);
+  const [progress, setProgress] = useState<Record<string, number>>({});
   const [over, setOver] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null);
   const [editingTab, setEditingTab] = useState<string | null>(null);
@@ -74,11 +75,21 @@ export function Soundboards({ daemon, library, setLibrary, initialBoard, notify,
   useEffect(() => {
     if (!current || !active) {
       setPlaying([]);
+      setProgress({});
       return;
     }
     const timer = setInterval(() => {
-      daemon.playing(current).then(setPlaying).catch(() => undefined);
-    }, 250);
+      daemon
+        .progress(current)
+        .then((list) => {
+          setPlaying((before) => {
+            const ids = list.map((p) => p.pad);
+            return before.length === ids.length && before.every((id, i) => id === ids[i]) ? before : ids;
+          });
+          setProgress(Object.fromEntries(list.map((p) => [p.pad, p.fraction])));
+        })
+        .catch(() => undefined);
+    }, 120);
     return () => clearInterval(timer);
   }, [daemon, current, active]);
   const reload = useCallback(async () => {
@@ -220,7 +231,7 @@ export function Soundboards({ daemon, library, setLibrary, initialBoard, notify,
     if (!current) return;
     daemon
       .stopPad(current, pad?.id)
-      .then(() => (pad ? undefined : setPlaying([])))
+      .then(() => (pad ? undefined : (setPlaying([]), setProgress({}))))
       .catch((e) => notify(message(e)));
   };
 
@@ -357,6 +368,7 @@ export function Soundboards({ daemon, library, setLibrary, initialBoard, notify,
                   pad={pad}
                   sound={soundOf(pad)}
                   playing={playing.includes(pad.id)}
+                  progress={progress[pad.id]}
                   canPlay={active}
                   problems={problemsOf(pad)}
                   onChange={(patch) => change(pad, patch)}
