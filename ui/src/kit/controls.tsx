@@ -1,6 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon, type IconName } from '../components/Icon.tsx';
+import { rank } from '../fuzzy.ts';
 import { evaluate, written } from './expression.ts';
 
 // The controls of the editor: the program's own components, drawn and handled here, never the browser's. Blocks use them, and
@@ -299,19 +300,33 @@ export function Switch({ checked, onChange, children, disabled, title }: { check
 
 export type SelectOption<T extends string = string> = { value: T; label: string; hint?: string };
 
+/** What a drop-down can search among its options: the box that filters them, and the option made of what is typed (a name that is not listed). */
+export type SelectSearch<T extends string = string> = { placeholder?: string; empty?: string; custom?: (typed: string) => SelectOption<T> | null };
+
 /**
  * A drop-down with a menu of its own (drawn above everything, so that a block's frame never cuts it): arrows, Home, End, Enter,
- * Escape and typing the first letters of an option all work.
+ * Escape and typing the first letters of an option all work. With `search`, the menu has a box on top that keeps the options that
+ * match what is typed (the letters need not be side by side), and typing replaces the first letters of an option.
  */
-export function Select<T extends string>({ value, options, onChange, disabled, title, label, className }: { value: T; options: SelectOption<T>[]; onChange: (value: T) => void; disabled?: boolean; title?: string; label?: string; className?: string }) {
+export function Select<T extends string>({ value, options, onChange, disabled, title, label, className, search }: { value: T; options: SelectOption<T>[]; onChange: (value: T) => void; disabled?: boolean; title?: string; label?: string; className?: string; search?: SelectSearch<T> }) {
   const button = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [typedSearch, setTypedSearch] = useState('');
   const id = useId();
   const current = options.find((o) => o.value === value);
   const typed = useRef({ text: '', at: 0 });
+  const searching = search !== undefined;
+  const shown = useMemo(() => {
+    const text = typedSearch.trim();
+    if (!searching || text === '') return options;
+    const found = rank(text, options, (o) => `${o.label} ${o.hint ?? ''}`).map((r) => r.item);
+    const own = search?.custom?.(text);
+    return own && !options.some((o) => o.value === own.value) ? [...found, own] : found;
+  }, [options, typedSearch, searching, search]);
 
   const show = () => {
+    setTypedSearch('');
     setActive(Math.max(0, options.findIndex((o) => o.value === value)));
     setOpen(true);
   };
@@ -331,23 +346,24 @@ export function Select<T extends string>({ value, options, onChange, disabled, t
     if (e.key === 'Escape') {
       e.preventDefault();
       setOpen(false);
+      button.current?.focus();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActive((a) => Math.min(options.length - 1, a + 1));
+      setActive((a) => Math.min(shown.length - 1, a + 1));
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setActive((a) => Math.max(0, a - 1));
-    } else if (e.key === 'Home') setActive(0);
-    else if (e.key === 'End') setActive(options.length - 1);
-    else if (e.key === 'Enter' || e.key === ' ') {
+    } else if (e.key === 'Home' && !searching) setActive(0);
+    else if (e.key === 'End' && !searching) setActive(shown.length - 1);
+    else if (e.key === 'Enter' || (e.key === ' ' && !searching)) {
       e.preventDefault();
       // an empty list (no device found...) has nothing to pick
-      if (options[active]) pick(options[active]);
-    } else if (e.key.length === 1) {
+      if (shown[active]) pick(shown[active]);
+    } else if (e.key.length === 1 && !searching) {
       // the first letters of an option, typed one after the other
       const now = Date.now();
       typed.current = { text: (now - typed.current.at < 800 ? typed.current.text : '') + e.key.toLowerCase(), at: now };
-      const found = options.findIndex((o) => o.label.toLowerCase().startsWith(typed.current.text));
+      const found = shown.findIndex((o) => o.label.toLowerCase().startsWith(typed.current.text));
       if (found >= 0) setActive(found);
     }
   };
@@ -371,21 +387,36 @@ export function Select<T extends string>({ value, options, onChange, disabled, t
         <span className="current">{current?.label ?? ''}</span>
         <Icon name="chevron" size={10} />
       </button>
-      {open && <Menu id={id} anchor={button.current} options={options} value={value} active={active} onActive={setActive} onPick={pick} onClose={() => setOpen(false)} />}
+      {open && (
+        <Menu
+          id={id}
+          anchor={button.current}
+          options={shown}
+          value={value}
+          active={active}
+          onActive={setActive}
+          onPick={pick}
+          onClose={() => setOpen(false)}
+          search={search && { ...search, text: typedSearch, onText: (text) => { setTypedSearch(text); setActive(0); }, onKeyDown: key }}
+        />
+      )}
     </>
   );
 }
 
-function Menu<T extends string>({ id, anchor, options, value, active, onActive, onPick, onClose }: { id: string; anchor: HTMLElement | null; options: SelectOption<T>[]; value: T; active: number; onActive: (i: number) => void; onPick: (o: SelectOption<T>) => void; onClose: () => void }) {
+type MenuSearch = SelectSearch & { text: string; onText: (text: string) => void; onKeyDown: (e: KeyboardEvent) => void };
+
+function Menu<T extends string>({ id, anchor, options, value, active, onActive, onPick, onClose, search }: { id: string; anchor: HTMLElement | null; options: SelectOption<T>[]; value: T; active: number; onActive: (i: number) => void; onPick: (o: SelectOption<T>) => void; onClose: () => void; search?: MenuSearch }) {
   const list = useRef<HTMLUListElement>(null);
   const [place, setPlace] = useState<{ left: number; top: number; width: number } | null>(null);
   useLayoutEffect(() => {
     const r = anchor?.getBoundingClientRect();
     if (!r) return;
-    const height = Math.min(options.length * 26 + 8, 280);
+    // the menu keeps the place of the whole list: it does not move while what is typed makes it shorter
+    const height = Math.min(options.length * 26 + 8, 280) + (search ? 34 : 0);
     const below = r.bottom + 2 + height <= window.innerHeight;
     setPlace({ left: Math.min(r.left, window.innerWidth - 8 - Math.max(r.width, 160)), top: below ? r.bottom + 2 : Math.max(4, r.top - 2 - height), width: r.width });
-  }, [anchor, options.length]);
+  }, [anchor, search ? 0 : options.length]);
   useEffect(() => {
     const away = (e: Event) => {
       if (!(e.target as Element).closest(`[data-menu="${id}"]`) && e.target !== anchor && !anchor?.contains(e.target as Node)) onClose();
@@ -399,16 +430,32 @@ function Menu<T extends string>({ id, anchor, options, value, active, onActive, 
   const body = useMemo(() => document.body, []);
   if (!place) return null;
   return createPortal(
-    <ul ref={list} id={id} data-menu={id} role="listbox" className="kit-menu" style={{ left: place.left, top: place.top, minWidth: Math.max(place.width, 120) }}>
-      {options.map((o, i) => (
-        // pressing an option must not take the focus from the field: it would close the menu before the click is over
-        <li key={o.value} role="option" aria-selected={o.value === value} className={join(i === active && 'active', o.value === value && 'chosen')} onMouseDown={(e) => e.preventDefault()} onPointerMove={() => onActive(i)} onClick={() => onPick(o)}>
-          <span className="tick">{o.value === value ? '✓' : ''}</span>
-          <span className="label">{o.label}</span>
-          {o.hint && <small>{o.hint}</small>}
-        </li>
-      ))}
-    </ul>,
+    <div data-menu={id} className="kit-menu" style={{ left: place.left, top: place.top, minWidth: Math.max(place.width, 120) }}>
+      {search && (
+        <input
+          className="kit-menu-search"
+          value={search.text}
+          placeholder={search.placeholder}
+          spellCheck={false}
+          autoComplete="off"
+          autoFocus
+          aria-controls={id}
+          onChange={(e) => search.onText(e.target.value)}
+          onKeyDown={search.onKeyDown}
+        />
+      )}
+      <ul ref={list} id={id} role="listbox">
+        {options.map((o, i) => (
+          // pressing an option must not take the focus from the field: it would close the menu before the click is over
+          <li key={o.value} role="option" aria-selected={o.value === value} className={join(i === active && 'active', o.value === value && 'chosen')} onMouseDown={(e) => e.preventDefault()} onPointerMove={() => onActive(i)} onClick={() => onPick(o)}>
+            <span className="tick">{o.value === value ? '✓' : ''}</span>
+            <span className="label">{o.label}</span>
+            {o.hint && <small>{o.hint}</small>}
+          </li>
+        ))}
+        {search && options.length === 0 && <li className="empty" aria-disabled="true">{search.empty}</li>}
+      </ul>
+    </div>,
     body,
   );
 }

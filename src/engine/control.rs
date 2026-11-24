@@ -71,8 +71,31 @@ struct Resource {
     _running: Box<dyn Running>,
 }
 
+/// Why a block's stream could not be opened: `waiting` when what it needs is not there (yet), which is not an error.
+struct Unopened {
+    message: String,
+    waiting: bool,
+}
+
+impl From<String> for Unopened {
+    fn from(message: String) -> Unopened {
+        Unopened {
+            message,
+            waiting: false,
+        }
+    }
+}
+
+impl From<&str> for Unopened {
+    fn from(message: &str) -> Unopened {
+        message.to_string().into()
+    }
+}
+
 struct Failure {
     message: String,
+    /// See [`Unopened`].
+    waiting: bool,
     retry_at: Instant,
     backoff: Duration,
 }
@@ -361,6 +384,9 @@ impl Engine {
                             r.stats.fill_ms(),
                             r.health.frames(),
                         ),
+                        (_, Some(f)) if f.waiting => {
+                            (NodeState::Waiting(f.message.clone()), 0, 0, 0.0, 0)
+                        }
                         (_, Some(f)) => (NodeState::Failed(f.message.clone()), 0, 0, 0.0, 0),
                         (Some(r), None) => (
                             NodeState::Failed(r.health.error().unwrap_or_default()),
@@ -486,18 +512,21 @@ impl Inner {
                     r.health
                         .error()
                         .unwrap_or_else(|| "the device stopped".into()),
+                    // a program that ends is waited for, not an error
+                    matches!(r.kind, NodeKind::AppCapture { .. }),
                 ));
                 return false;
             }
             keep
         });
-        for (id, message) in broken {
+        for (id, message, waiting) in broken {
             tracing::warn!(node = %id.0, "stream broke: {message}; will reopen it");
             let backoff = self.cfg.retry_initial;
             st.failures.insert(
                 id,
                 Failure {
                     message,
+                    waiting,
                     retry_at: now + backoff,
                     backoff,
                 },
@@ -526,13 +555,20 @@ impl Inner {
                     }
                     st.resources.insert(node.id.clone(), resource);
                 }
-                Err(message) => {
+                Err(Unopened { message, waiting }) => {
                     let known = st.failures.get(&node.id);
+                    // what is waited for is looked for again soon, at the same pace
                     let backoff = known.map_or(self.cfg.retry_initial, |f| {
-                        (f.backoff * 2).min(self.cfg.retry_max)
+                        if waiting {
+                            self.cfg.retry_initial
+                        } else {
+                            (f.backoff * 2).min(self.cfg.retry_max)
+                        }
                     });
                     // the first failure (or a different one) is a warning; the retries of the same one are not news
-                    if known.is_none_or(|f| f.message != message) {
+                    if waiting {
+                        tracing::debug!(node = %node.id.0, "waiting: {message}");
+                    } else if known.is_none_or(|f| f.message != message) {
                         tracing::warn!(node = %node.id.0, retry_in_ms = backoff.as_millis() as u64, "cannot open the stream: {message}");
                     } else {
                         tracing::debug!(node = %node.id.0, "still cannot open the stream: {message}");
@@ -541,6 +577,7 @@ impl Inner {
                         node.id.clone(),
                         Failure {
                             message,
+                            waiting,
                             retry_at: now + backoff,
                             backoff,
                         },
@@ -621,6 +658,7 @@ impl Inner {
                 NodeId("engine".into()),
                 Failure {
                     message: "the graph thread is not consuming plans".into(),
+                    waiting: false,
                     retry_at: now + Duration::from_secs(1),
                     backoff: Duration::from_secs(1),
                 },
@@ -895,13 +933,26 @@ impl Inner {
         (Plan::new(nodes, self.cfg.cycle_frames), meters)
     }
 
-    fn open_node(&self, kind: &NodeKind) -> Result<Resource, String> {
+    fn open_node(&self, kind: &NodeKind) -> Result<Resource, Unopened> {
+        match kind {
+            // a program that is not running is waited for: the block is silent until it is
+            NodeKind::AppCapture { target } => match self.backend.open_app_capture(target) {
+                Ok(stream) => Ok(self.start_source(kind, stream)?),
+                Err(omu_hal::HalError::NotFound(message)) => Err(Unopened {
+                    message,
+                    waiting: true,
+                }),
+                Err(e) => Err(e.to_string().into()),
+            },
+            _ => Ok(self.open_other_node(kind)?),
+        }
+    }
+
+    /// The streams of the blocks that need something from the system, the program's sound apart.
+    fn open_other_node(&self, kind: &NodeKind) -> Result<Resource, String> {
         let describe = |e: omu_hal::HalError| e.to_string();
         match kind {
-            NodeKind::AppCapture { target } => self.start_source(
-                kind,
-                self.backend.open_app_capture(target).map_err(describe)?,
-            ),
+            NodeKind::AppCapture { .. } => unreachable!("opened by `open_node`"),
             NodeKind::DeviceCapture { device } => {
                 self.start_source(kind, self.backend.open_capture(device).map_err(describe)?)
             }

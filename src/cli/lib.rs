@@ -318,6 +318,7 @@ where
                 let state = match &n.state {
                     NodeState::Running => "running".to_string(),
                     NodeState::Failed(m) => format!("FAILED: {m}"),
+                    NodeState::Waiting(m) => format!("waiting: {m}"),
                 };
                 writeln!(
                     out,

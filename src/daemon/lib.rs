@@ -735,10 +735,10 @@ impl Daemon {
         // what is inside the groups counts too
         let graph = &omu_graph::expand(graph).unwrap_or_else(|_| graph.clone());
         out.extend(self.feedback_problems(graph));
-        // a soundboard block must name a soundboard that exists
+        // a soundboard block must name a soundboard that exists (one that has none chosen yet is silent: the graph is not refused for it)
         for n in &graph.nodes {
             if let NodeKind::Soundboard { board, .. } = &n.kind {
-                if self.sounds.library().board(board).is_none() {
+                if !board.is_empty() && self.sounds.library().board(board).is_none() {
                     out.push(
                         Diagnostic::error(
                             "missing_soundboard",
@@ -851,13 +851,11 @@ impl Daemon {
                     .map(|d| d.name.to_lowercase())
                     .collect(),
             };
-            // Windows names an emulated device "Microphone (<name>)" or "Speakers (<name>)": match the name exactly or
-            // inside those parentheses (a short name such as "Mic" must not match every device with "mic" in its name).
-            let is_ours = |c: &str, m: &str| c == m || c.ends_with(&format!("({m})"));
-            if let Some(own) = own
-                .iter()
-                .find(|m| candidates.iter().any(|c| is_ours(c, m)))
-            {
+            if let Some(own) = own.iter().find(|m| {
+                candidates
+                    .iter()
+                    .any(|c| omu_hal::is_own_device(c, &[(*m).clone()]))
+            }) {
                 problems.push(
                     Diagnostic::error(
                         "feedback",
@@ -2023,6 +2021,23 @@ mod tests {
                 .to_string()
                 .contains("does not exist"),
             "the reason is stated"
+        );
+
+        // a block with no soundboard chosen yet is not a reason to refuse the graph: it is silent
+        let unchosen = GraphSpec {
+            nodes: vec![NodeSpec::new(
+                "sb",
+                NodeKind::Soundboard {
+                    board: String::new(),
+                    triggers: vec![],
+                },
+            )],
+            edges: vec![],
+        };
+        assert!(
+            call(&d, "graph.set", serde_json::to_value(&unchosen).unwrap())
+                .error
+                .is_none()
         );
 
         // the real graph: soundboard -> virtual microphone

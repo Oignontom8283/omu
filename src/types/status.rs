@@ -9,6 +9,9 @@ pub enum NodeState {
     Running,
     /// The node's stream could not be opened or broke; the engine retries. The node is silent meanwhile.
     Failed(String),
+    /// The node waits for something that is not there (yet), such as a program that is not running: it is not an error. The node is
+    /// silent meanwhile, and the engine looks again.
+    Waiting(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
