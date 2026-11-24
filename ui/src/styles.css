@@ -1351,6 +1351,9 @@ button.inline:where(:not(.kit-button)) {
 /* floating windows: they grow with their content up to a limit, then scroll */
 .fwin {
   position: fixed;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 8px);
   /* like the hover of a code editor: as wide as its content, up to about 600 px, then it grows downwards */
   width: max-content;
   min-width: 320px;
@@ -1376,7 +1379,47 @@ button.inline:where(:not(.kit-button)) {
 .fwin-title:active {
   cursor: grabbing;
 }
+/* a window the person has resized is as big as they made it */
+.fwin.sized {
+  max-width: none;
+  max-height: none;
+}
+.fwin.sized .fwin-body {
+  max-height: none;
+}
+.fwin-grip {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  background: linear-gradient(135deg, transparent 0 55%, color-mix(in srgb, var(--muted) 70%, transparent) 55% 62%, transparent 62% 72%, color-mix(in srgb, var(--muted) 70%, transparent) 72% 79%, transparent 79%);
+  border-radius: 0 0 8px 0;
+}
+/* a question greys the page and keeps it from being used */
+.fwin-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.4);
+}
+.fwin.ask-window {
+  width: 420px;
+  min-width: 320px;
+}
+.ask-message {
+  margin: 4px 0 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.ask-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .fwin-body {
+  flex: 1;
+  min-height: 0;
   max-height: min(55vh, 340px);
   overflow: auto;
   padding: 8px 12px 10px;

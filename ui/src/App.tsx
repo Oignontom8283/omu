@@ -29,6 +29,7 @@ import { DockFrame, InspectorPanel, LogsPanel, MonitorPanel, ProblemsPanel, Spli
 import { ContextMenu, type MenuItem } from './components/ContextMenu.tsx';
 import { BlocksBar, type DragIn } from './components/BlocksBar.tsx';
 import { FloatingWindow } from './components/FloatingWindow.tsx';
+import { DialogHost, ask } from './kit/dialogs.tsx';
 import { ExtensionWindow, JsonWindow } from './components/ToolWindows.tsx';
 import { getSnapshot as extensionsNow, subscribe as onExtensions } from './extensionRegistry.ts';
 import { flashPort } from './components/BlockHelp.tsx';
@@ -308,19 +309,9 @@ export function App() {
     void load();
   };
 
-  // Stopping the daemon ends all audio and removes the virtual devices: it asks twice (a second click within 4 s).
-  const [confirmShutdown, setConfirmShutdown] = useState(false);
-  useEffect(() => {
-    if (!confirmShutdown) return;
-    const timer = window.setTimeout(() => setConfirmShutdown(false), 4000);
-    return () => window.clearTimeout(timer);
-  }, [confirmShutdown]);
-  const shutdownDaemon = async () => {
-    if (!confirmShutdown) {
-      setConfirmShutdown(true);
-      return;
-    }
-    setConfirmShutdown(false);
+  // Stopping the daemon ends all audio and removes the virtual devices: it asks first (Shift on the click: it does not).
+  const shutdownDaemon = async (e?: { shiftKey?: boolean }) => {
+    if (!(await ask({ title: t('dialog.stopDaemon.title'), message: t('dialog.stopDaemon.message') }, e))) return;
     try {
       await daemon.shutdown();
     } catch (e) {
@@ -353,7 +344,8 @@ export function App() {
     }
   };
 
-  const stopEngine = async () => {
+  const stopEngine = async (e?: { shiftKey?: boolean }) => {
+    if (!(await ask({ title: t('dialog.stopEngine.title'), message: t('dialog.stopEngine.message') }, e))) return;
     try {
       await daemon.stop();
     } catch (e) {
@@ -780,7 +772,7 @@ export function App() {
             {t('palette.open')} <kbd>F1</kbd>
           </Button>
           {status?.running ? (
-            <Button variant="warning" icon="stop" onClick={stopEngine} disabled={conn !== 'open'}>
+            <Button variant="warning" icon="stop" onClick={(e) => void stopEngine(e)} title={t('dialog.shiftHint')} disabled={conn !== 'open'}>
               {t('app.stopEngine')}
             </Button>
           ) : (
@@ -793,8 +785,8 @@ export function App() {
               {cleaning ? t('app.cleaning') : t('app.cleanDevices', { count: stale.stale.length })}
             </Button>
           )}
-          <Button variant={confirmShutdown ? 'danger' : 'secondary'} icon="power" onClick={shutdownDaemon} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
-            {confirmShutdown ? t('app.stopDaemonConfirm') : t('app.stopDaemon')}
+          <Button icon="power" onClick={(e) => void shutdownDaemon(e)} disabled={conn !== 'open'} title={t('app.stopDaemonHint')}>
+            {t('app.stopDaemon')}
           </Button>
         </header>
 
@@ -1018,6 +1010,7 @@ export function App() {
         </div>
         <StatusBar dock={dock} setDock={setDock} errors={errors} warnings={warnings} status={status} connected={conn === 'open'} blocks={nodes.length} />
         {palette && <CommandPalette key={`${palette.mode}${palette.initial ?? ''}`} items={paletteItems} mode={palette.mode} initial={palette.initial} onClose={() => setPalette(null)} />}
+        <DialogHost />
         {menu && <ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => setMenu(null)} />}
       </div>
     </Editor.Provider>

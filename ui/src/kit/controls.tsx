@@ -22,13 +22,14 @@ export type ButtonProps = {
   /** Takes the whole width of its row. */
   wide?: boolean;
   className?: string;
+  autoFocus?: boolean;
   onClick?: (e: React.MouseEvent) => void;
   onKeyDown?: (e: KeyboardEvent) => void;
   onBlur?: () => void;
 };
 
 /** A button: flat, one height, an optional icon (`bar`: one of the buttons of the title bar of a block or a window). `nodrag` so that a block is not moved by pressing it. */
-export function Button({ children, icon, variant = 'secondary', size = 'normal', disabled, title, pressed, wide, className, onClick, onKeyDown, onBlur }: ButtonProps) {
+export function Button({ children, icon, variant = 'secondary', size = 'normal', disabled, title, pressed, wide, className, autoFocus, onClick, onKeyDown, onBlur }: ButtonProps) {
   return (
     <button
       type="button"
@@ -37,6 +38,7 @@ export function Button({ children, icon, variant = 'secondary', size = 'normal',
       title={title}
       aria-label={!children ? title : undefined}
       aria-pressed={pressed}
+      autoFocus={autoFocus}
       onClick={onClick}
       onKeyDown={onKeyDown}
       onBlur={onBlur}

@@ -34,7 +34,7 @@ function CodeWindow({ label, onClose, ...editor }: Omit<CodeInputProps, 'title'>
   const language = editor.language ?? 'plain';
   const inputs = (editor.names ?? []).map((n) => n.name);
   return (
-    <FloatingWindow className="code-window" title={label} x={at.x} y={at.y} order={order} onMove={(x, y) => setAt({ x, y })} onFocus={() => setOrder(++front)} onClose={onClose}>
+    <FloatingWindow className="code-window" resizable={false} title={label} x={at.x} y={at.y} order={order} onMove={(x, y) => setAt({ x, y })} onFocus={() => setOrder(++front)} onClose={onClose}>
       <div className="code-window-editor">
         <CodeEditor {...editor} multiline autoFocus title={label} onCaret={(line, column) => setCaret({ line, column })} onEscape={onClose} />
       </div>

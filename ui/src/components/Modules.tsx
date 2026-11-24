@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { api } from '../api.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button } from '../kit/controls.tsx';
+import { ask } from '../kit/dialogs.tsx';
 import { moduleStatus } from '../modules.ts';
 import { formatBytes } from '../soundboard.ts';
 import type { ModuleInfo } from '../types.ts';
@@ -18,7 +19,6 @@ export function Modules({ daemon, notify }: Props) {
   const t = useT();
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [busy, setBusy] = useState(false);
-  const [confirm, setConfirm] = useState<string | null>(null);
 
   const refresh = useCallback(() => {
     daemon.modules().then(setModules).catch(() => undefined);
@@ -31,12 +31,6 @@ export function Modules({ daemon, notify }: Props) {
     const timer = setInterval(refresh, downloading ? 500 : 3000);
     return () => clearInterval(timer);
   }, [refresh, downloading]);
-
-  useEffect(() => {
-    if (!confirm) return;
-    const timer = window.setTimeout(() => setConfirm(null), 4000);
-    return () => window.clearTimeout(timer);
-  }, [confirm]);
 
   const run = async (work: () => Promise<unknown>) => {
     setBusy(true);
@@ -103,18 +97,14 @@ export function Modules({ daemon, notify }: Props) {
               )}
               {m.source === 'local' && !m.installing && (
                 <Button
-                  variant={confirm === `remove:${m.id}` ? 'danger' : 'secondary'}
                   icon="trash"
                   disabled={busy}
-                  onClick={() => {
-                    if (confirm !== `remove:${m.id}`) setConfirm(`remove:${m.id}`);
-                    else {
-                      setConfirm(null);
-                      void run(() => daemon.removeModule(m.id));
-                    }
+                  title={t('dialog.shiftHint')}
+                  onClick={(e) => {
+                    void ask({ title: t('dialog.removeModule.title', { name: m.name }), message: t('dialog.removeModule.message') }, e).then((yes) => (yes ? run(() => daemon.removeModule(m.id)) : undefined));
                   }}
                 >
-                  {confirm === `remove:${m.id}` ? t('soundboards.deleteConfirm') : t('modules.remove')}
+                  {t('modules.remove')}
                 </Button>
               )}
             </div>
