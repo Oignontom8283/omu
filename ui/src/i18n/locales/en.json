@@ -287,6 +287,8 @@
   "dock.resize": "Drag to resize (double click: usual size)",
   "problems.none": "No problem found.",
   "inspector.none": "Select a block to see its settings.",
+  "monitor.soundMemory": "Sound memory: {used} used, {reserved} reserved (limit {limit}), {loaded} sound(s) loaded",
+  "monitor.soundMemoryIdle": "Sound memory: not in use",
   "monitor.stopped": "The engine is not running.",
   "monitor.cycles": "Cycles: {cycles} · late: {late}",
   "monitor.block": "Block",

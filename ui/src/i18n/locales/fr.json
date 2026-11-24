@@ -287,6 +287,8 @@
   "dock.resize": "Glisser pour redimensionner (double clic : taille habituelle)",
   "problems.none": "Aucun problème.",
   "inspector.none": "Sélectionnez un bloc pour voir ses réglages.",
+  "monitor.soundMemory": "Mémoire des sons : {used} utilisés, {reserved} réservés (limite {limit}), {loaded} son(s) chargé(s)",
+  "monitor.soundMemoryIdle": "Mémoire des sons : inutilisée",
   "monitor.stopped": "Le moteur ne tourne pas.",
   "monitor.cycles": "Cycles : {cycles} · en retard : {late}",
   "monitor.block": "Bloc",
