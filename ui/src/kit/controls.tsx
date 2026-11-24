@@ -401,7 +401,8 @@ function Menu<T extends string>({ id, anchor, options, value, active, onActive, 
   return createPortal(
     <ul ref={list} id={id} data-menu={id} role="listbox" className="kit-menu" style={{ left: place.left, top: place.top, minWidth: Math.max(place.width, 120) }}>
       {options.map((o, i) => (
-        <li key={o.value} role="option" aria-selected={o.value === value} className={join(i === active && 'active', o.value === value && 'chosen')} onPointerMove={() => onActive(i)} onClick={() => onPick(o)}>
+        // pressing an option must not take the focus from the field: it would close the menu before the click is over
+        <li key={o.value} role="option" aria-selected={o.value === value} className={join(i === active && 'active', o.value === value && 'chosen')} onMouseDown={(e) => e.preventDefault()} onPointerMove={() => onActive(i)} onClick={() => onPick(o)}>
           <span className="tick">{o.value === value ? '✓' : ''}</span>
           <span className="label">{o.label}</span>
           {o.hint && <small>{o.hint}</small>}
