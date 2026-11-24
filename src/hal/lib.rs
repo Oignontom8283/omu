@@ -13,6 +13,7 @@
 //! Golden rule: nothing here may take the process (or the system) down. A failing stream flags its
 //! [`StreamHealth`] and goes silent; the engine decides what to do next.
 
+pub mod own_devices;
 pub mod sim;
 #[cfg(windows)]
 pub mod wasapi;
@@ -37,6 +38,7 @@ pub enum HalError {
 }
 
 pub use omu_types::{AppInfo, Capabilities, DeviceInfo, Direction};
+pub use own_devices::{is_own_device, OwnDevicesAside};
 
 /// Live status of a stream, shared between its real-time thread and the supervisor.
 #[derive(Debug, Default)]

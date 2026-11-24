@@ -125,6 +125,11 @@ pub async fn serve(
     } else {
         real_backend()?
     };
+    // the system may make one of our virtual devices its default: a block on "the default device" must not use it
+    let backend: Arc<dyn Backend> = match &virtual_devices {
+        Some(provider) => Arc::new(omu_hal::OwnDevicesAside::new(backend, provider.clone())),
+        None => backend,
+    };
     let backend_name = backend.name().to_string();
     tracing::info!(
         backend = %backend_name,

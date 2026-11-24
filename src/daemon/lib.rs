@@ -851,13 +851,11 @@ impl Daemon {
                     .map(|d| d.name.to_lowercase())
                     .collect(),
             };
-            // Windows names an emulated device "Microphone (<name>)" or "Speakers (<name>)": match the name exactly or
-            // inside those parentheses (a short name such as "Mic" must not match every device with "mic" in its name).
-            let is_ours = |c: &str, m: &str| c == m || c.ends_with(&format!("({m})"));
-            if let Some(own) = own
-                .iter()
-                .find(|m| candidates.iter().any(|c| is_ours(c, m)))
-            {
+            if let Some(own) = own.iter().find(|m| {
+                candidates
+                    .iter()
+                    .any(|c| omu_hal::is_own_device(c, &[(*m).clone()]))
+            }) {
                 problems.push(
                     Diagnostic::error(
                         "feedback",
