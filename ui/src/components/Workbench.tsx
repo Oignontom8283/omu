@@ -258,7 +258,7 @@ export function MonitorPanel({ status, nodes }: { status: EngineStatus | null; n
                   </span>
                 </td>
                 <td>{n.underruns + n.overruns || ''}</td>
-                <td className="code">{n.state === 'failed' ? n.message : (n.value ?? (n.active != null ? t(n.active ? 'status.yes' : 'status.no') : ''))}</td>
+                <td className="code">{n.state === 'failed' ? n.message : n.state === 'waiting' ? t('status.waitingProgram') : (n.value ?? (n.active != null ? t(n.active ? 'status.yes' : 'status.no') : ''))}</td>
               </tr>
             );
           })}

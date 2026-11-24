@@ -5,7 +5,7 @@ import { GAP, GRID, MAX_BRANCHES, MAX_ENTRIES, MAX_EXPRESSION_ARGS, MAX_JOIN_ARG
 import { useT } from '../i18n/index.tsx';
 import type { CompareOp, ControlAction, DeviceRef, InputValue, LogicOp, MathOp, NodeKind, NodeSpec, NodeType, NoiseColor, RoundMode, TextOp, Wave } from '../types.ts';
 import { sizeOf } from '../grouping.ts';
-import { Button, ComboInput, NumberField, Select, Slider, Switch, TextInput } from '../kit/controls.tsx';
+import { Button, NumberField, Select, Slider, Switch, TextInput, type SelectOption } from '../kit/controls.tsx';
 import { controlNamed, defaultControl } from '../kit/registry.ts';
 import '../kit/fields.tsx';
 import { Icon } from './Icon.tsx';
@@ -25,24 +25,25 @@ function Meter({ peak, off = false }: { peak: number; off?: boolean }) {
   );
 }
 
+/** The program a block listens to: one of the programs of the computer (with a search box), or a name typed for one that is not open yet. */
 function AppEditor({ spec }: { spec: Of<'app_capture'> }) {
   const { apps, update } = useEditor();
   const t = useT();
   const value = 'pid' in spec.target ? String(spec.target.pid) : spec.target.process_name;
-  const names = [...new Set(apps.map((a) => a.name))];
-  const known = apps.some((a) => a.name.toLowerCase() === value.toLowerCase());
-  const missing = Boolean(value) && !/^\d+$/.test(value) && apps.length > 0 && !known;
-  // what is wrong is said by the field itself (a red frame, a mark by its name, the reason as a hover), never by a line that would make the block taller
+  const shorter = (text: string | null) => (text && text.length > 32 ? `${text.slice(0, 31)}…` : (text ?? undefined));
+  // a program once (its first process says whether it plays); the one that is chosen stays in the list when it is not open
+  const options: SelectOption[] = [];
+  for (const a of apps) {
+    if (!options.some((o) => o.value.toLowerCase() === a.name.toLowerCase())) options.push({ value: a.name, label: a.name, hint: a.active ? t('field.programPlaying') : shorter(a.title) });
+  }
+  if (!options.some((o) => o.value.toLowerCase() === value.toLowerCase())) options.unshift({ value, label: value || t('field.chooseProgram'), hint: value ? t('field.programNotOpen') : undefined });
   return (
-    <div className={`field${missing ? ' warned' : ''}`} title={missing ? t('field.programNotPlaying') : undefined}>
-      <span>
-        {missing && <Icon name="warning" size={12} />}
-        {t('field.program')}
-      </span>
-      <ComboInput
-        value={value}
-        options={names}
-        placeholder="chrome.exe"
+    <div className="field">
+      <span>{t('field.program')}</span>
+      <Select
+        value={options.find((o) => o.value.toLowerCase() === value.toLowerCase())?.value ?? value}
+        options={options}
+        search={{ placeholder: t('field.searchProgram'), empty: t('field.noProgram'), custom: (typed) => ({ value: typed, label: t('field.programUse', { name: typed }), hint: t('field.programNotOpen') }) }}
         onChange={(v) => update(spec.id, { type: 'app_capture', target: /^\d+$/.test(v.trim()) ? { pid: Number(v.trim()) } : { process_name: v } })}
       />
     </div>
@@ -60,7 +61,8 @@ function DeviceEditor({ spec }: { spec: Of<'device_capture'> | Of<'device_render
   const current = refToOption(spec.device);
   const known = current === 'default' || list.some((d) => `id:${d.id}` === current);
   const options = [
-    { value: 'default', label: t('field.systemDefault') },
+    // what "the default" is now, so that it is never a mystery which device the block listens to
+    { value: 'default', label: t('field.systemDefault'), hint: list.find((d) => d.is_default)?.name },
     ...list.map((d) => ({ value: `id:${d.id}`, label: d.name })),
     ...(known ? [] : [{ value: current, label: `${t('field.notFound')} ${current.replace(/^(id|name):/, '')}` }]),
   ];
@@ -742,13 +744,18 @@ function Footer({ spec }: { spec: NodeSpec }) {
   const t = useT();
   const status = statusOf(spec.id);
   const failed = status?.state === 'failed';
+  // what the block waits for (a program that is not open) is not an error: it says so where the level would be
+  const waiting = status?.state === 'waiting';
   const category = categoryOf(spec.type);
+  // an output with nothing linked to it hears nothing: its level is switched off like a block that is not running
+  const edges = useEdges();
+  const unlinked = category === 'output' && !edges.some((e) => e.target === spec.id);
   // always the same elements, in the same place: those of a block that is not running are only switched off, so that the
   // block never changes size by itself
   const off = status ? '' : ' off';
   return (
     <>
-      <span className={`dot ${status ? (failed ? 'bad' : 'ok') : 'idle'}`} title={status ? undefined : t('status.notRunning')} />
+      <span className={`dot ${status && !waiting ? (failed ? 'bad' : 'ok') : 'idle'}`} title={waiting ? t('status.waitingProgram') : status ? undefined : t('status.notRunning')} />
       {category === 'trigger' && <small className={off.trim()}>{t('status.actions', { count: status?.events ?? 0 })}</small>}
       {(category === 'number' || category === 'text' || category === 'conversion') && (
         <small className={`value${off}`} title={status?.value ?? undefined}>
@@ -762,8 +769,10 @@ function Footer({ spec }: { spec: NodeSpec }) {
         <small className="warn message" title={status.message}>
           {t('status.failed')}
         </small>
+      ) : waiting ? (
+        <small className="waiting">{t('status.waitingProgram')}</small>
       ) : (
-        (category === 'input' || category === 'output' || category === 'processing') && <Meter peak={status?.peak ?? 0} off={!status} />
+        (category === 'input' || category === 'output' || category === 'processing') && <Meter peak={unlinked ? 0 : (status?.peak ?? 0)} off={!status || unlinked} />
       )}
       {status && (status.underruns > 0 || status.overruns > 0) && (
         <small className="warn" title={t('status.underruns')}>

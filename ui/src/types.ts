@@ -97,7 +97,8 @@ export type GraphSpec = { nodes: NodeSpec[]; edges: EdgeSpec[] };
 
 export type NodeStatus = {
   id: string;
-  state: 'running' | 'failed';
+  /** `waiting`: it waits for something that is not there yet (a program that is not open): not an error. */
+  state: 'running' | 'failed' | 'waiting';
   message?: string;
   peak: number;
   underruns: number;

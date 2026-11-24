@@ -2350,16 +2350,40 @@ button.ref:hover:not(:disabled) {
 .kit-menu {
   position: fixed;
   z-index: 200;
-  max-height: 280px;
-  margin: 0;
-  padding: 4px 0;
-  overflow-y: auto;
-  list-style: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 320px;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 4px;
   box-shadow: 0 6px 18px rgb(0 0 0 / 0.3);
   font: 12px/1 var(--font-ui);
+}
+.kit-menu ul {
+  min-height: 0;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.kit-menu-search {
+  flex: none;
+  height: 30px;
+  margin: 4px 4px 0;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--ctl-radius);
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+}
+.kit-menu-search:focus {
+  outline: none;
+  border-color: var(--focus);
+}
+.kit-menu li.empty {
+  color: var(--muted);
+  cursor: default;
 }
 .kit-menu li {
   display: flex;
@@ -3041,4 +3065,10 @@ body.resizing {
 .panel-button:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+.node .waiting {
+  flex: 1;
+  color: var(--muted);
+  font-size: 11px;
 }
