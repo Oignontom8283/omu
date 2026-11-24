@@ -702,6 +702,164 @@ fn two_sounds_into_one_input_are_added_without_a_mixer_block() {
 }
 
 #[test]
+fn the_tone_and_noise_blocks_make_sound_by_themselves_in_the_real_engine() {
+    use omu_types::{NoiseColor, Wave};
+    let sim = SimBackend::new();
+    let e = engine(&sim);
+    let spec = GraphSpec {
+        nodes: vec![
+            node(
+                "tone",
+                NodeKind::Tone {
+                    wave: Wave::Sine,
+                    hz: 1000.0,
+                    db: -6.0206,
+                },
+            ),
+            node(
+                "hiss",
+                NodeKind::Noise {
+                    color: NoiseColor::White,
+                    db: -20.0,
+                },
+            ),
+            node("mix", NodeKind::Mixer),
+            node(
+                "mic",
+                NodeKind::VirtualMic {
+                    name: "Made".into(),
+                },
+            ),
+        ],
+        edges: vec![edge("tone", "mix"), edge("hiss", "mix"), edge("mix", "mic")],
+    };
+    e.apply(validate(&spec).unwrap());
+    std::thread::sleep(Duration::from_millis(2500));
+    let status = e.status();
+    drop(e);
+    for n in &status.nodes {
+        assert_eq!(n.state, NodeState::Running, "{}", n.id);
+    }
+    let l = left(&sim_recording(&sim, "virtual:Made"));
+    assert!(l.len() > 48_000 * 2, "{} frames", l.len());
+    let steady = &l[48_000..];
+    // the tone (-6 dB: rms 0.354) with a little hiss (-20 dB: rms about 0.058) on it
+    let level = rms(steady);
+    assert!((0.33..0.40).contains(&level), "rms {level}");
+    // how much of the sound is a 1000 Hz sine, window by window (a gap in the recording moves the phase, never the amplitude)
+    let mut amplitudes: Vec<f64> = steady
+        .as_chunks::<2400>()
+        .0
+        .iter()
+        .map(|w| {
+            let (mut s, mut k) = (0.0f64, 0.0f64);
+            for (i, v) in w.iter().enumerate() {
+                let phase = i as f64 * 1000.0 / 48_000.0 * std::f64::consts::TAU;
+                s += *v as f64 * phase.sin();
+                k += *v as f64 * phase.cos();
+            }
+            (s * s + k * k).sqrt() * 2.0 / w.len() as f64
+        })
+        .collect();
+    amplitudes.sort_by(|a, b| a.total_cmp(b));
+    let median = amplitudes[amplitudes.len() / 2];
+    assert!(
+        (median - 0.5).abs() < 0.03,
+        "the tone has an amplitude of {median}"
+    );
+    assert!(steady.iter().all(|s| s.is_finite() && s.abs() <= 1.0));
+}
+
+/// A mono WAV file: a 440 Hz tone of `seconds` seconds at half scale.
+fn tone_wav(path: &std::path::Path, seconds: f32) {
+    let rate = 48_000u32;
+    let samples: Vec<i16> = (0..(rate as f32 * seconds) as usize)
+        .map(|i| ((i as f32 * 440.0 * std::f32::consts::TAU / rate as f32).sin() * 16_000.0) as i16)
+        .collect();
+    let data = (samples.len() * 2) as u32;
+    let mut b = Vec::new();
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&rate.to_le_bytes());
+    b.extend_from_slice(&(rate * 2).to_le_bytes());
+    b.extend_from_slice(&2u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data.to_le_bytes());
+    for s in samples {
+        b.extend_from_slice(&s.to_le_bytes());
+    }
+    std::fs::write(path, b).unwrap();
+}
+
+#[test]
+fn a_file_block_plays_its_sound_each_time_it_is_told_to_and_is_silent_between() {
+    let dir = std::env::temp_dir().join(format!("omu-engine-file-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let sounds = Arc::new(omu_soundboard::SoundEngine::new(dir.join("data")));
+    tone_wav(&dir.join("beep.wav"), 0.2);
+    let info = sounds.import(&dir.join("beep.wav"), None).unwrap();
+
+    let sim = SimBackend::new();
+    let cfg = EngineConfig {
+        sounds: Some(sounds.clone()),
+        ..Default::default()
+    };
+    let e = Engine::new(
+        Arc::new(sim.clone()) as Arc<dyn Backend>,
+        Some(Arc::new(sim.clone()) as Arc<dyn VirtualDeviceProvider>),
+        cfg,
+    );
+    // a timer tells the file block to play every 600 ms: a 200 ms beep, then silence
+    let spec = GraphSpec {
+        nodes: vec![
+            node("t", NodeKind::Timer { interval_ms: 600 }),
+            node(
+                "beep",
+                NodeKind::AudioFile {
+                    sound: info.id.clone(),
+                    looped: false,
+                    db: 0.0,
+                },
+            ),
+            node(
+                "mic",
+                NodeKind::VirtualMic {
+                    name: "Beeps".into(),
+                },
+            ),
+        ],
+        edges: vec![link("t", "tick", "beep", "play"), edge("beep", "mic")],
+    };
+    e.apply(validate(&spec).unwrap());
+    std::thread::sleep(Duration::from_millis(3500));
+    let status = e.status();
+    drop(e);
+    for n in &status.nodes {
+        assert_eq!(n.state, NodeState::Running, "{}", n.id);
+    }
+    let l = left(&sim_recording(&sim, "virtual:Beeps"));
+    // 10 ms windows: some carry the beep, most of the rest is silent
+    let windows: Vec<f32> = l.as_chunks::<480>().0.iter().map(|w| rms(w)).collect();
+    let loud = windows.iter().filter(|r| **r > 0.2).count();
+    let silent = windows.iter().filter(|r| **r < 0.001).count();
+    assert!(
+        loud >= 20,
+        "the beep played at least twice ({loud} loud windows of 10 ms)"
+    );
+    assert!(
+        silent > loud,
+        "and it is silent between ({silent} silent windows)"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_noise_reduction_block_runs_in_the_real_engine() {
     // a steady tone is tonal like a voice, so the network lets it through: what matters here is that the block runs in
     // the engine, keeps the stream going without a gap, and does not change the level of sound that is not noise

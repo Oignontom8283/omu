@@ -10,6 +10,7 @@
 
 pub mod bridge;
 pub mod control;
+pub mod generate;
 pub mod plan;
 pub mod runtime;
 
