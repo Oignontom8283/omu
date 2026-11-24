@@ -238,6 +238,46 @@ fn editing_the_graph_keeps_untouched_streams_running() {
 }
 
 #[test]
+fn a_program_that_is_not_running_is_waited_for_and_heard_once_it_is() {
+    let sim = SimBackend::new();
+    let e = engine(&sim);
+    let spec = GraphSpec {
+        nodes: vec![
+            node(
+                "app",
+                NodeKind::AppCapture {
+                    target: AppTarget::ProcessName("later.exe".into()),
+                },
+            ),
+            node("mic", NodeKind::VirtualMic { name: "V".into() }),
+        ],
+        edges: vec![edge("app", "mic")],
+    };
+    e.apply(validate(&spec).unwrap());
+    let state = |e: &Engine| {
+        e.status()
+            .nodes
+            .iter()
+            .find(|n| n.id.0 == "app")
+            .unwrap()
+            .state
+            .clone()
+    };
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        matches!(state(&e), NodeState::Waiting(_)),
+        "no error: {:?}",
+        state(&e)
+    );
+    // the program starts: the block hears it without the graph being applied again
+    sim.add_app(7, "later.exe", SimSource::tone(300.0));
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(state(&e), NodeState::Running);
+    drop(e);
+    assert!(sim_recording(&sim, "virtual:V").len() > 12_000);
+}
+
+#[test]
 fn a_missing_device_fails_only_its_node() {
     let sim = SimBackend::new();
     sim.add_capture_device("mic", SimSource::tone(300.0));
