@@ -2,10 +2,10 @@
  * The little markdown the documentation of the blocks is written in (and translated in): headings (`#`, `##`, `###`),
  * paragraphs, lists (`- `), tables (`| a | b |`), quotes (`> `, shown as warnings) and, inside the text, `code`, **bold**
  * and links to objects: `[sound in](port:in)` (a connection point of the block), `[Gain](kind:gain)` (a kind of block),
- * `[Sound](type:audio)` (a kind of flow). Anything that is named in the documentation is such a link.
+ * `[Sound](type:audio)` (a kind of flow), `[Language](setting:language)` (a setting of the program). Anything that is named in the documentation is such a link.
  */
 
-export type LinkScheme = 'port' | 'kind' | 'type';
+export type LinkScheme = 'port' | 'kind' | 'type' | 'setting';
 
 export type Inline = { text: string; code?: boolean; bold?: boolean; link?: { scheme: LinkScheme; id: string } };
 
@@ -16,7 +16,7 @@ export type Block =
   | { type: 'table'; head: Inline[][]; rows: Inline[][][] }
   | { type: 'quote'; inline: Inline[] };
 
-const INLINE = /\[([^\]]+)\]\((port|kind|type):([A-Za-z0-9_]+)\)|`([^`]+)`|\*\*([^*]+)\*\*/g;
+const INLINE = /\[([^\]]+)\]\((port|kind|type|setting):([A-Za-z0-9_.:-]+)\)|`([^`]+)`|\*\*([^*]+)\*\*/g;
 
 /** Cuts a line of text into its pieces: plain text, code, bold, and links. */
 export function parseInline(source: string): Inline[] {

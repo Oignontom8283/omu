@@ -2,6 +2,16 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseInline, parseMarkdown } from './richtext.ts';
 
+test('a link to a setting names it by its id, which may hold dots and colons (the settings of an extension)', () => {
+  assert.deepEqual(parseInline('See [Volume](setting:extension:fancy:volume) and [Language](setting:language).'), [
+    { text: 'See ' },
+    { text: 'Volume', link: { scheme: 'setting', id: 'extension:fancy:volume' } },
+    { text: ' and ' },
+    { text: 'Language', link: { scheme: 'setting', id: 'language' } },
+    { text: '.' },
+  ]);
+});
+
 test('plain text is a single piece', () => {
   assert.deepEqual(parseInline('Louder or quieter'), [{ text: 'Louder or quieter' }]);
   assert.deepEqual(parseInline(''), []);
