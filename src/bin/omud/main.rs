@@ -124,6 +124,8 @@ fn clean_devices(data_dir: PathBuf, helper: bool) -> std::process::ExitCode {
     use omu_desktop::elevation::SystemElevator;
     use omu_types::KeptDevices;
     use omu_virtual_devices::clean::{self, Relaunch};
+    // what an earlier version left in a heap at the root of the data folder goes where it belongs (before anything is read)
+    omu_discovery::DataLayout::new(&data_dir).migrate();
     let _diag = omu_logging::init(Settings {
         program: omu_branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),
@@ -196,6 +198,7 @@ fn main() -> std::process::ExitCode {
     if args.clean_devices {
         return clean_devices(data_dir, args.elevated_helper);
     }
+    omu_discovery::DataLayout::new(&data_dir).migrate();
     let mut diag = omu_logging::init(Settings {
         program: omu_branding::DAEMON_EXECUTABLE,
         data_dir: data_dir.clone(),
