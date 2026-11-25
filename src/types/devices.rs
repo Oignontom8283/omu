@@ -37,6 +37,7 @@ pub struct AppInfo {
 
 /// What a backend can do.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Capabilities {
     pub devices: bool,
     pub app_capture: bool,
