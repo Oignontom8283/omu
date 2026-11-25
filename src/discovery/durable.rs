@@ -17,6 +17,8 @@ use std::time::Duration;
 static COUNTER: AtomicU64 = AtomicU64::new(0);
 /// How many files that could not be read are kept next to the good one (the oldest are deleted).
 const KEEP_BAD: usize = 5;
+/// The folder (next to a file) that its earlier versions are kept in.
+const BACKUPS: &str = "backups";
 
 fn name_of(path: &Path) -> String {
     path.file_name()
@@ -25,6 +27,18 @@ fn name_of(path: &Path) -> String {
 
 fn beside(path: &Path, suffix: &str) -> PathBuf {
     path.with_file_name(format!("{}{suffix}", name_of(path)))
+}
+
+/// Where an earlier version of `path` (`.bak1`) or a copy that could not be read (`.bad-...`) is kept: a `backups` folder next to the
+/// file, so that the folder of the file itself holds only the files in use.
+fn kept(path: &Path, suffix: &str) -> PathBuf {
+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
+    let folder = if parent.file_name().is_some_and(|n| n == BACKUPS) {
+        parent.to_owned()
+    } else {
+        parent.join(BACKUPS)
+    };
+    folder.join(format!("{}{suffix}", name_of(path)))
 }
 
 /// Replaces `path` by `tmp`, trying again a few times: on Windows another program that has the file open without allowing it to be
@@ -49,14 +63,17 @@ fn rotate(path: &Path, backups: usize, new: &[u8]) {
     let Ok(current) = std::fs::read(path) else {
         return;
     };
-    let latest = beside(path, ".bak1");
+    let latest = kept(path, ".bak1");
+    if let Some(folder) = latest.parent() {
+        let _ = std::fs::create_dir_all(folder);
+    }
     if current == new || std::fs::read(&latest).is_ok_and(|b| b == current) {
         return;
     }
     for n in (1..backups).rev() {
         let _ = std::fs::rename(
-            beside(path, &format!(".bak{n}")),
-            beside(path, &format!(".bak{}", n + 1)),
+            kept(path, &format!(".bak{n}")),
+            kept(path, &format!(".bak{}", n + 1)),
         );
     }
     let _ = std::fs::write(&latest, current);
@@ -106,11 +123,14 @@ fn set_aside(path: &Path) -> Option<PathBuf> {
     let seconds = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
-    let kept = beside(path, &format!(".bad-{seconds}"));
-    std::fs::rename(path, &kept).ok()?;
+    let aside = kept(path, &format!(".bad-{seconds}"));
+    if let Some(folder) = aside.parent() {
+        let _ = std::fs::create_dir_all(folder);
+    }
+    std::fs::rename(path, &aside).ok()?;
     // only the latest few: a file that is read wrongly at every start must not fill the disk
     let prefix = format!("{}.bad-", name_of(path));
-    if let Some(dir) = path.parent().and_then(|d| std::fs::read_dir(d).ok()) {
+    if let Some(dir) = aside.parent().and_then(|d| std::fs::read_dir(d).ok()) {
         let mut bad: Vec<PathBuf> = dir
             .filter_map(|e| e.ok().map(|e| e.path()))
             .filter(|p| name_of(p).starts_with(&prefix))
@@ -121,7 +141,7 @@ fn set_aside(path: &Path) -> Option<PathBuf> {
             let _ = std::fs::remove_file(old);
         }
     }
-    Some(kept)
+    Some(aside)
 }
 
 /// What reading a JSON file gave.
@@ -177,7 +197,7 @@ pub fn load_json<T: DeserializeOwned>(path: &Path, backups: usize) -> Option<T> 
         }
     }
     for n in 1..=backups {
-        let backup = beside(path, &format!(".bak{n}"));
+        let backup = kept(path, &format!(".bak{n}"));
         if let Loaded::Value(v) = read_json::<T>(&backup) {
             tracing::warn!("the backup {} is used instead", backup.display());
             return Some(v);
@@ -212,19 +232,19 @@ mod tests {
         }
         assert_eq!(load_json::<Doc>(&path, 2), Some(Doc { n: 4 }));
         assert_eq!(
-            read_json::<Doc>(&beside(&path, ".bak1")),
+            read_json::<Doc>(&kept(&path, ".bak1")),
             Loaded::Value(Doc { n: 3 }),
             "the latest backup is the version before"
         );
         assert_eq!(
-            read_json::<Doc>(&beside(&path, ".bak2")),
+            read_json::<Doc>(&kept(&path, ".bak2")),
             Loaded::Value(Doc { n: 2 })
         );
-        assert!(!beside(&path, ".bak3").exists(), "only two are kept");
+        assert!(!kept(&path, ".bak3").exists(), "only two are kept");
         // the same content again is not a new backup
         write_json(&path, &Doc { n: 4 }, 2).unwrap();
         assert_eq!(
-            read_json::<Doc>(&beside(&path, ".bak1")),
+            read_json::<Doc>(&kept(&path, ".bak1")),
             Loaded::Value(Doc { n: 3 })
         );
         let names: Vec<String> = std::fs::read_dir(&dir)
@@ -248,21 +268,26 @@ mod tests {
             !path.exists(),
             "the damaged file is out of the way: the next save cannot destroy it"
         );
-        let aside: Vec<String> = std::fs::read_dir(&dir)
+        // it goes in the `backups` folder, not in the one of the files in use
+        let aside: Vec<String> = std::fs::read_dir(dir.join("backups"))
             .unwrap()
             .map(|e| name_of(&e.unwrap().path()))
             .filter(|n| n.contains(".bad-"))
             .collect();
         assert_eq!(aside.len(), 1, "{aside:?}");
+        assert!(
+            dir.join("backups").join("state.json.bak1").is_file(),
+            "the earlier versions too"
+        );
         assert_eq!(
-            std::fs::read_to_string(dir.join(&aside[0])).unwrap(),
+            std::fs::read_to_string(dir.join("backups").join(&aside[0])).unwrap(),
             "{ \"n\": ",
             "kept as it was"
         );
         // nothing usable at all: nothing, and the file is still kept
         std::fs::write(&path, "nope").unwrap();
-        std::fs::remove_file(beside(&path, ".bak1")).unwrap();
-        std::fs::remove_file(beside(&path, ".bak2")).ok();
+        std::fs::remove_file(kept(&path, ".bak1")).unwrap();
+        std::fs::remove_file(kept(&path, ".bak2")).ok();
         assert_eq!(load_json::<Doc>(&path, 3), None);
         assert_eq!(read_json::<Doc>(&dir.join("missing.json")), Loaded::Missing);
         let _ = std::fs::remove_dir_all(&dir);
@@ -272,12 +297,17 @@ mod tests {
     fn many_unreadable_files_do_not_fill_the_disk() {
         let dir = folder("many");
         let path = dir.join("state.json");
+        std::fs::create_dir_all(dir.join("backups")).unwrap();
         for n in 1..=8 {
-            std::fs::write(dir.join(format!("state.json.bad-{n:03}")), "x").unwrap();
+            std::fs::write(
+                dir.join("backups").join(format!("state.json.bad-{n:03}")),
+                "x",
+            )
+            .unwrap();
         }
         std::fs::write(&path, "bad").unwrap();
         let kept = set_aside(&path).unwrap();
-        let count = std::fs::read_dir(&dir)
+        let count = std::fs::read_dir(dir.join("backups"))
             .unwrap()
             .filter(|e| name_of(&e.as_ref().unwrap().path()).contains(".bad-"))
             .count();
