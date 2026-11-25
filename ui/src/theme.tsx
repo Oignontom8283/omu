@@ -39,6 +39,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const resolved = resolveTheme(choice, systemDark);
+  // the colours the person chose go on the page as soon as it opens, whichever page is shown
+  useEffect(() => {
+    applyThemeVars(loadThemeVars());
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.theme = resolved;
     // the high contrast theme is the dark one with its colours pushed to the extremes
@@ -91,20 +95,20 @@ export function loadThemeVars(): string {
   }
 }
 
-/** Puts the chosen colours on the page. Returns what was wrong with the text, or null. */
-export function applyThemeVars(text: string): string | null {
+/** Puts the chosen colours on the page. Returns what was wrong with the text (in the language of `t`), or null. */
+export function applyThemeVars(text: string, t: (key: string, vars?: Record<string, string>) => string = (key) => key): string | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text || '{}');
   } catch (e) {
     return e instanceof Error ? e.message : String(e);
   }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return 'not an object';
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return t('colour.error.notObject');
   const root = document.documentElement;
   for (const name of Object.keys(root.dataset.themeVars ? JSON.parse(root.dataset.themeVars) : {})) root.style.removeProperty(name);
   const given: Record<string, string> = {};
   for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!/^--[a-z0-9-]+$/i.test(name) || typeof value !== 'string') return `${name}: a CSS variable (--name) and a text are expected`;
+    if (!/^--[a-z0-9-]+$/i.test(name) || typeof value !== 'string') return t('colour.error.badEntry', { name });
     root.style.setProperty(name, value);
     given[name] = value;
   }

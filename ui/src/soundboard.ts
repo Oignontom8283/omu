@@ -1,3 +1,4 @@
+import { formatByteSize } from './i18n/core.ts';
 // What the soundboard panel computes, kept apart from the screen so it can be tested.
 
 import { newId } from './graph.ts';
@@ -16,18 +17,8 @@ export function formatDuration(frames: number, rate = 48000): string {
   return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`;
 }
 
-/** `850 KB`, `12.4 MB`, `1.2 GB`. */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ['KB', 'MB', 'GB', 'TB'];
-  let value = bytes / 1024;
-  let i = 0;
-  while (value >= 1024 && i < units.length - 1) {
-    value /= 1024;
-    i++;
-  }
-  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[i]}`;
-}
+/** `850 KB`, `12.4 MB`, `1.2 GB`, written the way the language of the page writes them. */
+export const formatBytes = (bytes: number): string => formatByteSize(bytes);
 
 /** The name of a file without its folders and its extension: what a pad is called at first. */
 export function nameFromFile(path: string): string {

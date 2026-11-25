@@ -35,7 +35,7 @@ function TextControl({ control, value, set, disabled }: ControlProps<'text'>) {
 }
 
 /** A number is saved a moment after it stops changing (dragging over it changes it many times a second). */
-function NumberControl({ control, decl, value, set, disabled, t }: ControlProps<'number'>) {
+function NumberControl({ control, decl, value, set, disabled, label, t }: ControlProps<'number'>) {
   const [shown, setShown] = useState<number | null>(null);
   const timer = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(timer.current), []);
@@ -47,6 +47,7 @@ function NumberControl({ control, decl, value, set, disabled, t }: ControlProps<
       step={control.step}
       whole={control.whole}
       unit={control.unit ? textOf(t, decl.plain, control.unit) : undefined}
+      title={label}
       disabled={disabled}
       onChange={(n) => {
         setShown(n);

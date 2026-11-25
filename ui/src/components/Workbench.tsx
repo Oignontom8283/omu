@@ -10,6 +10,7 @@ import { PRODUCT_NAME, type Diagnostic, type EngineStatus, type GraphSpec, type 
 import { differences, same, type Version } from '../versions.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { InlineValue, Params } from './NodeCard.tsx';
+import { formatDateTime } from '../i18n/core.ts';
 
 // The places around the graph, as in a code editor: a panel under it (problems, activity log, monitor), a panel beside it
 // (the inspector of the selected block), a bar at the bottom with the counts and the buttons that open them. Their sizes and
@@ -18,13 +19,20 @@ import { InlineValue, Params } from './NodeCard.tsx';
 export type DockState = { bottom: 'problems' | 'logs' | 'monitor' | 'versions' | null; right: 'inspector' | null; bottomHeight: number; rightWidth: number };
 
 const KEY = 'omu-workbench';
+const BOTTOM_PANELS: NonNullable<DockState['bottom']>[] = ['problems', 'logs', 'monitor', 'versions'];
 const DEFAULT: DockState = { bottom: null, right: null, bottomHeight: 220, rightWidth: 300 };
 
 /** What is open and how big, kept in this browser. */
 export function loadDock(): DockState {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<DockState> | null;
-    return { ...DEFAULT, ...(saved ?? {}) };
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<Record<keyof DockState, unknown>> | null;
+    const size = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 80 && v <= 4000 ? v : fallback);
+    return {
+      bottom: BOTTOM_PANELS.find((p) => p === saved?.bottom) ?? null,
+      right: saved?.right === 'inspector' ? 'inspector' : null,
+      bottomHeight: size(saved?.bottomHeight, DEFAULT.bottomHeight),
+      rightWidth: size(saved?.rightWidth, DEFAULT.rightWidth),
+    };
   } catch {
     return DEFAULT;
   }
@@ -239,7 +247,7 @@ export function MonitorPanel({ status, nodes, daemon }: { status: EngineStatus |
     const timer = setInterval(read, 1500);
     return () => clearInterval(timer);
   }, [daemon]);
-  const memory = sounds?.active ? t('monitor.soundMemory', { used: formatBytes(sounds.cache_used_bytes), reserved: formatBytes(sounds.cache_allocated_bytes), limit: formatBytes(sounds.cache_limit_bytes), loaded: sounds.sounds_loaded }) : t('monitor.soundMemoryIdle');
+  const memory = sounds?.active ? t('monitor.soundMemory', { used: formatBytes(sounds.cache_used_bytes), reserved: formatBytes(sounds.cache_allocated_bytes), limit: formatBytes(sounds.cache_limit_bytes), count: sounds.sounds_loaded }) : t('monitor.soundMemoryIdle');
   if (!status || !status.running) return <p className="panel-empty">{t('monitor.stopped')}</p>;
   return (
     <>
@@ -288,7 +296,7 @@ export function VersionsPanel({ versions, current, onRestore }: { versions: Vers
         const d = differences(current, v.graph);
         return (
           <li key={v.at}>
-            <span className="when">{new Date(v.at).toLocaleString()}</span>
+            <span className="when">{formatDateTime(v.at)}</span>
             <span className="summary muted">
               {i === 0 && same(d) ? t('versions.current') : t('versions.diff', { added: d.removed.length, removed: d.added.length, changed: d.changed.length, links: d.links })}
             </span>

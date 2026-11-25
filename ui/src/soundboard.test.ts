@@ -24,6 +24,7 @@ import {
   usualPadSettings,
 } from './soundboard.ts';
 import type { Board, GraphSpec, NodeSpec, Pad, SoundInfo } from './types.ts';
+import { formatByteSize, translate } from './i18n/core.ts';
 
 const sound = (id: string, name: string): SoundInfo => ({ id, name, channels: 2, frames: 96_000, bytes: 384_000 });
 const board = (id: string, pads: string[]): Board => ({ id, name: id, pads: pads.map((p) => ({ id: p, name: p, sound: null })) });
@@ -52,10 +53,20 @@ test('lengths and sizes read well', () => {
   assert.equal(formatDuration(0), '0:00');
   assert.equal(formatDuration(48_000 * 65), '1:05');
   assert.equal(formatDuration(48_000 * 3725), '1:02:05');
-  assert.equal(formatBytes(512), '512 B');
-  assert.equal(formatBytes(2048), '2.0 KB');
-  assert.equal(formatBytes(150 * 1024 * 1024), '150 MB');
-  assert.equal(formatBytes(1536 * 1024 * 1024), '1.5 GB');
+  // a size is written with the unit and the decimal sign of the language
+  assert.deepEqual([512, 2048, 150 * 1024 * 1024, 1536 * 1024 * 1024].map((n) => formatByteSize(n, 'en')), ['512 byte', '2 kB', '150 MB', '1.5 GB']);
+  assert.deepEqual([512, 2048, 150 * 1024 * 1024, 1536 * 1024 * 1024].map((n) => formatByteSize(n, 'fr').replace(/\s/g, ' ')), ['512 o', '2 ko', '150 Mo', '1,5 Go']);
+  assert.equal(formatBytes(150 * 1024 * 1024), '150 MB', 'English when the page has no language');
+});
+
+test('a text with a count has one form for each way the language counts: one block, two blocks', () => {
+  const dictionaries = { en: { 'n.one': '{count} block', 'n.other': '{count} blocks', plain: 'no count {count}' }, fr: { 'n.one': '{count} bloc', 'n.other': '{count} blocs' } };
+  assert.equal(translate(dictionaries, 'en', 'n', { count: 1 }), '1 block');
+  assert.equal(translate(dictionaries, 'en', 'n', { count: 0 }), '0 blocks');
+  assert.equal(translate(dictionaries, 'fr', 'n', { count: 0 }), '0 bloc', 'French counts zero as one');
+  assert.equal(translate(dictionaries, 'fr', 'n', { count: 2 }), '2 blocs');
+  assert.equal(translate(dictionaries, 'en', 'plain', { count: 3 }), 'no count 3', 'a text without forms is used as it is');
+  assert.equal(translate(dictionaries, 'de', 'n', { count: 1 }), '1 block', 'a language that has no text falls back to English, forms included');
 });
 
 test('a pad is named after its file, without folders or extension, and not too long', () => {

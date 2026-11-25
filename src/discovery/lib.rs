@@ -60,7 +60,17 @@ impl Discovery {
         }
         let text = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
         let tmp = path.with_file_name("daemon.json.tmp");
-        std::fs::write(&tmp, text)?;
+        {
+            use std::io::Write;
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            // the token is a secret: on a machine that several people use, only the owner may read it
+            #[cfg(unix)]
+            std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+            let mut file = options.open(&tmp)?;
+            file.write_all(text.as_bytes())?;
+            file.sync_all()?;
+        }
         std::fs::rename(&tmp, path)
     }
 
@@ -110,6 +120,25 @@ mod tests {
             "nobody there any more: the record is stale, whatever process has that number now"
         );
         assert!(!record("not an address".into()).answers());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_file_with_the_token_is_for_its_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = temp("mode");
+        let d = Discovery {
+            address: "127.0.0.1:7650".into(),
+            token: "t0k3n".into(),
+            pid: std::process::id(),
+        };
+        d.write(&dir).unwrap();
+        let mode = std::fs::metadata(Discovery::path_in(&dir))
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o077, 0, "nobody else may read the token");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

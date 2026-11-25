@@ -29,6 +29,9 @@ function initialLanguage(): string {
   return pickLanguage(typeof navigator === 'undefined' ? [] : navigator.languages ?? [navigator.language], LANGUAGES);
 }
 
+// `<html lang>` is right from the first paint (a screen reader reads with the voice of the language), not only after a change
+if (typeof document !== 'undefined') document.documentElement.lang = initialLanguage();
+
 type Translate = (key: string, vars?: Record<string, string | number>) => string;
 type Context = { language: string; setLanguage: (code: string) => void; t: Translate };
 const I18n = createContext<Context | null>(null);

@@ -178,6 +178,11 @@ export function NumberField({ value, onChange, min = -1e9, max = 1e9, step = 1, 
         ref={input}
         className="code"
         inputMode="decimal"
+        role="spinbutton"
+        aria-label={title}
+        aria-valuenow={Number.isFinite(value) ? value : undefined}
+        aria-valuemin={min > -1e9 ? min : undefined}
+        aria-valuemax={max < 1e9 ? max : undefined}
         value={typed}
         disabled={disabled}
         spellCheck={false}

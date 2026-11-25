@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ComponentType } from 'react';
 import type { api } from '../api.ts';
 import { Icon } from '../components/Icon.tsx';
 import { useInfoWindows } from '../components/InfoWindows.tsx';
@@ -154,7 +154,7 @@ export function SettingsPage({ daemon, notify, library, setLibrary, imports, foc
   const first = topCategories(state, t)[0];
   const current = state.categories.find((c) => c.id === selected && !state.categories.some((x) => x.parent === c.id)) ?? (first ? pageOf(state, first.id, t) : undefined);
   const parent = current?.parent ? state.categories.find((c) => c.id === current.parent) : undefined;
-  const found = useMemo(() => (query.trim() === '' ? null : searchSettings(state, query, t, shown)), [state, query, t, settings, language, choice]);
+  const found = query.trim() === '' ? null : searchSettings(state, query, t, shown);
   const name = (c: SettingCategory) => textOf(t, c.plain, c.title);
 
   /** One setting: its name with its "i", what it does, then its control (beside the name for a switch, under it for the others). */
