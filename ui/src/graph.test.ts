@@ -590,3 +590,9 @@ test('the values typed in a block stay only for the inputs it still has', () => 
   assert.deepEqual(prunedInputs(fewer).inputs, { arg1: 'a' });
   assert.equal(prunedInputs({ id: 'j', type: 'join', template: '', args: 1, inputs: { zzz: 1 } }).inputs, undefined, 'nothing left: nothing kept');
 });
+
+test('a block that is no longer offered still keeps its family and its ports for the graphs that hold it', () => {
+  assert.ok(!NODE_TYPES.includes('logic'));
+  assert.equal(categoryOf('logic'), 'condition');
+  assert.ok(portsOf(defaultKind('logic')).length > 0);
+});

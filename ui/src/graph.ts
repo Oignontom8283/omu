@@ -286,7 +286,7 @@ export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   generated: ['soundboard', 'soundboard_sound', 'audio_file', 'tone', 'noise'],
   output: ['virtual_mic', 'device_render', 'network_out', 'web_out', 'stream_out'],
   processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction', 'deep_filter'],
-  condition: ['variable', 'switch', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'cond_expr', 'text_expr', 'to_condition'],
+  condition: ['variable', 'switch', 'level', 'not', 'all', 'any', 'hold', 'after', 'cond_expr', 'text_expr', 'to_condition'],
   trigger: ['hotkey', 'timer', 'change', 'button'],
   number: ['integer', 'number', 'slider', 'math_expr', 'choose', 'counter'],
   text: ['text', 'join'],
@@ -301,7 +301,7 @@ export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
  * The blocks that are no longer offered (the expression blocks do their work and more) but that graphs made earlier hold, and
  * that still work: they keep their family and their ports, and are not in the lists above.
  */
-export const RETIRED_KINDS: Partial<Record<NodeType, Category>> = { math: 'number', compare: 'condition', text_compare: 'condition' };
+export const RETIRED_KINDS: Partial<Record<NodeType, Category>> = { math: 'number', compare: 'condition', text_compare: 'condition', logic: 'condition' };
 
 export function categoryOf(type: NodeType): Category {
   if (type === 'group') return 'group';
