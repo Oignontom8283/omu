@@ -319,6 +319,11 @@ impl Engine {
         st.meters.get(id).map(|m| m.levels())
     }
 
+    /// How long one cycle of the graph lasts, in milliseconds (what one value of `levels` stands for).
+    pub fn cycle_ms(&self) -> u32 {
+        (self.inner.cfg.cycle_frames as u64 * 1000 / ENGINE_SAMPLE_RATE as u64) as u32
+    }
+
     /// Lets go of every global keyboard shortcut (`true`) or takes them back (`false`), so that a field that records a shortcut hears the keys
     /// that are already in use. A pause ends by itself after a while.
     pub fn pause_hotkeys(&self, paused: bool) {

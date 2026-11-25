@@ -619,7 +619,10 @@ impl Daemon {
             m::EngineLevels::NAME => {
                 let p = params::<m::EngineLevels>(p)?;
                 match self.engine.levels(&omu_types::NodeId(p.node.clone())) {
-                    Some(db) => result(omu_types::Levels { cycle_ms: 10, db }),
+                    Some(db) => result(omu_types::Levels {
+                        cycle_ms: self.engine.cycle_ms(),
+                        db,
+                    }),
                     None => Err(RpcError::new(
                         RpcError::UNAVAILABLE,
                         "this block is not running: apply the graph and start the engine",
