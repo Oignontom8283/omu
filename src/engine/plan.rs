@@ -10,7 +10,7 @@
 
 use super::bridge::{SinkProducer, SourceConsumer};
 use crate::generate::{NoiseGenerator, Oscillator};
-use omu_dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
+use omu_dsp::{add_into, db_to_linear, peak, Compressor, Denoiser, Filter, SmoothedGain};
 use omu_soundboard::voices::BoardRuntime;
 use omu_types::{
     port_number, CompareOp, LogicOp, MathOp, NodeId, PortLimits, RoundMode, TextOp,
@@ -25,6 +25,10 @@ const CH: usize = ENGINE_CHANNELS as usize;
 const GAIN_RAMP_MS: f32 = 10.0;
 /// How long a level detector stays on after the sound stops, so that speech is not chopped between words.
 const LEVEL_HOLD_MS: u32 = 300;
+/// A noise reduction whose input has been silent for this long stops working until sound comes back (what it holds is silent by then).
+const QUIET_SKIP_MS: u32 = 300;
+/// Below this peak (about -100 dB) a cycle counts as silent: it is what a faded-out branch or gate leaves.
+const QUIET_PEAK: f32 = 1e-5;
 
 /// How many cycles of input level a block remembers (ten seconds).
 const LEVEL_HISTORY: usize = 1000;
@@ -296,6 +300,10 @@ pub enum NodeOp {
     /// The larger noise reduction: the model runs on a thread of its own (see `dsp::deepfilter`); this hands it each
     /// cycle's sound and takes back what it finished. The resource that owns the thread outlives plans.
     DeepFilter(Arc<Mutex<omu_deepfilter::Endpoints>>),
+    /// A compressor (or limiter).
+    Compressor(Compressor),
+    /// A filter that takes the lows or the highs out.
+    Filter(Filter),
     /// The sound, later: a ring of samples that is read before it is written.
     Delay {
         line: Vec<f32>,
@@ -412,6 +420,8 @@ impl NodeOp {
             | NodeOp::Select { .. }
             | NodeOp::NoiseReduction(_)
             | NodeOp::DeepFilter(_)
+            | NodeOp::Compressor(_)
+            | NodeOp::Filter(_)
             | NodeOp::Soundboard(_)
             | NodeOp::Tone(_)
             | NodeOp::Noise(_)
@@ -421,6 +431,26 @@ impl NodeOp {
             NodeOp::Constant(_) => 1,
             _ => 0,
         }
+    }
+
+    /// Whether the block only works for what comes after it: it processes sound and has nothing to show of its own (a level detector or a
+    /// volume measure shows its result, so it is always computed). Such a block is not computed when nothing needs what it sends (see [`Plan::skip_unused`]). A source is not one
+    /// (it keeps emptying the device's buffer), nor is a delay (its line is a memory that must not go stale).
+    fn is_skippable(&self) -> bool {
+        matches!(
+            self,
+            NodeOp::Gain(_)
+                | NodeOp::Mixer
+                | NodeOp::Gate(_)
+                | NodeOp::Branch { .. }
+                | NodeOp::Select { .. }
+                | NodeOp::NoiseReduction(_)
+                | NodeOp::DeepFilter(_)
+                | NodeOp::Compressor(_)
+                | NodeOp::Filter(_)
+                | NodeOp::Tone(_)
+                | NodeOp::Noise(_)
+        )
     }
 
     /// Whether the node's yes/no is shown in the status.
@@ -574,6 +604,10 @@ pub struct Plan {
     outs: Vec<Out>,
     silence: Vec<f32>,
     cycle_frames: usize,
+    /// `false` for a block that nothing needs (see [`Plan::skip_unused`]): it is not computed and sends nothing.
+    needed: Vec<bool>,
+    /// For each block, how many cycles in a row its sound input was silent.
+    quiet: Vec<u32>,
 }
 
 impl Plan {
@@ -588,14 +622,51 @@ impl Plan {
             .collect();
         Plan {
             outs,
+            needed: vec![true; nodes.len()],
+            quiet: vec![0; nodes.len()],
             nodes,
             silence: vec![0.0; cycle_samples],
             cycle_frames,
         }
     }
 
+    /// Stops the work that nobody would hear or see: a block that processes sound (or listens to it) is only computed when something
+    /// that needs it is linked after it, down to a block that plays, shows or acts (an output, a soundboard, a variable, a trigger...).
+    /// A chain that goes nowhere, or whose last link was taken away, costs nothing; it starts again by itself when it is linked.
+    pub fn skip_unused(mut self) -> Plan {
+        let count = self.nodes.len();
+        let mut needed: Vec<bool> = self.nodes.iter().map(|n| !n.op.is_skippable()).collect();
+        let mut pending: Vec<usize> = (0..count).filter(|&i| needed[i]).collect();
+        while let Some(i) = pending.pop() {
+            for w in &self.nodes[i].inputs {
+                if w.from < count && !needed[w.from] {
+                    needed[w.from] = true;
+                    pending.push(w.from);
+                }
+            }
+        }
+        self.needed = needed;
+        self
+    }
+
+    /// Which blocks are computed (for tests and for the panel).
+    pub fn is_needed(&self, i: usize) -> bool {
+        self.needed[i]
+    }
+
     pub fn cycle_samples(&self) -> usize {
         self.cycle_frames * CH
+    }
+
+    /// Counts the cycles the sound `input` has been silent, and says whether a block that only has to work on sound can rest: its input has been
+    /// silent for `after` cycles, so what it holds is silent too and its output would be silence.
+    fn rests(quiet: &mut u32, input: &[f32], after: u32) -> bool {
+        if peak(input) < QUIET_PEAK {
+            *quiet = quiet.saturating_add(1);
+        } else {
+            *quiet = 0;
+        }
+        *quiet > after
     }
 
     /// A gain node of this plan, built for the engine format, with `db` as target.
@@ -670,6 +741,8 @@ impl Plan {
                     }
                 }
                 (NodeOp::NoiseReduction(d), NodeOp::NoiseReduction(o)) => *d = o.clone(),
+                (NodeOp::Compressor(c), NodeOp::Compressor(o)) => c.continue_from(o),
+                (NodeOp::Filter(f), NodeOp::Filter(o)) => f.continue_from(o),
                 (NodeOp::Tone(t), NodeOp::Tone(o)) => t.continue_from(o),
                 (NodeOp::Noise(n), NodeOp::Noise(o)) => n.continue_from(o),
                 (NodeOp::Delay { line, pos }, NodeOp::Delay { line: o, pos: op }) => {
@@ -723,7 +796,14 @@ impl Plan {
         let hold_cycles =
             (LEVEL_HOLD_MS as u64 * ENGINE_SAMPLE_RATE as u64 / 1000 / self.cycle_frames as u64)
                 .max(1) as u32;
+        let quiet_cycles =
+            (QUIET_SKIP_MS as u64 * ENGINE_SAMPLE_RATE as u64 / 1000 / self.cycle_frames as u64)
+                .max(1) as u32;
         for i in 0..self.nodes.len() {
+            // nothing needs this block: its outputs stay as they are (silent, nothing)
+            if !self.needed[i] {
+                continue;
+            }
             let mut audios = std::mem::take(&mut self.outs[i].audio);
             let (mut cond, mut actions) = (false, [0u32; ACTION_OUTPUTS]);
             let mut value = Value::None;
@@ -813,20 +893,30 @@ impl Plan {
                     let input = input_audio(Port::In);
                     node.meter.record(input);
                     node.meter.record_level(input);
-                    match filter.try_lock() {
-                        Ok(mut f) => f.process(input, &mut audios[0]),
-                        Err(_) => audios[0].copy_from_slice(input),
+                    if Plan::rests(&mut self.quiet[i], input, quiet_cycles) {
+                        audios[0].fill(0.0);
+                    } else {
+                        match filter.try_lock() {
+                            Ok(mut f) => f.process(input, &mut audios[0]),
+                            Err(_) => audios[0].copy_from_slice(input),
+                        }
                     }
                 }
                 NodeOp::NoiseReduction(denoiser) => {
                     let input = input_audio(Port::In);
                     node.meter.record_level(input);
-                    match denoiser.try_lock() {
-                        Ok(mut d) => d.process(input, &mut audios[0]),
-                        // nobody else uses it while this plan runs; if it happens, the sound goes through
-                        Err(_) => audios[0].copy_from_slice(input),
+                    if Plan::rests(&mut self.quiet[i], input, quiet_cycles) {
+                        audios[0].fill(0.0);
+                    } else {
+                        match denoiser.try_lock() {
+                            Ok(mut d) => d.process(input, &mut audios[0]),
+                            // nobody else uses it while this plan runs; if it happens, the sound goes through
+                            Err(_) => audios[0].copy_from_slice(input),
+                        }
                     }
                 }
+                NodeOp::Compressor(c) => c.process(input_audio(Port::In), &mut audios[0], CH),
+                NodeOp::Filter(f) => f.process(input_audio(Port::In), &mut audios[0], CH),
                 NodeOp::Delay { line, pos } => {
                     let input = input_audio(Port::In);
                     if line.is_empty() {
@@ -2283,6 +2373,149 @@ mod tests {
         assert!(said(TextOp::StartsWith, "hello", "he"));
         assert!(!said(TextOp::StartsWith, "hello", "lo"));
         assert!(said(TextOp::EndsWith, "hello", "lo"));
+    }
+
+    /// A source, a gain that goes nowhere (node 1), a gain that reaches an output (nodes 2 and 3).
+    fn two_chains() -> Plan {
+        let (producer, _consumer, _) = sink_bridge(AudioFormat::ENGINE, 100.0);
+        Plan::new(
+            vec![
+                node("src", NodeOp::Constant(0.4), vec![]),
+                node("lost", NodeOp::Gain(Plan::gain(0.0)), vec![wire(0)]),
+                node("kept", NodeOp::Gain(Plan::gain(0.0)), vec![wire(0)]),
+                node(
+                    "out",
+                    NodeOp::Sink(Arc::new(Mutex::new(producer))),
+                    vec![wire(2)],
+                ),
+            ],
+            480,
+        )
+    }
+
+    #[test]
+    fn a_chain_that_goes_nowhere_is_not_computed_and_one_that_reaches_an_output_is() {
+        let mut plan = two_chains().skip_unused();
+        assert!(plan.is_needed(0) && plan.is_needed(2) && plan.is_needed(3));
+        assert!(!plan.is_needed(1), "nothing needs this gain");
+        run(&mut plan, 5);
+        assert!(plan.output(1).iter().all(|s| *s == 0.0), "it sent nothing");
+        assert!(plan.output(2).iter().all(|s| (s - 0.4).abs() < 1e-3));
+        // without the pruning both are computed
+        let mut all = two_chains();
+        run(&mut all, 5);
+        assert!(all.output(1).iter().all(|s| (s - 0.4).abs() < 1e-3));
+    }
+
+    #[test]
+    fn a_whole_chain_is_needed_as_soon_as_its_end_is_and_a_block_that_shows_something_keeps_its_input_alive(
+    ) {
+        // src -> gain -> gate -> volume measure (shown in the status, so needed)
+        let mut plan = Plan::new(
+            vec![
+                node("src", NodeOp::Constant(0.4), vec![]),
+                node("gain", NodeOp::Gain(Plan::gain(0.0)), vec![wire(0)]),
+                node("gate", NodeOp::Gate(Plan::gate()), vec![wire(1)]),
+                node("volume", NodeOp::Volume, vec![wire(2)]),
+                node("lost", NodeOp::Gain(Plan::gain(0.0)), vec![wire(2)]),
+            ],
+            480,
+        )
+        .skip_unused();
+        assert!((0..4).all(|i| plan.is_needed(i)));
+        assert!(!plan.is_needed(4));
+        run(&mut plan, 5);
+        assert!(
+            matches!(plan.value(3), Value::Float(db) if *db > -20.0),
+            "{:?}",
+            plan.value(3)
+        );
+    }
+
+    #[test]
+    fn a_block_that_is_linked_to_a_needed_one_through_a_condition_is_needed_too() {
+        // a gate whose condition (open or not) feeds a variable's action... here a NOT block: a gate is needed when its yes/no is used
+        let mut plan = Plan::new(
+            vec![
+                node("gate", NodeOp::Gate(Plan::gate()), vec![]),
+                node("not", NodeOp::Not, vec![wire_to(0, Port::In)]),
+            ],
+            480,
+        )
+        .skip_unused();
+        assert!(plan.is_needed(0), "its yes/no is read");
+        run(&mut plan, 2);
+        assert!(!plan.condition(1), "an open gate says yes, so NOT says no");
+    }
+
+    #[test]
+    fn a_noise_reduction_rests_while_its_input_stays_silent_and_works_again_with_the_sound() {
+        let mut plan = Plan::new(
+            vec![
+                node("src", NodeOp::Constant(0.0), vec![]),
+                node("nr", Plan::noise_reduction(480), vec![wire(0)]),
+            ],
+            480,
+        );
+        // the silent input has to last (300 ms = 30 cycles of 10 ms) before the block rests
+        run(&mut plan, 25);
+        assert!(plan.quiet[1] < 30);
+        run(&mut plan, 20);
+        assert!(plan.quiet[1] > 30, "it rests");
+        assert!(plan.output(1).iter().all(|s| *s == 0.0));
+        // sound comes back: the counter starts again at once
+        plan.nodes[0].op = NodeOp::Constant(0.3);
+        run(&mut plan, 1);
+        assert_eq!(plan.quiet[1], 0);
+    }
+
+    #[test]
+    fn a_compressor_brings_a_loud_sound_down_and_a_filter_takes_a_steady_offset_out() {
+        let mut plan = Plan::new(
+            vec![
+                node("src", NodeOp::Constant(0.5), vec![]),
+                node(
+                    "comp",
+                    NodeOp::Compressor(Compressor::new(-20.0, 4.0, 1.0, 100.0, 0.0, 48_000)),
+                    vec![wire(0)],
+                ),
+                node(
+                    "filter",
+                    NodeOp::Filter(Filter::new(omu_dsp::Shape::HighPass, 200.0, 48_000)),
+                    vec![wire(0)],
+                ),
+            ],
+            480,
+        );
+        run(&mut plan, 100);
+        let compressed = plan.output(1)[0];
+        assert!((compressed - 0.15).abs() < 0.02, "{compressed}");
+        // a constant is the lowest sound there is: a high-pass filter ends by letting nothing of it through
+        assert!(plan.output(2)[0].abs() < 0.01, "{}", plan.output(2)[0]);
+    }
+
+    #[test]
+    fn a_compressor_and_a_filter_that_are_edited_go_on_from_where_they_were() {
+        let build = |ratio: f32| {
+            Plan::new(
+                vec![
+                    node("src", NodeOp::Constant(0.5), vec![]),
+                    node(
+                        "comp",
+                        NodeOp::Compressor(Compressor::new(-20.0, ratio, 1.0, 100.0, 0.0, 48_000)),
+                        vec![wire(0)],
+                    ),
+                ],
+                480,
+            )
+        };
+        let mut old = build(4.0);
+        run(&mut old, 50);
+        let mut edited = build(8.0);
+        edited.inherit(&old);
+        run(&mut edited, 1);
+        // the level it had reached is kept: the first cycle is already compressed, not let through for an attack time
+        assert!(edited.output(1)[0] < 0.2, "{}", edited.output(1)[0]);
     }
 
     #[test]

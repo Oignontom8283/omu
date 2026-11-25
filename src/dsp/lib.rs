@@ -2,12 +2,16 @@
 //! no OS dependency: it can run in a real-time callback.
 
 pub mod denoise;
+pub mod dynamics;
+pub mod filter;
 pub mod gain;
 pub mod mix;
 pub mod remix;
 pub mod resample;
 
 pub use denoise::Denoiser;
+pub use dynamics::Compressor;
+pub use filter::{Filter, Shape};
 pub use gain::{db_to_linear, linear_to_db, SmoothedGain};
 pub use mix::{add_into, peak};
 pub use remix::remix;

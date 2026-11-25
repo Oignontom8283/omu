@@ -590,3 +590,18 @@ test('the values typed in a block stay only for the inputs it still has', () => 
   assert.deepEqual(prunedInputs(fewer).inputs, { arg1: 'a' });
   assert.equal(prunedInputs({ id: 'j', type: 'join', template: '', args: 1, inputs: { zzz: 1 } }).inputs, undefined, 'nothing left: nothing kept');
 });
+
+test('the compressor and the filter are sound processors with one sound in and one sound out, and start with usual settings', () => {
+  for (const kind of ['compressor', 'filter'] as const) {
+    assert.ok(KINDS_BY_CATEGORY.processing.includes(kind), kind);
+    assert.deepEqual(portsOf(defaultKind(kind)).map((p) => `${p.dir}:${p.name}`), ['in:in', 'out:out']);
+  }
+  assert.deepEqual(defaultKind('compressor'), { type: 'compressor', threshold_db: -20, ratio: 4, attack_ms: 10, release_ms: 150, makeup_db: 0 });
+  assert.deepEqual(defaultKind('filter'), { type: 'filter', shape: 'high_pass', hz: 100 });
+});
+
+test('a block that is no longer offered still keeps its family and its ports for the graphs that hold it', () => {
+  assert.ok(!NODE_TYPES.includes('logic'));
+  assert.equal(categoryOf('logic'), 'condition');
+  assert.ok(portsOf(defaultKind('logic')).length > 0);
+});

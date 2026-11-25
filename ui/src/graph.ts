@@ -179,6 +179,8 @@ export function portsOf(kind: KindLike): PortMeta[] {
     case 'gain':
       return [p('in', 'in', 'audio'), param('db', 'float', 'field.gain', 'dB'), p('out', 'out', 'audio')];
     case 'delay':
+    case 'compressor':
+    case 'filter':
     case 'noise_reduction':
     case 'deep_filter':
       return [p('in', 'in', 'audio'), p('out', 'out', 'audio')];
@@ -285,8 +287,8 @@ export const KINDS_BY_CATEGORY: Record<Category, NodeType[]> = {
   // the sound the program makes itself
   generated: ['soundboard', 'soundboard_sound', 'audio_file', 'tone', 'noise'],
   output: ['virtual_mic', 'device_render', 'network_out', 'web_out', 'stream_out'],
-  processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'delay', 'noise_reduction', 'deep_filter'],
-  condition: ['variable', 'switch', 'level', 'logic', 'not', 'all', 'any', 'hold', 'after', 'cond_expr', 'text_expr', 'to_condition'],
+  processing: ['gain', 'mixer', 'gate', 'branch', 'select', 'compressor', 'filter', 'delay', 'noise_reduction', 'deep_filter'],
+  condition: ['variable', 'switch', 'level', 'not', 'all', 'any', 'hold', 'after', 'cond_expr', 'text_expr', 'to_condition'],
   trigger: ['hotkey', 'timer', 'change', 'button'],
   number: ['integer', 'number', 'slider', 'math_expr', 'choose', 'counter'],
   text: ['text', 'join'],
@@ -301,7 +303,7 @@ export const NODE_TYPES = CATEGORIES.flatMap((c) => KINDS_BY_CATEGORY[c]);
  * The blocks that are no longer offered (the expression blocks do their work and more) but that graphs made earlier hold, and
  * that still work: they keep their family and their ports, and are not in the lists above.
  */
-export const RETIRED_KINDS: Partial<Record<NodeType, Category>> = { math: 'number', compare: 'condition', text_compare: 'condition' };
+export const RETIRED_KINDS: Partial<Record<NodeType, Category>> = { math: 'number', compare: 'condition', text_compare: 'condition', logic: 'condition' };
 
 export function categoryOf(type: NodeType): Category {
   if (type === 'group') return 'group';
@@ -451,6 +453,10 @@ export function defaultKind(type: NodeType): NodeKind {
       return { type, branches: 1 };
     case 'delay':
       return { type, ms: 100 };
+    case 'compressor':
+      return { type, threshold_db: -20, ratio: 4, attack_ms: 10, release_ms: 150, makeup_db: 0 };
+    case 'filter':
+      return { type, shape: 'high_pass', hz: 100 };
     case 'hold':
       return { type, ms: 500 };
     case 'after':
