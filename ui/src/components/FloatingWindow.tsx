@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { useT } from '../i18n/index.tsx';
 import { Button } from '../kit/controls.tsx';
 
@@ -36,6 +36,7 @@ export function FloatingWindow({
   children: ReactNode;
 }) {
   const t = useT();
+  const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
   // the size the person gave it; none until they do (it is as big as what it holds)
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
@@ -82,6 +83,12 @@ export function FloatingWindow({
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
   }, [modal, onClose]);
+  // a question takes the focus; when it is closed the page gets it back where it was
+  useEffect(() => {
+    if (!modal) return;
+    const before = document.activeElement as HTMLElement | null;
+    return () => before?.focus?.();
+  }, [modal]);
   const z = modal ? 1000 + order : 30 + order;
   return (
     <>
@@ -92,10 +99,11 @@ export function FloatingWindow({
         style={{ left: x, top: y, zIndex: z, ...(size ? { width: size.w, height: size.h } : {}) }}
         role={modal ? 'alertdialog' : 'dialog'}
         aria-modal={modal || undefined}
+        aria-labelledby={titleId}
         onPointerDown={onFocus}
       >
         <div className="fwin-title" onPointerDown={grab}>
-          <span className="fwin-name">{title}</span>
+          <span className="fwin-name" id={titleId}>{title}</span>
           <Button variant="flat" size="small" icon="close" title={t('app.close')} onClick={onClose} />
         </div>
         <div className="fwin-body">{children}</div>

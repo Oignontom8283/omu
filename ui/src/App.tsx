@@ -260,7 +260,7 @@ export function App() {
       if (method === EVENT_GRAPH) {
         if (applying.current) return;
         if (dirtyRef.current) setNotice('app.changedElsewhere');
-        else void daemon.graphGet().then((g) => daemon.layoutGet().then((l) => show(g, l)));
+        else void daemon.graphGet().then((g) => daemon.layoutGet().then((l) => show(g, l))).catch((e: unknown) => setNotice(message(e)));
       }
     });
     rpc.start();
@@ -873,7 +873,7 @@ export function App() {
             )}
             {needModule && (
               <div className="banner warn" role="alert">
-                {t('modules.needed', { name: needModule === 'ffmpeg' ? 'FFmpeg' : needModule })}{' '}
+                {t('modules.needed', { name: t(`module.${needModule}.name`) === `module.${needModule}.name` ? needModule : t(`module.${needModule}.name`) })}{' '}
                 <Button
                   size="small"
                   variant="primary"

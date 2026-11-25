@@ -9,6 +9,8 @@ import { getSetting, onSettingChange, registerExtension, registerExtensionSettin
 export type OmuApi = {
   /** The version of this surface: it changes when something an extension uses is taken away. */
   version: 3;
+  /** Whether this surface is at least that version: an extension that needs more than the program has can say so instead of failing halfway. */
+  requireVersion: (minimum: number) => boolean;
   /** The controls of the program (button, number field, slider, switch, drop-down...), ready to use. */
   kit: typeof kit;
   /** Makes a control available to the blocks under a name of its own (`my-extension.knob`). */
@@ -37,5 +39,6 @@ declare global {
 
 /** Puts the surface on the page. */
 export function exposeApi(): void {
-  window.omu = { version: 3, kit, registerControl, controlNames, controlNamed, registerCommand, registerPanel, registerExtension, registerSetting: registerExtensionSetting, getSetting, onSettingChange };
+  // frozen: an extension adds what it brings through the registers, it does not change what the others rely on
+  window.omu = Object.freeze({ version: 3 as const, requireVersion: (minimum: number) => minimum <= 3, kit, registerControl, controlNames, controlNamed, registerCommand, registerPanel, registerExtension, registerSetting: registerExtensionSetting, getSetting, onSettingChange });
 }

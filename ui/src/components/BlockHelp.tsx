@@ -81,6 +81,10 @@ const SETTINGS: Partial<Record<NodeType, { key: string; type: string }[]>> = {
   round: [{ key: 'field.rounding', type: 'Mode' }],
 };
 
+/** What a setting holds, written as the documentation shows it: the words of the language (a unit such as ms or dB is the same everywhere). */
+const SETTING_TYPE_KEYS: Record<string, string> = { Text: 'type.text', Integer: 'type.int', Decimal: 'type.float' };
+const SETTING_UNITS = new Set(['ms', 'dB', 'Hz']);
+
 const FLOWS: FlowType[] = ['audio', 'condition', 'action', 'text', 'int', 'float'];
 
 /** The title of the window of a documentation. */
@@ -117,7 +121,7 @@ export function Doc({ doc, spec, onOpen }: { doc: DocRef; spec?: NodeSpec; onOpe
     if (outs.length) lines.push(`## ${t('help.outputs')}`, head, ...outs.map(row), '');
     const settings = SETTINGS[type] ?? [];
     if (settings.length) {
-      lines.push(`## ${t('help.settings')}`, head, ...settings.map((s) => `| ${t(s.key)} | ${s.type === 'Condition' ? `[Condition](type:condition)` : `\`${s.type}\``} | ${t(`${s.key}.help`)} |`), '');
+      lines.push(`## ${t('help.settings')}`, head, ...settings.map((s) => `| ${t(s.key)} | ${s.type === 'Condition' ? `[${t('type.condition')}](type:condition)` : SETTING_UNITS.has(s.type) ? `\`${s.type}\`` : t(SETTING_TYPE_KEYS[s.type] ?? `help.settingType.${s.type}`)} | ${t(`${s.key}.help`)} |`), '');
     }
     // what can be written in the block, with examples, and the functions that can be called
     if (has(`kind.${type}.examples`)) lines.push(`## ${t('help.examples')}`, t(`kind.${type}.examples`), '');

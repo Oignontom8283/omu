@@ -33,9 +33,6 @@ export function Colours() {
   // the colours of the theme are read from the page once it has changed theme
   const [, reread] = useState(0);
   useEffect(() => {
-    applyThemeVars(loadThemeVars());
-  }, []);
-  useEffect(() => {
     const frame = requestAnimationFrame(() => reread((n) => n + 1));
     return () => cancelAnimationFrame(frame);
   }, [choice]);
@@ -44,7 +41,7 @@ export function Colours() {
   const save = (next: Record<string, string>) => {
     const json = JSON.stringify(next);
     setText(json);
-    setProblem(applyThemeVars(json));
+    setProblem(applyThemeVars(json, t));
   };
   const shown = (name: string) => mine[name] ?? getComputedStyle(document.documentElement).getPropertyValue(name);
   const changed = Object.keys(mine).length > 0;
@@ -85,7 +82,7 @@ export function Colours() {
             value={text}
             onChange={(value) => {
               setText(value);
-              setProblem(applyThemeVars(value));
+              setProblem(applyThemeVars(value, t));
             }}
           />
         </>

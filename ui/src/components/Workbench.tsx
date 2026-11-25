@@ -19,13 +19,20 @@ import { formatDateTime } from '../i18n/core.ts';
 export type DockState = { bottom: 'problems' | 'logs' | 'monitor' | 'versions' | null; right: 'inspector' | null; bottomHeight: number; rightWidth: number };
 
 const KEY = 'omu-workbench';
+const BOTTOM_PANELS: NonNullable<DockState['bottom']>[] = ['problems', 'logs', 'monitor', 'versions'];
 const DEFAULT: DockState = { bottom: null, right: null, bottomHeight: 220, rightWidth: 300 };
 
 /** What is open and how big, kept in this browser. */
 export function loadDock(): DockState {
   try {
-    const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<DockState> | null;
-    return { ...DEFAULT, ...(saved ?? {}) };
+    const saved = JSON.parse(localStorage.getItem(KEY) ?? 'null') as Partial<Record<keyof DockState, unknown>> | null;
+    const size = (v: unknown, fallback: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 80 && v <= 4000 ? v : fallback);
+    return {
+      bottom: BOTTOM_PANELS.find((p) => p === saved?.bottom) ?? null,
+      right: saved?.right === 'inspector' ? 'inspector' : null,
+      bottomHeight: size(saved?.bottomHeight, DEFAULT.bottomHeight),
+      rightWidth: size(saved?.rightWidth, DEFAULT.rightWidth),
+    };
   } catch {
     return DEFAULT;
   }
