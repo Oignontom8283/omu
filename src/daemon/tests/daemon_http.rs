@@ -83,7 +83,7 @@ fn typed_calls_work_end_to_end() {
     assert!(!client.call::<EngineStatusMethod>(&()).unwrap().running);
     running.stop();
     assert!(
-        !dir.join("daemon.json").exists(),
+        !dir.join("run").join("daemon.json").exists(),
         "the discovery file is removed on shutdown"
     );
     let _ = std::fs::remove_dir_all(&dir);
@@ -299,10 +299,10 @@ fn other_devices_reach_the_daemon_over_https_only_when_allowed_and_only_for_soun
     );
 
     // a client that trusts the certificate the program made (put in its certificates folder) can talk to it
-    let certs = dir.join("certificates");
+    let certs = dir.join("config").join("certificates");
     std::fs::create_dir_all(&certs).unwrap();
     std::fs::copy(
-        dir.join("tls").join("server.pem"),
+        dir.join("data").join("tls").join("server.pem"),
         certs.join("omu-server.pem"),
     )
     .unwrap();
@@ -482,7 +482,7 @@ fn a_browser_uploads_a_sound_file_and_it_joins_the_library() {
     let body: serde_json::Value = bad.body_mut().read_json().unwrap();
     assert!(body["error"]["message"].is_string(), "{body}");
     assert_eq!(client.call::<SoundboardsGet>(&()).unwrap().sounds.len(), 1);
-    let leftovers = std::fs::read_dir(dir.join("sounds"))
+    let leftovers = std::fs::read_dir(dir.join("data").join("sounds"))
         .unwrap()
         .filter(|e| {
             e.as_ref()
@@ -529,7 +529,7 @@ fn a_browser_uploads_a_video_and_only_its_sound_is_kept() {
         info.frames
     );
     // what is stored is a sound file: the video is not kept
-    let stored: Vec<String> = std::fs::read_dir(dir.join("sounds"))
+    let stored: Vec<String> = std::fs::read_dir(dir.join("data").join("sounds"))
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
         .collect();

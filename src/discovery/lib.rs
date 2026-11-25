@@ -5,6 +5,9 @@
 //! a shared machine.
 
 pub mod durable;
+pub mod layout;
+
+pub use layout::DataLayout;
 
 use serde::{Deserialize, Serialize};
 use std::io;
@@ -40,26 +43,38 @@ impl Discovery {
         })
     }
 
+    /// Where the file is (in the `run` folder of the data folder `dir`).
     pub fn path_in(dir: &std::path::Path) -> PathBuf {
+        DataLayout::new(dir).daemon_file()
+    }
+
+    /// Where an earlier version of the daemon (still running after an update) wrote it: the root of the data folder.
+    fn old_path_in(dir: &std::path::Path) -> PathBuf {
         dir.join("daemon.json")
     }
 
     pub fn write(&self, dir: &std::path::Path) -> io::Result<()> {
-        std::fs::create_dir_all(dir)?;
+        let path = Self::path_in(dir);
+        if let Some(run) = path.parent() {
+            std::fs::create_dir_all(run)?;
+        }
         let text = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
-        let tmp = dir.join("daemon.json.tmp");
+        let tmp = path.with_file_name("daemon.json.tmp");
         std::fs::write(&tmp, text)?;
-        std::fs::rename(&tmp, Self::path_in(dir))
+        std::fs::rename(&tmp, path)
     }
 
     pub fn read(dir: &std::path::Path) -> Option<Discovery> {
-        serde_json::from_str(&std::fs::read_to_string(Self::path_in(dir)).ok()?).ok()
+        [Self::path_in(dir), Self::old_path_in(dir)]
+            .iter()
+            .find_map(|path| serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok())
     }
 
     /// Removes the file, but only when it still describes this process (a newer daemon may have replaced it).
     pub fn remove_if_mine(dir: &std::path::Path) {
         if Self::read(dir).is_some_and(|d| d.pid == std::process::id()) {
             let _ = std::fs::remove_file(Self::path_in(dir));
+            let _ = std::fs::remove_file(Self::old_path_in(dir));
         }
     }
 
@@ -114,6 +129,26 @@ mod tests {
     }
 
     #[test]
+    fn the_file_is_in_the_run_folder_and_one_left_by_an_earlier_version_is_still_found() {
+        let dir = temp("old");
+        let d = Discovery {
+            address: "127.0.0.1:7650".into(),
+            token: "t".into(),
+            pid: std::process::id(),
+        };
+        d.write(&dir).unwrap();
+        assert!(dir.join("run").join("daemon.json").is_file());
+        assert!(!dir.join("daemon.json").exists());
+        Discovery::remove_if_mine(&dir);
+        // what an earlier version wrote at the root
+        std::fs::write(dir.join("daemon.json"), serde_json::to_string(&d).unwrap()).unwrap();
+        assert_eq!(Discovery::read(&dir), Some(d));
+        Discovery::remove_if_mine(&dir);
+        assert!(!dir.join("daemon.json").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_file_of_another_process_is_left_alone() {
         let dir = temp("other");
         let d = Discovery {
@@ -130,7 +165,7 @@ mod tests {
     #[test]
     fn unreadable_file_means_no_daemon() {
         let dir = temp("bad");
-        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(Discovery::path_in(&dir).parent().unwrap()).unwrap();
         std::fs::write(Discovery::path_in(&dir), "nope").unwrap();
         assert_eq!(Discovery::read(&dir), None);
         let _ = std::fs::remove_dir_all(&dir);

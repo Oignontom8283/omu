@@ -15,8 +15,9 @@ function daemonDiscovery(): { address: string; token: string } | null {
       : process.platform === 'darwin'
         ? join(homedir(), 'Library', 'Application Support', 'Omu')
         : join(process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'Omu'));
-  const file = join(dir, 'daemon.json');
-  if (!existsSync(file)) return null;
+  // the daemon publishes where it is in the `run` folder (an earlier version wrote it at the root)
+  const file = [join(dir, 'run', 'daemon.json'), join(dir, 'daemon.json')].find((f) => existsSync(f));
+  if (!file) return null;
   try {
     return JSON.parse(readFileSync(file, 'utf8'));
   } catch {

@@ -96,15 +96,16 @@ fn known(id: &str) -> Result<&'static str, String> {
 
 impl Modules {
     pub fn new(data_dir: &std::path::Path) -> Modules {
-        let saved = omu_discovery::durable::load_json(&data_dir.join("modules.json"), 1)
-            .unwrap_or_default();
+        let layout = omu_discovery::DataLayout::new(data_dir);
+        let saved =
+            omu_discovery::durable::load_json(&layout.modules_file(), 1).unwrap_or_default();
         Modules {
             data_dir: data_dir.to_owned(),
             trust: Mutex::new(omu_tls::Trust {
                 mode: omu_types::TrustMode::System,
-                folder: data_dir.join(omu_tls::FOLDER_NAME),
+                folder: layout.certificates(),
             }),
-            dir: data_dir.join("modules"),
+            dir: layout.modules(),
             state: Mutex::new(State {
                 saved,
                 ..State::default()
@@ -166,8 +167,12 @@ impl Modules {
     }
 
     fn save(&self, saved: &Saved) {
-        if omu_discovery::durable::write_json(&self.data_dir.join("modules.json"), saved, 1)
-            .is_err()
+        if omu_discovery::durable::write_json(
+            &omu_discovery::DataLayout::new(&self.data_dir).modules_file(),
+            saved,
+            1,
+        )
+        .is_err()
         {
             tracing::warn!("cannot save which modules are switched on");
         }

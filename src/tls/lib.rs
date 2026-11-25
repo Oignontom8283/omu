@@ -19,8 +19,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// The name of the folder, in the program's data folder, where the user's certificates go unless they chose another one.
-pub const FOLDER_NAME: &str = "certificates";
-
 pub mod server;
 pub use server::{local_names, server_identity, Identity};
 
@@ -35,11 +33,11 @@ pub struct Trust {
 }
 
 impl Trust {
-    /// What the settings ask for; without a folder of their own the certificates go in `<data_dir>/certificates`.
+    /// What the settings ask for; without a folder of their own the certificates go in the `certificates` folder of the `config` folder of the data folder.
     pub fn from_settings(settings: &Settings, data_dir: &Path) -> Trust {
         let folder = match settings.certificates_dir.as_deref().map(str::trim) {
             Some(dir) if !dir.is_empty() => PathBuf::from(dir),
-            _ => data_dir.join(FOLDER_NAME),
+            _ => omu_discovery::DataLayout::new(data_dir).certificates(),
         };
         Trust {
             mode: settings.trust,
@@ -435,12 +433,12 @@ mod tests {
         let mut settings = Settings::default();
         assert_eq!(
             Trust::from_settings(&settings, data).folder,
-            data.join("certificates")
+            data.join("config").join("certificates")
         );
         settings.certificates_dir = Some("  ".into());
         assert_eq!(
             Trust::from_settings(&settings, data).folder,
-            data.join("certificates")
+            data.join("config").join("certificates")
         );
         settings.certificates_dir = Some("C:/my/certs".into());
         settings.trust = TrustMode::Own;

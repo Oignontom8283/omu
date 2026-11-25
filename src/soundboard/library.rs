@@ -40,10 +40,11 @@ impl Library {
     pub fn load(dir: impl Into<PathBuf>) -> Library {
         let dir = dir.into();
         // a file that cannot be read is set aside (never written over) and the latest readable backup is used
+        let layout = omu_discovery::DataLayout::new(&dir);
         let data =
-            omu_discovery::durable::load_json(&dir.join("soundboards.json"), 3).unwrap_or_default();
+            omu_discovery::durable::load_json(&layout.soundboards_file(), 3).unwrap_or_default();
         let settings =
-            omu_discovery::durable::load_json(&dir.join("settings.json"), 3).unwrap_or_default();
+            omu_discovery::durable::load_json(&layout.settings_file(), 3).unwrap_or_default();
         Library {
             dir,
             data: Mutex::new(data),
@@ -51,20 +52,24 @@ impl Library {
         }
     }
 
-    fn write(&self, name: &str, text: &str) -> io::Result<()> {
-        omu_discovery::durable::write(&self.dir.join(name), text.as_bytes(), 3)
+    fn layout(&self) -> omu_discovery::DataLayout {
+        omu_discovery::DataLayout::new(&self.dir)
+    }
+
+    fn write(&self, file: &std::path::Path, text: &str) -> io::Result<()> {
+        omu_discovery::durable::write(file, text.as_bytes(), 3)
     }
 
     fn save(&self, data: &SoundLibrary) -> io::Result<()> {
         self.write(
-            "soundboards.json",
+            &self.layout().soundboards_file(),
             &serde_json::to_string_pretty(data).map_err(io::Error::other)?,
         )
     }
 
     /// Where the sounds are stored.
     pub fn sounds_dir(&self) -> PathBuf {
-        self.dir.join("sounds")
+        self.layout().sounds()
     }
 
     /// Where a sound is first stored: a plain WAV (the importer's output).
@@ -221,7 +226,7 @@ impl Library {
 
     pub fn set_settings(&self, settings: Settings) -> io::Result<()> {
         self.write(
-            "settings.json",
+            &self.layout().settings_file(),
             &serde_json::to_string_pretty(&settings).map_err(io::Error::other)?,
         )?;
         *lock(&self.settings) = settings;
@@ -307,7 +312,7 @@ mod tests {
         assert_eq!(again.sound("s1").unwrap().bytes, 192_000);
         assert_eq!(again.disk_bytes(), 192_000);
         assert!(
-            std::fs::read_dir(&dir).unwrap().all(|e| !e
+            std::fs::read_dir(dir.join("data")).unwrap().all(|e| !e
                 .unwrap()
                 .file_name()
                 .to_string_lossy()
@@ -316,16 +321,18 @@ mod tests {
         );
         // an unreadable file is set aside, not lost; with no earlier version to use the library is empty, not a refusal to start
         for n in 1..=3 {
-            let _ = std::fs::remove_file(dir.join(format!("soundboards.json.bak{n}")));
+            let _ = std::fs::remove_file(dir.join(format!("data/backups/soundboards.json.bak{n}")));
         }
-        std::fs::write(dir.join("soundboards.json"), "{ not json").unwrap();
+        std::fs::write(dir.join("data/soundboards.json"), "{ not json").unwrap();
         assert_eq!(Library::load(&dir).get(), SoundLibrary::default());
         assert!(
-            std::fs::read_dir(&dir).unwrap().any(|e| e
+            std::fs::read_dir(dir.join("data/backups"))
                 .unwrap()
-                .file_name()
-                .to_string_lossy()
-                .starts_with("soundboards.json.bad-")),
+                .any(|e| e
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("soundboards.json.bad-")),
             "the file that could not be read is kept"
         );
         let _ = std::fs::remove_dir_all(&dir);

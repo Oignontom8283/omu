@@ -54,7 +54,7 @@ fn a_shutdown_request_stops_the_daemon_cleanly_even_with_a_panel_connected() {
         Some(c)
     });
     assert!(
-        dir.join("omud.session").exists(),
+        dir.join("run").join("omud.session").exists(),
         "a running daemon keeps its session marker"
     );
 
@@ -75,11 +75,11 @@ fn a_shutdown_request_stops_the_daemon_cleanly_even_with_a_panel_connected() {
     });
     assert_eq!(status.code(), Some(0), "a requested stop is a clean exit");
     assert!(
-        !dir.join("daemon.json").exists(),
+        !dir.join("run").join("daemon.json").exists(),
         "the discovery file is removed"
     );
     assert!(
-        !dir.join("omud.session").exists(),
+        !dir.join("run").join("omud.session").exists(),
         "the next start must not think this one crashed"
     );
     assert!(

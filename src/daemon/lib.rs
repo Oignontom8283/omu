@@ -111,9 +111,6 @@ fn params<M: Method>(value: Value) -> Result<M::Params, RpcError> {
     serde_json::from_value(value).map_err(|e| RpcError::invalid_params(format!("{}: {e}", M::NAME)))
 }
 
-/// The file that says the saved graph is being started again (see `Daemon::restore`).
-const RESTORING_MARKER: &str = "restoring";
-
 /// The event that tells the clients about something that went wrong without being the failure of a request.
 pub const EVENT_WARNING: &str = "daemon.warning";
 
@@ -124,7 +121,7 @@ fn result<T: serde::Serialize>(v: T) -> Result<Value, RpcError> {
 impl Drop for Daemon {
     /// A daemon that ends properly was not brought down by the graph it restored: the next start may restore it again.
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(self.store.dir().join(RESTORING_MARKER));
+        let _ = std::fs::remove_file(self.store.layout().restoring_marker());
     }
 }
 
@@ -271,7 +268,7 @@ impl Daemon {
         // A graph that brings the daemon down as soon as it runs would bring it down again at every start (and at every logon, with the
         // startup entry). The file `restoring` is written before the graph is started again and removed once the daemon has lived long
         // enough, or ends properly: finding it means the last restore did not survive, so this time the graph is kept but not started.
-        let marker = self.store.dir().join(RESTORING_MARKER);
+        let marker = self.store.layout().restoring_marker();
         if saved.running && marker.exists() {
             let _ = std::fs::remove_file(&marker);
             tracing::warn!("the daemon did not survive starting the saved graph last time: it is kept, but not started again by itself");
@@ -279,7 +276,9 @@ impl Daemon {
             return;
         }
         if saved.running {
-            let _ = std::fs::create_dir_all(self.store.dir());
+            if let Some(run) = marker.parent() {
+                let _ = std::fs::create_dir_all(run);
+            }
             let _ = std::fs::write(&marker, b"");
             *lock(&self.restoring) = Some(std::time::Instant::now());
             match validate(&saved.graph) {
@@ -349,7 +348,7 @@ impl Daemon {
             let mut restoring = lock(&self.restoring);
             if restoring.is_some_and(|at| at.elapsed() >= self.restore_settles) {
                 *restoring = None;
-                let _ = std::fs::remove_file(self.store.dir().join(RESTORING_MARKER));
+                let _ = std::fs::remove_file(self.store.layout().restoring_marker());
             }
         }
         let status = self.engine.status();
@@ -686,7 +685,7 @@ impl Daemon {
                 })
             }
             m::LogsOpenFolder::NAME => {
-                let dir = self.store.dir().join(omu_diagnostics::LOG_DIR);
+                let dir = self.store.layout().logs();
                 if !dir.is_dir() {
                     return Err(RpcError::internal("there is no folder of logs yet"));
                 }
@@ -1319,7 +1318,7 @@ mod tests {
         let sim = SimBackend::new();
         sim.add_app(1, "a.exe", SimSource::tone(1000.0));
         let dir = temp_dir("unsaveable");
-        std::fs::create_dir_all(dir.join("state.json")).unwrap(); // a folder where the file must go: the save cannot succeed
+        std::fs::create_dir_all(dir.join("data").join("state.json")).unwrap(); // a folder where the file must go: the save cannot succeed
         let d = daemon_in(&dir, &sim);
         let events = Arc::new(Mutex::new(vec![]));
         let e2 = events.clone();
@@ -1489,16 +1488,16 @@ mod tests {
             std::thread::sleep(Duration::from_millis(300));
             assert!(d.tick().running);
             assert!(
-                dir.join("restoring").exists(),
+                dir.join("run").join("restoring").exists(),
                 "while it has not lived long enough, the restore is marked"
             );
         }
         assert!(
-            !dir.join("restoring").exists(),
+            !dir.join("run").join("restoring").exists(),
             "ending properly takes the mark away"
         );
         // a start that was cut short (crash, kill) leaves the mark: the next one keeps the graph and does not start it
-        std::fs::write(dir.join("restoring"), b"").unwrap();
+        std::fs::write(dir.join("run").join("restoring"), b"").unwrap();
         {
             let d = daemon_in(&dir, &sim);
             d.restore();
@@ -1521,7 +1520,7 @@ mod tests {
             d.restore_settles = Duration::ZERO;
             d.restore();
             d.tick();
-            assert!(!dir.join("restoring").exists());
+            assert!(!dir.join("run").join("restoring").exists());
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

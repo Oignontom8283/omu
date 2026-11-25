@@ -12,6 +12,7 @@ path = "lib.rs"
 
 [dependencies]
 omu-branding = { path = "../branding" }
+omu-discovery = { path = "../discovery" }
 serde = { version = "1.0", features = ["derive"] }
 tracing = "0.1"
 

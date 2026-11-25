@@ -93,7 +93,7 @@ fn assert_clean_death(dir: &Path, cause: &str) -> String {
         "the report says what had to be undone:\n{report}"
     );
     assert!(
-        !dir.join("daemon.json").exists(),
+        !dir.join("run").join("daemon.json").exists(),
         "the discovery file must be removed by the crash cleanup"
     );
     let log = read_all(&files_with(dir, "logs", "log"));
@@ -180,7 +180,7 @@ fn a_guarded_panic_is_reported_but_the_daemon_keeps_serving_and_a_kill_is_notice
     // killed from outside (no chance to clean up): the next start notices
     child.kill().unwrap();
     let _ = child.wait();
-    let _ = std::fs::remove_file(dir.join("daemon.json"));
+    let _ = std::fs::remove_file(dir.join("run").join("daemon.json"));
     let mut again = start(&dir, None);
     let info = wait_for("the second daemon to answer", || {
         Client::discover_in(&dir)
