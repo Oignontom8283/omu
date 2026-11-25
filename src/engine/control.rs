@@ -13,7 +13,8 @@ use crate::generate::{NoiseGenerator, Oscillator};
 use omu_graph::ValidGraph;
 use omu_hal::{Backend, CaptureStream, RenderStream, Running, StreamHealth, VirtualDeviceProvider};
 use omu_types::{
-    EngineStatus, KeyCombo, NodeId, NodeKind, NodeState, NodeStatus, PortType, ENGINE_SAMPLE_RATE,
+    EngineStatus, FilterShape, KeyCombo, NodeId, NodeKind, NodeState, NodeStatus, PortType,
+    ENGINE_SAMPLE_RATE,
 };
 use omu_types::{InputValue, PortType as Flow};
 use std::collections::HashMap;
@@ -744,6 +745,31 @@ impl Inner {
                     (NodeKind::Select { branches }, _) => {
                         Plan::select(*branches, self.cfg.cycle_frames)
                     }
+                    (
+                        NodeKind::Compressor {
+                            threshold_db,
+                            ratio,
+                            attack_ms,
+                            release_ms,
+                            makeup_db,
+                        },
+                        _,
+                    ) => NodeOp::Compressor(omu_dsp::Compressor::new(
+                        *threshold_db,
+                        *ratio,
+                        *attack_ms,
+                        *release_ms,
+                        *makeup_db,
+                        ENGINE_SAMPLE_RATE,
+                    )),
+                    (NodeKind::Filter { shape, hz }, _) => NodeOp::Filter(omu_dsp::Filter::new(
+                        match shape {
+                            FilterShape::HighPass => omu_dsp::Shape::HighPass,
+                            FilterShape::LowPass => omu_dsp::Shape::LowPass,
+                        },
+                        *hz,
+                        ENGINE_SAMPLE_RATE,
+                    )),
                     (NodeKind::Delay { ms }, _) => Plan::delay(*ms),
                     (NodeKind::NoiseReduction, _) => Plan::noise_reduction(self.cfg.cycle_frames),
                     (NodeKind::Not, _) => NodeOp::Not,

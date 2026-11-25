@@ -9,6 +9,7 @@ export const PRODUCT_NAME: string = typeof __PRODUCT_NAME__ === 'string' ? __PRO
 
 export type AppTarget = { pid: number } | { process_name: string };
 export type DeviceRef = 'default' | { id: string } | { name: string };
+export type FilterShape = 'high_pass' | 'low_pass';
 export type LogicOp = 'and' | 'or' | 'xor' | 'not';
 export type MathOp = 'add' | 'subtract' | 'multiply' | 'divide' | 'min' | 'max';
 export type CompareOp = 'greater' | 'less' | 'greater_or_equal' | 'less_or_equal' | 'equal' | 'not_equal';
@@ -42,6 +43,8 @@ export type NodeKind =
   | { type: 'branch'; branches: number }
   | { type: 'select'; branches: number }
   | { type: 'delay'; ms: number }
+  | { type: 'compressor'; threshold_db: number; ratio: number; attack_ms: number; release_ms: number; makeup_db: number }
+  | { type: 'filter'; shape: FilterShape; hz: number }
   | { type: 'noise_reduction' }
   | { type: 'deep_filter'; limit_db?: number }
   | { type: 'variable'; initial: boolean }

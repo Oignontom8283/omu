@@ -173,6 +173,37 @@ pub enum Wave {
     Saw,
 }
 
+/// What a [`NodeKind::Filter`] block takes out of the sound.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterShape {
+    /// The sounds below the frequency (a rumble, a breath on the microphone).
+    #[default]
+    HighPass,
+    /// The sounds above the frequency (a hiss).
+    LowPass,
+}
+
+fn compressor_threshold_db() -> f32 {
+    -20.0
+}
+
+fn compressor_ratio() -> f32 {
+    4.0
+}
+
+fn compressor_attack_ms() -> f32 {
+    10.0
+}
+
+fn compressor_release_ms() -> f32 {
+    150.0
+}
+
+fn filter_hz() -> f32 {
+    100.0
+}
+
 /// The colour of a noise (how its energy is spread over the pitches).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -520,6 +551,28 @@ pub enum NodeKind {
         #[serde(default = "one")]
         branches: u32,
     },
+    /// Processing: brings the loud parts of a sound down (a voice that stays at about the same strength): over `threshold_db`, each
+    /// `ratio` decibels of the sound give one decibel; `attack_ms` and `release_ms` say how fast it takes hold and lets go, and
+    /// `makeup_db` raises the whole sound afterwards. A high ratio makes it a limiter.
+    Compressor {
+        #[serde(default = "compressor_threshold_db")]
+        threshold_db: f32,
+        #[serde(default = "compressor_ratio")]
+        ratio: f32,
+        #[serde(default = "compressor_attack_ms")]
+        attack_ms: f32,
+        #[serde(default = "compressor_release_ms")]
+        release_ms: f32,
+        #[serde(default)]
+        makeup_db: f32,
+    },
+    /// Processing: takes the sounds below (`high_pass`) or above (`low_pass`) `hz` out of the sound.
+    Filter {
+        #[serde(default)]
+        shape: FilterShape,
+        #[serde(default = "filter_hz")]
+        hz: f32,
+    },
     /// Processing: the sound, `ms` milliseconds later (to line a sound up with another, e.g. a camera).
     Delay { ms: u32 },
     /// Processing: takes the background noise out of a voice (a fan, a keyboard, hiss) with RNNoise, a small neural
@@ -723,9 +776,11 @@ impl NodeKind {
             NodeKind::WebOut { .. } => vec![in_audio(), port("name", Input, TextFlow, false)],
             NodeKind::StreamOut { .. } => vec![in_audio(), port("url", Input, TextFlow, false)],
             NodeKind::Gain { .. } => vec![in_audio(), port("db", Input, Float, false), out_audio()],
-            NodeKind::Delay { .. } | NodeKind::NoiseReduction | NodeKind::DeepFilter { .. } => {
-                vec![in_audio(), out_audio()]
-            }
+            NodeKind::Delay { .. }
+            | NodeKind::NoiseReduction
+            | NodeKind::DeepFilter { .. }
+            | NodeKind::Compressor { .. }
+            | NodeKind::Filter { .. } => vec![in_audio(), out_audio()],
             NodeKind::Mixer => vec![in_audio(), out_audio()],
             NodeKind::Gate => vec![
                 in_audio(),
@@ -908,7 +963,9 @@ impl NodeKind {
             | NodeKind::Select { .. }
             | NodeKind::Delay { .. }
             | NodeKind::NoiseReduction
-            | NodeKind::DeepFilter { .. } => Category::Processing,
+            | NodeKind::DeepFilter { .. }
+            | NodeKind::Compressor { .. }
+            | NodeKind::Filter { .. } => Category::Processing,
             NodeKind::Variable { .. }
             | NodeKind::Level { .. }
             | NodeKind::Logic { .. }
@@ -1149,6 +1206,17 @@ mod tests {
             NodeKind::VirtualMic { name: "x".into() },
             NodeKind::Gate,
             NodeKind::Delay { ms: 1 },
+            NodeKind::Compressor {
+                threshold_db: -20.0,
+                ratio: 4.0,
+                attack_ms: 10.0,
+                release_ms: 150.0,
+                makeup_db: 0.0,
+            },
+            NodeKind::Filter {
+                shape: FilterShape::HighPass,
+                hz: 100.0,
+            },
             NodeKind::Branch { branches: 2 },
             NodeKind::Select { branches: 2 },
             NodeKind::Level {
@@ -1265,6 +1333,17 @@ mod tests {
             NodeKind::Branch { branches: 3 },
             NodeKind::Select { branches: 2 },
             NodeKind::Delay { ms: 40 },
+            NodeKind::Compressor {
+                threshold_db: -20.0,
+                ratio: 4.0,
+                attack_ms: 10.0,
+                release_ms: 150.0,
+                makeup_db: 3.0,
+            },
+            NodeKind::Filter {
+                shape: FilterShape::LowPass,
+                hz: 8000.0,
+            },
             NodeKind::NoiseReduction,
             NodeKind::Not,
             NodeKind::All,

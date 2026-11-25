@@ -32,6 +32,17 @@ const SETTINGS: Partial<Record<NodeType, { key: string; type: string }[]>> = {
   logic: [{ key: 'field.operation', type: 'Operation' }],
   hotkey: [{ key: 'field.shortcut', type: 'Keys' }],
   delay: [{ key: 'field.delay', type: 'ms' }],
+  compressor: [
+    { key: 'field.threshold', type: 'dB' },
+    { key: 'field.ratio', type: 'Decimal' },
+    { key: 'field.attack', type: 'ms' },
+    { key: 'field.release', type: 'ms' },
+    { key: 'field.makeup', type: 'dB' },
+  ],
+  filter: [
+    { key: 'field.filterShape', type: 'Mode' },
+    { key: 'field.cutoff', type: 'Hz' },
+  ],
   soundboard: [{ key: 'field.soundboard', type: 'Soundboard' }],
   soundboard_sound: [
     { key: 'field.soundboard', type: 'Soundboard' },

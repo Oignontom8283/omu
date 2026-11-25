@@ -10,7 +10,7 @@
 
 use super::bridge::{SinkProducer, SourceConsumer};
 use crate::generate::{NoiseGenerator, Oscillator};
-use omu_dsp::{add_into, db_to_linear, peak, Denoiser, SmoothedGain};
+use omu_dsp::{add_into, db_to_linear, peak, Compressor, Denoiser, Filter, SmoothedGain};
 use omu_soundboard::voices::BoardRuntime;
 use omu_types::{
     port_number, CompareOp, LogicOp, MathOp, NodeId, PortLimits, RoundMode, TextOp,
@@ -300,6 +300,10 @@ pub enum NodeOp {
     /// The larger noise reduction: the model runs on a thread of its own (see `dsp::deepfilter`); this hands it each
     /// cycle's sound and takes back what it finished. The resource that owns the thread outlives plans.
     DeepFilter(Arc<Mutex<omu_deepfilter::Endpoints>>),
+    /// A compressor (or limiter).
+    Compressor(Compressor),
+    /// A filter that takes the lows or the highs out.
+    Filter(Filter),
     /// The sound, later: a ring of samples that is read before it is written.
     Delay {
         line: Vec<f32>,
@@ -416,6 +420,8 @@ impl NodeOp {
             | NodeOp::Select { .. }
             | NodeOp::NoiseReduction(_)
             | NodeOp::DeepFilter(_)
+            | NodeOp::Compressor(_)
+            | NodeOp::Filter(_)
             | NodeOp::Soundboard(_)
             | NodeOp::Tone(_)
             | NodeOp::Noise(_)
@@ -440,6 +446,8 @@ impl NodeOp {
                 | NodeOp::Select { .. }
                 | NodeOp::NoiseReduction(_)
                 | NodeOp::DeepFilter(_)
+                | NodeOp::Compressor(_)
+                | NodeOp::Filter(_)
                 | NodeOp::Tone(_)
                 | NodeOp::Noise(_)
         )
@@ -733,6 +741,8 @@ impl Plan {
                     }
                 }
                 (NodeOp::NoiseReduction(d), NodeOp::NoiseReduction(o)) => *d = o.clone(),
+                (NodeOp::Compressor(c), NodeOp::Compressor(o)) => c.continue_from(o),
+                (NodeOp::Filter(f), NodeOp::Filter(o)) => f.continue_from(o),
                 (NodeOp::Tone(t), NodeOp::Tone(o)) => t.continue_from(o),
                 (NodeOp::Noise(n), NodeOp::Noise(o)) => n.continue_from(o),
                 (NodeOp::Delay { line, pos }, NodeOp::Delay { line: o, pos: op }) => {
@@ -905,6 +915,8 @@ impl Plan {
                         }
                     }
                 }
+                NodeOp::Compressor(c) => c.process(input_audio(Port::In), &mut audios[0], CH),
+                NodeOp::Filter(f) => f.process(input_audio(Port::In), &mut audios[0], CH),
                 NodeOp::Delay { line, pos } => {
                     let input = input_audio(Port::In);
                     if line.is_empty() {
@@ -2455,6 +2467,55 @@ mod tests {
         plan.nodes[0].op = NodeOp::Constant(0.3);
         run(&mut plan, 1);
         assert_eq!(plan.quiet[1], 0);
+    }
+
+    #[test]
+    fn a_compressor_brings_a_loud_sound_down_and_a_filter_takes_a_steady_offset_out() {
+        let mut plan = Plan::new(
+            vec![
+                node("src", NodeOp::Constant(0.5), vec![]),
+                node(
+                    "comp",
+                    NodeOp::Compressor(Compressor::new(-20.0, 4.0, 1.0, 100.0, 0.0, 48_000)),
+                    vec![wire(0)],
+                ),
+                node(
+                    "filter",
+                    NodeOp::Filter(Filter::new(omu_dsp::Shape::HighPass, 200.0, 48_000)),
+                    vec![wire(0)],
+                ),
+            ],
+            480,
+        );
+        run(&mut plan, 100);
+        let compressed = plan.output(1)[0];
+        assert!((compressed - 0.15).abs() < 0.02, "{compressed}");
+        // a constant is the lowest sound there is: a high-pass filter ends by letting nothing of it through
+        assert!(plan.output(2)[0].abs() < 0.01, "{}", plan.output(2)[0]);
+    }
+
+    #[test]
+    fn a_compressor_and_a_filter_that_are_edited_go_on_from_where_they_were() {
+        let build = |ratio: f32| {
+            Plan::new(
+                vec![
+                    node("src", NodeOp::Constant(0.5), vec![]),
+                    node(
+                        "comp",
+                        NodeOp::Compressor(Compressor::new(-20.0, ratio, 1.0, 100.0, 0.0, 48_000)),
+                        vec![wire(0)],
+                    ),
+                ],
+                480,
+            )
+        };
+        let mut old = build(4.0);
+        run(&mut old, 50);
+        let mut edited = build(8.0);
+        edited.inherit(&old);
+        run(&mut edited, 1);
+        // the level it had reached is kept: the first cycle is already compressed, not let through for an attack time
+        assert!(edited.output(1)[0] < 0.2, "{}", edited.output(1)[0]);
     }
 
     #[test]

@@ -28,7 +28,7 @@ pub use node::{
     PortSpec, PortType, RoundMode, TextOp, MAX_BRANCHES, MAX_DELAY_MS, MAX_JOIN_ARGS,
     MAX_STREAM_NAME, MAX_TEXT, MAX_WAIT_MS, MAX_WEB_NAME,
 };
-pub use node::{NoiseColor, Wave, GENERATED_MAX_DB, TONE_MAX_HZ, TONE_MIN_HZ};
+pub use node::{FilterShape, NoiseColor, Wave, GENERATED_MAX_DB, TONE_MAX_HZ, TONE_MIN_HZ};
 pub use soundboard::{
     Board, HotkeyProblem, ImportJob, ImportStep, Pad, PadProgress, Settings, SoundInfo,
     SoundLibrary, SoundStatus,
