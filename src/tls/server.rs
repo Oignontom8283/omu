@@ -140,7 +140,7 @@ pub fn server_identity(
         });
     }
 
-    let dir = data_dir.join("tls");
+    let dir = omu_discovery::DataLayout::new(data_dir).tls();
     let (cert_path, key_path, names_path) = (
         dir.join("server.pem"),
         dir.join("server-key.pem"),
@@ -322,7 +322,7 @@ mod tests {
         // with it, the client is served
         std::fs::create_dir_all(&trust.folder).unwrap();
         std::fs::copy(
-            dir.join("tls").join("server.pem"),
+            dir.join("data").join("tls").join("server.pem"),
             trust.folder.join("omu-server.pem"),
         )
         .unwrap();

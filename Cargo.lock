@@ -3798,6 +3798,7 @@ name = "omu-diagnostics"
 version = "0.35.0"
 dependencies = [
  "omu-branding",
+ "omu-discovery",
  "serde",
  "tracing",
  "windows",
@@ -3951,6 +3952,7 @@ version = "0.35.0"
 dependencies = [
  "if-addrs",
  "omu-branding",
+ "omu-discovery",
  "omu-types",
  "pem 3.0.6",
  "rcgen",

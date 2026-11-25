@@ -18,14 +18,16 @@ pub struct PreviousSession {
 static CURRENT: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
 
 fn marker_path(dir: &Path, program: &str) -> PathBuf {
-    dir.join(format!("{program}.session"))
+    omu_discovery::DataLayout::new(dir).session_file(program)
 }
 
 /// Looks at what the previous run left, then marks this run as started.
 pub fn begin(data_dir: &Path, program: &str) -> PreviousSession {
     let path = marker_path(data_dir, program);
     let previous = inspect(&path, &data_dir.join(super::CRASH_DIR));
-    let _ = std::fs::create_dir_all(data_dir);
+    if let Some(run) = path.parent() {
+        let _ = std::fs::create_dir_all(run);
+    }
     let _ = std::fs::write(
         &path,
         format!(
