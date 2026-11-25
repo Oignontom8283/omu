@@ -3,7 +3,7 @@ name = "omu-dsp"
 version.workspace = true
 edition = "2021"
 rust-version = "1.88"
-description = "audio building blocks: gain, mixing, channel remix, resampling, noise reduction"
+description = "audio building blocks: gain, mixing, channel remix, resampling, noise reduction, compressor, filter"
 license-file = "../../LICENSE"
 publish = false
 
