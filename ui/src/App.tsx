@@ -552,7 +552,7 @@ export function App() {
       case 'dock.monitor':
         return toggleDock('monitor');
       case 'dock.inspector':
-        return setDock({ ...dock, right: dock.right ? null : 'inspector' });
+        return tab === 'nodes' ? setDock({ ...dock, right: dock.right ? null : 'inspector' }) : undefined;
     }
   };
 
@@ -676,7 +676,7 @@ export function App() {
         { id: 'logs', kind: 'command', label: t('app.logs'), icon: 'list', run: () => setDock({ ...dock, bottom: dock.bottom === 'logs' ? null : 'logs' }) },
         { id: 'versions', kind: 'command', label: t('dock.versions'), icon: 'undo', run: () => toggleDock('versions') },
         { id: 'monitor', kind: 'command', label: t('dock.monitor'), icon: 'panel', run: () => setDock({ ...dock, bottom: dock.bottom === 'monitor' ? null : 'monitor' }) },
-        { id: 'inspector', kind: 'command', label: t('dock.inspector'), icon: 'panel', run: () => setDock({ ...dock, right: dock.right ? null : 'inspector' }) },
+        ...(tab === 'nodes' ? [{ id: 'inspector', kind: 'command' as const, label: t('dock.inspector'), icon: 'panel' as const, run: () => setDock({ ...dock, right: dock.right ? null : 'inspector' }) }] : []),
         status?.running
           ? { id: 'engine', kind: 'command', label: t('app.stopEngine'), icon: 'stop', run: () => void stopEngine() }
           : { id: 'engine', kind: 'command', label: t('app.startEngine'), icon: 'play', run: () => void startEngine() },
@@ -1015,7 +1015,7 @@ export function App() {
             </div>
           )}
         </div>
-            {dock.right === 'inspector' && (
+            {tab === 'nodes' && dock.right === 'inspector' && (
               <>
                 <Splitter direction="vertical" size={rightWidth} min={220} max={maxRight} usual={USUAL_SIZE.rightWidth} label={t('dock.resize')} onSize={(rightWidth) => setDock({ ...dock, rightWidth })} />
                 <div style={{ width: rightWidth }} className="dock-wrap">
@@ -1037,13 +1037,13 @@ export function App() {
                   {dock.bottom === 'problems' && <ProblemsPanel diagnostics={diagnostics} nodes={nodes.map((n) => n.data.spec)} onGo={goTo} />}
                   {dock.bottom === 'logs' && <LogsPanel daemon={daemon} notify={setNotice} />}
                   {dock.bottom === 'versions' && <VersionsPanel versions={versions} current={graph} onRestore={bringBack} />}
-                  {dock.bottom === 'monitor' && <MonitorPanel status={status} nodes={nodes.map((n) => n.data.spec)} />}
+                  {dock.bottom === 'monitor' && <MonitorPanel status={status} nodes={nodes.map((n) => n.data.spec)} daemon={daemon} />}
                 </DockFrame>
               </div>
             </>
           )}
         </div>
-        <StatusBar dock={dock} setDock={setDock} errors={errors} warnings={warnings} status={status} connected={conn === 'open'} blocks={nodes.length} />
+        <StatusBar dock={dock} setDock={setDock} errors={errors} warnings={warnings} status={status} connected={conn === 'open'} blocks={nodes.length} onGraph={tab === 'nodes'} />
         {palette && <CommandPalette key={`${palette.mode}${palette.initial ?? ''}`} items={paletteItems} mode={palette.mode} initial={palette.initial} onClose={() => setPalette(null)} />}
         {imports.chooser}
         <DialogHost />

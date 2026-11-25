@@ -72,19 +72,22 @@ impl Library {
         self.sounds_dir().join(format!("{sound}.wav"))
     }
 
-    /// Where a compressed sound is stored.
+    /// Where a compressed sound is stored: an ordinary FLAC file.
     pub fn packed_path_of(&self, sound: &str) -> PathBuf {
+        self.sounds_dir().join(format!("{sound}.flac"))
+    }
+
+    /// Where a sound compressed by an earlier version is (`.omuf`): it is read, then made a FLAC file.
+    pub fn old_packed_path_of(&self, sound: &str) -> PathBuf {
         self.sounds_dir().join(format!("{sound}.omuf"))
     }
 
     /// The file a sound is read from: the compressed one when there is one, else the plain one.
     pub fn stored_path(&self, sound: &str) -> PathBuf {
-        let packed = self.packed_path_of(sound);
-        if packed.exists() {
-            packed
-        } else {
-            self.path_of(sound)
-        }
+        [self.packed_path_of(sound), self.old_packed_path_of(sound)]
+            .into_iter()
+            .find(|p| p.exists())
+            .unwrap_or_else(|| self.path_of(sound))
     }
 
     pub fn get(&self) -> SoundLibrary {
@@ -208,6 +211,7 @@ impl Library {
         *data = next;
         let _ = std::fs::remove_file(self.path_of(id));
         let _ = std::fs::remove_file(self.packed_path_of(id));
+        let _ = std::fs::remove_file(self.old_packed_path_of(id));
         Ok(true)
     }
 

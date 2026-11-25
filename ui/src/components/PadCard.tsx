@@ -9,13 +9,15 @@ import { ShortcutField } from './ShortcutField.tsx';
 const colorOf = (pad: Pad): CSSProperties | undefined => (pad.color ? ({ '--pad': pad.color } as CSSProperties) : undefined);
 
 /**
- * One sound of a soundboard, from top to bottom: its name (a field that does not look like one until it is touched), the file, the
- * volume, the shortcut with its clear button, then the play button, with a small square beside it that stops the sound while it plays.
+ * One sound of a soundboard, from top to bottom: its name (a field that does not look like one until it is touched), the file with its
+ * length and size under it, the volume, then the shortcut, the play button and the one that stops the sound. Everything is always there
+ * (nothing moves when a sound starts), and a thin bar along the bottom shows how far the sound has got.
  */
 export function PadCard({
   pad,
   sound,
   playing,
+  progress,
   canPlay,
   problems,
   onChange,
@@ -29,6 +31,8 @@ export function PadCard({
   /** The file it plays; none when it was lost. */
   sound: SoundInfo | undefined;
   playing: boolean;
+  /** How far the sound has got, from 0 to 1; none while it does not play. */
+  progress?: number;
   /** The soundboard is in the running graph. */
   canPlay: boolean;
   problems: string[];
@@ -51,24 +55,20 @@ export function PadCard({
       </div>
       <p className="pad-file" title={sound?.name}>
         {sound ? sound.name : t('soundboards.lost')}
-        {sound && (
-          <span className="pad-meta">
-            {formatDuration(sound.frames)} · {formatBytes(sound.bytes)}
-          </span>
-        )}
       </p>
+      <p className="pad-meta">{sound ? `${formatDuration(sound.frames)} · ${formatBytes(sound.bytes)}` : '\u00a0'}</p>
       <div className="pad-volume" title={t('soundboards.volumeHint')}>
         <Icon name="speaker" size={14} />
         <Slider label={t('soundboards.volume')} min={-30} max={12} step={0.5} value={gain} onChange={(gain_db) => onChange({ gain_db })} />
         <span className="pad-db">{formatDb(gain)}</span>
       </div>
-      <ShortcutField value={pad.key ?? ''} placeholder={t('soundboards.shortcutShort')} onChange={(keys) => onChange({ key: keys || null })} />
       {problems.map((p) => (
         <small key={p} className="warn">
           {p}
         </small>
       ))}
       <div className="pad-actions">
+        <ShortcutField value={pad.key ?? ''} placeholder={t('soundboards.shortcutShort')} onChange={(keys) => onChange({ key: keys || null })} />
         <button
           type="button"
           className="pad-play nodrag"
@@ -79,11 +79,12 @@ export function PadCard({
           <Icon name="play" size={14} />
           {t('soundboards.play')}
         </button>
-        {playing && (
-          <button type="button" className="pad-stop nodrag" title={t('soundboards.stopPad')} aria-label={t('soundboards.stopPad')} onClick={onStop}>
-            <Icon name="stop" size={14} />
-          </button>
-        )}
+        <button type="button" className="pad-stop nodrag" disabled={!playing} title={t('soundboards.stopPad')} aria-label={t('soundboards.stopPad')} onClick={onStop}>
+          <Icon name="stop" size={14} />
+        </button>
+      </div>
+      <div className="pad-progress" role="progressbar" aria-label={t('soundboards.progress')} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round((progress ?? 0) * 100)}>
+        <span style={{ width: `${Math.round((progress ?? 0) * 1000) / 10}%` }} />
       </div>
     </article>
   );

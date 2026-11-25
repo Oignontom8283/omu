@@ -24,7 +24,7 @@ export type NodeKind =
   | { type: 'device_capture'; device: DeviceRef }
   | { type: 'device_render'; device: DeviceRef }
   | { type: 'virtual_speaker'; name: string }
-  | { type: 'soundboard'; board: string; triggers?: string[] }
+  | { type: 'soundboard'; board: string }
   | { type: 'soundboard_sound'; board: string; pad: string }
   | { type: 'audio_file'; sound: string; looped?: boolean; db?: number }
   | { type: 'tone'; wave?: Wave; hz?: number; db?: number }
@@ -169,6 +169,9 @@ export type Board = { id: string; name: string; pads: Pad[] };
 /** Everything saved about soundboards (they are not part of the graph: a soundboard block only names one). */
 export type SoundLibrary = { sounds: SoundInfo[]; boards: Board[] };
 /** How the soundboards' memory is used. */
+/** How far a pad that plays has got: from 0 to 1. */
+export type PadProgress = { pad: string; fraction: number };
+
 export type SoundStatus = {
   active: boolean;
   cache_limit_bytes: number;

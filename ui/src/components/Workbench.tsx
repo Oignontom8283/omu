@@ -5,7 +5,8 @@ import { owningBlock } from '../grouping.ts';
 import { useEditor } from '../context.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button } from '../kit/controls.tsx';
-import { PRODUCT_NAME, type Diagnostic, type EngineStatus, type GraphSpec, type LogLine, type NodeSpec } from '../types.ts';
+import { formatBytes } from '../soundboard.ts';
+import { PRODUCT_NAME, type Diagnostic, type EngineStatus, type GraphSpec, type LogLine, type NodeSpec, type SoundStatus } from '../types.ts';
 import { differences, same, type Version } from '../versions.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { InlineValue, Params } from './NodeCard.tsx';
@@ -228,13 +229,22 @@ export function LogsPanel({ daemon, notify }: { daemon: ReturnType<typeof api>; 
 }
 
 /** The state of the running graph, block by block: the level each one hears, the glitches, the value it makes. */
-export function MonitorPanel({ status, nodes }: { status: EngineStatus | null; nodes: NodeSpec[] }) {
+export function MonitorPanel({ status, nodes, daemon }: { status: EngineStatus | null; nodes: NodeSpec[]; daemon: ReturnType<typeof api> }) {
   const t = useT();
+  // the memory the sounds of the soundboards use, read while the panel is open
+  const [sounds, setSounds] = useState<SoundStatus | null>(null);
+  useEffect(() => {
+    const read = () => daemon.soundStatus().then(setSounds).catch(() => undefined);
+    void read();
+    const timer = setInterval(read, 1500);
+    return () => clearInterval(timer);
+  }, [daemon]);
+  const memory = sounds?.active ? t('monitor.soundMemory', { used: formatBytes(sounds.cache_used_bytes), reserved: formatBytes(sounds.cache_allocated_bytes), limit: formatBytes(sounds.cache_limit_bytes), loaded: sounds.sounds_loaded }) : t('monitor.soundMemoryIdle');
   if (!status || !status.running) return <p className="panel-empty">{t('monitor.stopped')}</p>;
   return (
     <>
       <p className="monitor-head">
-        {t('monitor.cycles', { cycles: status.cycles, late: status.late_cycles })}
+        {t('monitor.cycles', { cycles: status.cycles, late: status.late_cycles })} · {memory}
       </p>
       <table className="monitor">
         <thead>
@@ -361,6 +371,7 @@ export function StatusBar({
   status,
   connected,
   blocks,
+  onGraph,
 }: {
   dock: DockState;
   setDock: (d: DockState) => void;
@@ -369,6 +380,8 @@ export function StatusBar({
   status: EngineStatus | null;
   connected: boolean;
   blocks: number;
+  /** The graph is on screen: the inspector shows the settings of its blocks, so it has nothing to show anywhere else. */
+  onGraph: boolean;
 }) {
   const t = useT();
   const toggleBottom = (panel: NonNullable<DockState['bottom']>) => setDock({ ...dock, bottom: dock.bottom === panel ? null : panel });
@@ -387,9 +400,11 @@ export function StatusBar({
       <Button variant="flat" size="small" pressed={dock.bottom === 'monitor'} onClick={() => toggleBottom('monitor')}>
         {t('dock.monitor')}
       </Button>
-      <Button variant="flat" size="small" pressed={dock.right === 'inspector'} onClick={() => setDock({ ...dock, right: dock.right ? null : 'inspector' })}>
-        {t('dock.inspector')}
-      </Button>
+      {onGraph && (
+        <Button variant="flat" size="small" pressed={dock.right === 'inspector'} onClick={() => setDock({ ...dock, right: dock.right ? null : 'inspector' })}>
+          {t('dock.inspector')}
+        </Button>
+      )}
       <span className="spacer" />
       <span className="muted">{t('status.blocks', { count: blocks })}</span>
       <span className={`status-dot ${connected ? (status?.running ? 'ok' : 'idle') : 'bad'}`} />

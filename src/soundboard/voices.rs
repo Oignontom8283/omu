@@ -91,6 +91,11 @@ pub enum Command {
         pad: Option<u32>,
         fade: u32,
     },
+    /// Changes the volume of the voices of a pad that are playing (linear gain).
+    Gain {
+        pad: u32,
+        gain: f32,
+    },
 }
 
 impl Command {
@@ -299,8 +304,29 @@ impl Voices {
             .map(|v| v.pad)
     }
 
+    /// How far each pad that is playing has got, from 0 to 1 (the newest voice of a pad when it plays more than once):
+    /// the key of the pad and the fraction of the part that plays.
+    pub fn progress(&self) -> Vec<(u32, f32)> {
+        let mut newest: Vec<(u32, u64, f32)> = vec![];
+        for v in self.voices.iter().filter(|v| v.fading.is_none()) {
+            let span = v.end.saturating_sub(v.start).max(1);
+            let fraction = (v.pos.saturating_sub(v.start) as f32 / span as f32).clamp(0.0, 1.0);
+            match newest.iter_mut().find(|n| n.0 == v.pad) {
+                Some(n) if n.1 < v.age => *n = (v.pad, v.age, fraction),
+                Some(_) => {}
+                None => newest.push((v.pad, v.age, fraction)),
+            }
+        }
+        newest.into_iter().map(|(pad, _, f)| (pad, f)).collect()
+    }
+
     pub fn apply(&mut self, command: Command) {
         match command {
+            Command::Gain { pad, gain } => {
+                for v in self.voices.iter_mut().filter(|v| v.pad == pad) {
+                    v.gain = gain;
+                }
+            }
             Command::Play(c) => {
                 self.age += 1;
                 let voice = Voice::new(c, self.age);
@@ -375,6 +401,8 @@ pub struct BoardRuntime {
     trigger_pads: Mutex<Vec<String>>,
     plays: [AtomicU32; MAX_TRIGGERS],
     stops: AtomicU32,
+    /// How far the newest sound has got, in thousandths (the graph thread's number for a block that plays one sound).
+    progress_thousandths: AtomicU32,
 }
 
 /// The most trigger pads a soundboard block can have.
@@ -390,6 +418,7 @@ impl BoardRuntime {
             trigger_pads: Mutex::new(vec![]),
             plays: std::array::from_fn(|_| AtomicU32::new(0)),
             stops: AtomicU32::new(0),
+            progress_thousandths: AtomicU32::new(0),
         }
     }
 
@@ -447,6 +476,32 @@ impl BoardRuntime {
             }
         }
         voices.mix(out, &self.late_frames);
+        let newest = voices
+            .voices
+            .iter()
+            .filter(|v| v.fading.is_none())
+            .max_by_key(|v| v.age);
+        let thousandths = newest.map_or(0, |v| {
+            let span = v.end.saturating_sub(v.start).max(1);
+            (v.pos.saturating_sub(v.start) * 1000 / span).min(1000) as u32
+        });
+        self.progress_thousandths
+            .store(thousandths, Ordering::Relaxed);
+    }
+
+    /// Whether this is the runtime of a block that plays one sound by itself (not a soundboard).
+    pub fn is_solo(&self) -> bool {
+        self.id.starts_with('~')
+    }
+
+    /// How far the newest sound has got, as a percentage (0 when nothing plays).
+    pub fn progress_percent(&self) -> f64 {
+        f64::from(self.progress_thousandths.load(Ordering::Relaxed)) / 10.0
+    }
+
+    /// How far each pad that plays has got (0 to 1), by the key of the pad.
+    pub fn progress(&self) -> Vec<(u32, f32)> {
+        self.voices.lock().map(|v| v.progress()).unwrap_or_default()
     }
 
     /// The pads playing now (for the panel).
@@ -542,6 +597,29 @@ mod tests {
         }));
         let out = cycle(&mut v, 4);
         assert_eq!(&out[..6], &[0.25, 0.25, -0.25, -0.25, 0.125, 0.125]);
+    }
+
+    #[test]
+    fn a_volume_that_changes_while_a_sound_plays_is_heard_at_once_and_progress_follows_the_sound() {
+        let mut pool = BlockPool::new(1 << 20);
+        let sound = sound_of(&mut pool, 1, &[16_384; 100]);
+        let mut voices = Voices::default();
+        voices.apply(play(&sound, 7));
+        assert_eq!(voices.progress(), vec![(7, 0.0)]);
+        let first = cycle(&mut voices, 25);
+        assert_eq!(first[0], 0.5);
+        assert_eq!(
+            voices.progress(),
+            vec![(7, 0.25)],
+            "a quarter of the sound is behind"
+        );
+        voices.apply(Command::Gain { pad: 7, gain: 0.5 });
+        voices.apply(Command::Gain { pad: 8, gain: 0.0 });
+        let second = cycle(&mut voices, 25);
+        assert_eq!(second[0], 0.25, "half the volume from now on");
+        assert_eq!(voices.progress(), vec![(7, 0.5)]);
+        let _ = cycle(&mut voices, 200);
+        assert!(voices.progress().is_empty(), "nothing once it is over");
     }
 
     #[test]

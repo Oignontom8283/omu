@@ -2,7 +2,7 @@
 // The same endpoint serves a daemon on this machine or on another one: the page talks to whoever served it.
 
 import { DEV_TOKEN } from './types.ts';
-import type { AppInfo, Board, CleanOutcome, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, ImportJob, Layout, Levels, LogLine, ModuleInfo, Settings, SoundInfo, SoundLibrary, SoundStatus, RemoteInfo, StaleDevices, SystemInfo, TrustReport, ValidateResult } from './types.ts';
+import type { AppInfo, Board, CleanOutcome, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, ImportJob, Layout, Levels, LogLine, ModuleInfo, PadProgress, Settings, SoundInfo, SoundLibrary, SoundStatus, RemoteInfo, StaleDevices, SystemInfo, TrustReport, ValidateResult } from './types.ts';
 
 export type Connection = 'connecting' | 'open' | 'closed';
 
@@ -242,6 +242,7 @@ export const api = (rpc: Rpc) => ({
   playPad: (board: string, pad: string) => rpc.request<null>('soundboard.play', { board, pad }),
   stopPad: (board: string, pad?: string) => rpc.request<null>('soundboard.stop', pad ? { board, pad } : { board }),
   playing: (board: string) => rpc.request<string[]>('soundboard.playing', { board }),
+  progress: (board: string) => rpc.request<PadProgress[]>('soundboard.progress', { board }),
   soundStatus: () => rpc.request<SoundStatus>('soundboards.status'),
   settings: () => rpc.request<Settings>('settings.get'),
   setSettings: (s: Settings) => rpc.request<null>('settings.set', s),

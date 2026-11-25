@@ -55,6 +55,16 @@ export function formatDb(db: number): string {
   return `${rounded > 0 ? '+' : rounded < 0 ? '−' : ''}${Math.abs(rounded)} dB`;
 }
 
+/** The settings of a pad that "back to the usual" puts back (its name, its file and its shortcut stay). */
+export function usualPadSettings(): Partial<Pad> {
+  return { gain_db: 0, looped: false, exclusive: false, hold: false, fade_ms: 0, start_ms: 0, end_ms: 0, color: null };
+}
+
+/** Whether a pad has only the usual settings (there is nothing to put back). */
+export function hasUsualSettings(pad: Pad): boolean {
+  return (pad.gain_db ?? 0) === 0 && !pad.looped && !pad.exclusive && !pad.hold && !pad.fade_ms && !pad.start_ms && !pad.end_ms && !pad.color;
+}
+
 /** Replaces one pad of a board. */
 export function withPad(boards: Board[], boardId: string, padId: string, change: Partial<Pad>): Board[] {
   return boards.map((b) => (b.id !== boardId ? b : { ...b, pads: b.pads.map((p) => (p.id === padId ? { ...p, ...change } : p)) }));

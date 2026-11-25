@@ -17,7 +17,7 @@ use super::{
 };
 use omu_audiofile::stored::Stored;
 use omu_dsp::db_to_linear;
-use omu_types::{Board, ImportJob, ImportStep, Pad, Settings, SoundInfo, SoundStatus};
+use omu_types::{Board, ImportJob, ImportStep, Pad, PadProgress, Settings, SoundInfo, SoundStatus};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -204,6 +204,53 @@ impl SoundEngine {
     }
 
     fn build(dir: PathBuf, limit_override: Option<u64>) -> SoundEngine {
+        let engine = SoundEngine::assemble(dir, limit_override);
+        engine.repack_old_sounds();
+        engine
+    }
+
+    /// Sounds compressed by an earlier version (`.omuf`) are made FLAC files in the background: they play meanwhile.
+    fn repack_old_sounds(&self) {
+        let lib = &self.shared.library;
+        let old: Vec<String> = lib
+            .get()
+            .sounds
+            .into_iter()
+            .filter(|s| lib.old_packed_path_of(&s.id).exists())
+            .map(|s| s.id)
+            .collect();
+        if old.is_empty() {
+            return;
+        }
+        let shared = self.shared.clone();
+        let _ = std::thread::Builder::new()
+            .name("soundboard-repack".into())
+            .spawn(move || {
+                let lib = &shared.library;
+                for id in old {
+                    let (old, packed) = (lib.old_packed_path_of(&id), lib.packed_path_of(&id));
+                    let partial = packed.with_extension("flac.part");
+                    let done = omu_audiofile::stored::repack(&old, &partial).and_then(|()| {
+                        std::fs::rename(&partial, &packed).map_err(|e| e.to_string())
+                    });
+                    match done {
+                        Ok(()) => {
+                            if let Some(mut info) = lib.sound(&id) {
+                                info.bytes =
+                                    std::fs::metadata(&packed).map_or(info.bytes, |m| m.len());
+                                let _ = lib.update_sound(info);
+                            }
+                            // a sound that is playing may still hold the old file open: it goes at the next start
+                            let _ = std::fs::remove_file(&old);
+                            tracing::info!("the sound {id} is now a FLAC file");
+                        }
+                        Err(e) => tracing::warn!("cannot make the sound {id} a FLAC file: {e}"),
+                    }
+                }
+            });
+    }
+
+    fn assemble(dir: PathBuf, limit_override: Option<u64>) -> SoundEngine {
         SoundEngine {
             shared: Arc::new(Shared {
                 modules: Arc::new(omu_modules::Modules::new(&dir)),
@@ -465,7 +512,7 @@ impl SoundEngine {
             return Ok(info);
         }
         let (plain, packed) = (lib.path_of(id), lib.packed_path_of(id));
-        let partial = packed.with_extension("omuf.part");
+        let partial = packed.with_extension("flac.part");
         omu_audiofile::stored::compress(&plain, &partial).map_err(SoundError::Io)?;
         std::fs::rename(&partial, &packed).map_err(|e| SoundError::Io(e.to_string()))?;
         let bytes = std::fs::metadata(&packed).map_or(info.bytes, |m| m.len());
@@ -780,6 +827,60 @@ impl SoundEngine {
             .filter(|p| keys.contains(&pad_key(&p.id)))
             .map(|p| p.id)
             .collect()
+    }
+
+    /// The pads of a soundboard that are playing now, and how far each one has got.
+    pub fn progress(&self, board: &str) -> Vec<PadProgress> {
+        let (Some(runtime), Some(b)) = (self.runtime(board), self.shared.library.board(board))
+        else {
+            return vec![];
+        };
+        let progress = runtime.progress();
+        b.pads
+            .into_iter()
+            .filter_map(|p| {
+                let key = pad_key(&p.id);
+                progress
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, fraction)| PadProgress {
+                        pad: p.id,
+                        fraction: *fraction,
+                    })
+            })
+            .collect()
+    }
+
+    /// Gives the sounds that are playing the volume their pads have now (a volume moved while a sound plays).
+    pub fn refresh_gains(&self) {
+        let runtimes: Vec<(String, Arc<BoardRuntime>)> = lock(&self.shared.runtimes)
+            .iter()
+            .map(|(k, r)| (k.clone(), r.clone()))
+            .collect();
+        for (key, runtime) in runtimes {
+            let playing = runtime.playing_pads();
+            if playing.is_empty() {
+                continue;
+            }
+            let pads: Vec<(u32, Pad)> = if is_solo_key(&key) {
+                self.solo_pad(&key, SOLO_PAD)
+                    .map(|(_, p)| (pad_key(SOLO_PAD), p))
+                    .into_iter()
+                    .collect()
+            } else {
+                self.shared
+                    .library
+                    .board(&key)
+                    .map(|b| b.pads.into_iter().map(|p| (pad_key(&p.id), p)).collect())
+                    .unwrap_or_default()
+            };
+            for (k, pad) in pads.into_iter().filter(|(k, _)| playing.contains(k)) {
+                runtime.send(Command::Gain {
+                    pad: k,
+                    gain: db_to_linear(pad.gain_db),
+                });
+            }
+        }
     }
 
     pub fn status(&self) -> SoundStatus {

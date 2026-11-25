@@ -20,8 +20,10 @@ import {
   withPadsAdded,
   formatDb,
   importFraction,
+  hasUsualSettings,
+  usualPadSettings,
 } from './soundboard.ts';
-import type { Board, GraphSpec, NodeSpec, SoundInfo } from './types.ts';
+import type { Board, GraphSpec, NodeSpec, Pad, SoundInfo } from './types.ts';
 
 const sound = (id: string, name: string): SoundInfo => ({ id, name, channels: 2, frames: 96_000, bytes: 384_000 });
 const board = (id: string, pads: string[]): Board => ({ id, name: id, pads: pads.map((p) => ({ id: p, name: p, sound: null })) });
@@ -118,21 +120,15 @@ test('the memory limit is a whole number of megabytes, 16 at least', () => {
   assert.equal(cleanCacheMb('abc'), null);
 });
 
-test('a soundboard block gets an action input for each pad the graph can play, and one that stops everything', () => {
-  const names = (triggers: string[]) => portsOf({ type: 'soundboard', triggers }).map((q) => `${q.dir}:${q.name}:${q.flow}`);
-  assert.deepEqual(names([]), ['out:out:audio']);
-  assert.deepEqual(names(['a', 'b']), ['in:play1:action', 'in:play2:action', 'in:stop:action', 'out:out:audio']);
-  // an action input takes several links
-  assert.ok(portsOf({ type: 'soundboard', triggers: ['a'] }).filter((q) => q.dir === 'in').every((q) => q.multi));
-  // an action can be linked to them, a sound cannot
+test('a soundboard block only sends sound, and a block that plays one sound also sends how far it has got', () => {
+  const names = (type: 'soundboard' | 'soundboard_sound') => portsOf({ type } as never).map((q) => `${q.dir}:${q.name}:${q.flow}`);
+  assert.deepEqual(names('soundboard'), ['out:out:audio']);
+  assert.deepEqual(names('soundboard_sound'), ['in:play:action', 'in:stop:action', 'out:out:audio', 'out:progress:float']);
+  // the number can feed a block that takes numbers, a sound cannot
   const node = (spec: NodeSpec) => ({ id: spec.id, spec });
-  const nodes = [
-    node({ id: 'sb', type: 'soundboard', board: 'b', triggers: ['a'] }),
-    node({ id: 'k', type: 'hotkey', keys: 'F5' }),
-    node({ id: 'g', type: 'gain', db: 0 }),
-  ];
-  assert.equal(canConnect(nodes, [], { source: 'k', target: 'sb', sourceHandle: 'pressed', targetHandle: 'play1' }), true);
-  assert.equal(canConnect(nodes, [], { source: 'g', target: 'sb', sourceHandle: 'out', targetHandle: 'play1' }), false);
+  const nodes = [node({ id: 'ss', type: 'soundboard_sound', board: 'b', pad: 'p' }), node({ id: 'm', type: 'math', op: 'add' }), node({ id: 'sb', type: 'soundboard', board: 'b' })];
+  assert.equal(canConnect(nodes, [], { source: 'ss', target: 'm', sourceHandle: 'progress', targetHandle: 'a' }), true);
+  assert.equal(canConnect(nodes, [], { source: 'ss', target: 'sb', sourceHandle: 'out', targetHandle: 'play1' }), false);
 });
 
 test('how far an import is: a fraction when the total is known, nothing when it is not', () => {
@@ -165,4 +161,14 @@ test('only the sounds nothing else uses are orphans', () => {
   const left: Board[] = [{ id: 'other', name: 'other', pads: [{ id: 'x', name: 'x', sound: 'b' }] }];
   // a is used by no pad left, b by a pad left, c by a block
   assert.deepEqual(orphanSounds(pads, left, new Set(['c'])), ['a']);
+});
+
+test('the usual settings of a pad are put back, and the name, the file and the shortcut stay', () => {
+  const pad: Pad = { id: 'p', name: 'Applause', sound: 's', key: 'F5', gain_db: -6, looped: true, exclusive: true, hold: true, fade_ms: 500, start_ms: 1000, end_ms: 4000, color: '#ff0000' };
+  assert.equal(hasUsualSettings(pad), false);
+  const back = { ...pad, ...usualPadSettings() };
+  assert.equal(hasUsualSettings(back), true);
+  assert.deepEqual([back.name, back.sound, back.key], ['Applause', 's', 'F5']);
+  // a pad that was never touched has nothing to put back
+  assert.equal(hasUsualSettings({ id: 'q', name: 'x' }), true);
 });
