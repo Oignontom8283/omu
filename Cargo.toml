@@ -35,7 +35,7 @@ resolver = "2"
 # The version of every program and component: one number, the one of the release (the CI refuses a release whose tag is another).
 # It is raised here, before the tag is made.
 [workspace.package]
-version = "0.35.0"
+version = "0.36.0"
 
 # Release builds, as optimised as the language allows without tying the result to one machine:
 #  * fat link-time optimisation across every crate + one code-generation unit: the best inlining and dead-code
