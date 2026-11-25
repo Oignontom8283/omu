@@ -927,7 +927,10 @@ impl Inner {
         net_flows.retain(|id, _| with_net.contains(id));
         // a button, a switch or a slider that is not in the graph any more is forgotten
         manual.retain(|id, _| graph.spec.nodes.iter().any(|n| &n.id == id));
-        (Plan::new(nodes, self.cfg.cycle_frames), meters)
+        (
+            Plan::new(nodes, self.cfg.cycle_frames).skip_unused(),
+            meters,
+        )
     }
 
     fn open_node(&self, kind: &NodeKind) -> Result<Resource, Unopened> {
