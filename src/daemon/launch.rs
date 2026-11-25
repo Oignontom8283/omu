@@ -99,7 +99,7 @@ fn real_backend() -> Result<
     #[cfg(not(windows))]
     {
         Err(
-            "there is no audio backend for this platform yet; start with --demo to try the panel"
+            "sound is not supported on this system yet; start with --demo to try the panel without sound"
                 .into(),
         )
     }
