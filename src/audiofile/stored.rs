@@ -123,6 +123,10 @@ impl FlacStored {
         {
             return Err(bad("the compressed sound's header is not valid"));
         }
+        // the table must fit in the file: a header cannot make the program ask for more memory than the file is big
+        if (segments as u64).saturating_mul(LEGACY_ENTRY_BYTES) > file.metadata()?.len() {
+            return Err(bad("the compressed sound's header is not valid"));
+        }
         let mut table = vec![0u8; segments * LEGACY_ENTRY_BYTES as usize];
         file.read_exact(&mut table)?;
         let index = table
@@ -515,6 +519,25 @@ mod tests {
             body.extend_from_slice(sink.as_slice());
         }
         std::fs::write(destination, [head, table, body].concat()).unwrap();
+    }
+
+    #[test]
+    fn an_old_header_that_claims_more_segments_than_the_file_holds_is_refused_without_asking_for_the_memory(
+    ) {
+        let dir = temp("hostile");
+        let path = dir.join("h.omuf");
+        let segments = u32::MAX;
+        let frames = segments as u64 * SEGMENT_FRAMES;
+        let mut head = vec![0u8; 24];
+        head[0..4].copy_from_slice(LEGACY_MAGIC);
+        head[4] = 1;
+        head[5] = 2;
+        head[8..16].copy_from_slice(&frames.to_le_bytes());
+        head[16..20].copy_from_slice(&(SEGMENT_FRAMES as u32).to_le_bytes());
+        head[20..24].copy_from_slice(&segments.to_le_bytes());
+        std::fs::write(&path, head).unwrap();
+        assert!(Stored::open(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
