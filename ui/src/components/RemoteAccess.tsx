@@ -51,8 +51,7 @@ export function RemoteAccess({ daemon, allowed, notify }: Props) {
       )}
       {info?.enabled && (
         <>
-          <small className="muted">{t('settings.remoteOpen')}</small>
-          <ul className="cert-list" aria-label={t('settings.remoteAddresses')}>
+          <ul className="cert-list" aria-label={t('setting.remote_addresses')}>
             {info.urls.map((url) => (
               <li key={url}>
                 <small className="code remote-url">{url.replace(/#token=.*/, '')}</small>

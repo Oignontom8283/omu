@@ -28,13 +28,7 @@ export function Certificates({ daemon, settings, onFolder, notify }: Props) {
 
   return (
     <div className="certificates">
-      <div className="setting" data-setting="certificates_dir">
-        <label className="choice">
-          <span>{t('settings.certFolder')}</span>
-          <TextInput value={folder} onChange={setFolder} onCommit={(v) => onFolder(v.trim())} placeholder={report?.folder ?? ''} disabled={!settings} />
-        </label>
-        <small className="muted">{t('settings.certFolderHint')}</small>
-      </div>
+      <TextInput value={folder} onChange={setFolder} onCommit={(v) => onFolder(v.trim())} placeholder={report?.folder ?? ''} disabled={!settings} title={t('setting.certificates_dir')} />
       {report && !report.folder_exists && <small className="muted">{t('settings.certNoFolder', { folder: report.folder })}</small>}
       {report && report.certificates.length === 0 && report.folder_exists && <small className="muted">{t('settings.certNone')}</small>}
       {report && report.certificates.length > 0 && (

@@ -11,7 +11,7 @@ import { SoundLibrary } from './SoundLibrary.tsx';
  * Every sound that was imported, as a table, with the memory the sounds may use, and a button to import more. It is shown in the window
  * of the soundboards page and in the settings: the sounds belong to the program, not to one soundboard.
  */
-export function SoundsManager({ daemon, library, setLibrary, imports, notify }: { daemon: ReturnType<typeof api>; library: Library; setLibrary: (l: Library) => void; imports: SoundImports; notify: (text: string) => void }) {
+export function SoundsManager({ daemon, library, setLibrary, imports, notify, memory = true }: { daemon: ReturnType<typeof api>; library: Library; setLibrary: (l: Library) => void; imports: SoundImports; notify: (text: string) => void; /** Whether the memory limits are edited here (the settings page has them as settings of their own). */ memory?: boolean }) {
   const t = useT();
   const lib = useSoundLibrary({ daemon, setLibrary, notify });
   const mine = imports.entries.filter((e) => e.owner === 'library');
@@ -36,6 +36,7 @@ export function SoundsManager({ daemon, library, setLibrary, imports, notify }: 
         cacheText={lib.cacheText}
         compressText={lib.compressText}
         compressing={lib.compressing}
+        memory={memory}
         onCacheText={lib.setCacheText}
         onCompressText={lib.setCompressText}
         onSaveSettings={() => void lib.saveCache()}

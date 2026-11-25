@@ -67,6 +67,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 /** Colours the person chose for themselves: a small JSON object of CSS variables (`{ "--primary": "#ff00aa" }`), kept in this browser. */
 const VARS_KEY = 'omu-theme-vars';
 
+/** The colours a person can change one by one: the CSS variable and the translation key of its name (all the others are reached through the text). */
+export const COLOUR_TOKENS: { name: string; label: string }[] = [
+  { name: '--primary', label: 'colour.primary' },
+  { name: '--on-primary', label: 'colour.onPrimary' },
+  { name: '--bg', label: 'colour.bg' },
+  { name: '--panel', label: 'colour.panel' },
+  { name: '--field', label: 'colour.field' },
+  { name: '--text', label: 'colour.text' },
+  { name: '--muted', label: 'colour.muted' },
+  { name: '--line', label: 'colour.line' },
+  { name: '--ok', label: 'colour.ok' },
+  { name: '--warn', label: 'colour.warn' },
+  { name: '--bad', label: 'colour.bad' },
+];
+
 /** The text of the chosen colours, or an empty object. */
 export function loadThemeVars(): string {
   try {

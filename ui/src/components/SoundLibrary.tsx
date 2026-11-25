@@ -17,6 +17,7 @@ export function SoundLibrary({
   cacheText,
   compressText,
   compressing,
+  memory = true,
   onCacheText,
   onCompressText,
   onSaveSettings,
@@ -30,6 +31,8 @@ export function SoundLibrary({
   cacheText: string;
   compressText: string;
   compressing: string | null;
+  /** Whether the memory limits are edited under the table (the settings page has them as settings of their own). */
+  memory?: boolean;
   onCacheText: (text: string) => void;
   onCompressText: (text: string) => void;
   onSaveSettings: () => void;
@@ -125,7 +128,7 @@ export function SoundLibrary({
       </div>
 
       <section className="lib-memory">
-        <h4>{t('soundboards.memory')}</h4>
+        {memory && <h4>{t('soundboards.memory')}</h4>}
         <p className="muted">
           {status?.active
             ? t('soundboards.memoryUsed', { used: formatBytes(status.cache_used_bytes), limit: formatBytes(status.cache_limit_bytes), loaded: status.sounds_loaded })
@@ -133,20 +136,24 @@ export function SoundLibrary({
           {status && status.streams > 0 ? ` · ${t('soundboards.streams', { count: status.streams })}` : ''}
         </p>
         {status && status.late_frames > 0 && <p className="warn">{t('soundboards.late')}</p>}
-        <div className="srow">
-          <span>{t('soundboards.cacheLimit')}</span>
-          <NumberField whole min={MIN_CACHE_MB} step={16} value={Number(cacheText) || 0} onChange={(n) => onCacheText(String(n))} />
-        </div>
-        <div className="srow">
-          <span>{t('soundboards.compressAbove')}</span>
-          <NumberField whole min={0} step={1} value={Number(compressText) || 0} onChange={(n) => onCompressText(String(n))} />
-        </div>
-        <div className="lib-save">
-          <small className="muted">{t('soundboards.compressHint')}</small>
-          <Button icon="save" onClick={onSaveSettings} disabled={settings !== null && String(settings.sound_cache_mb) === cacheText && String(settings.compress_above_mb) === compressText}>
-            {t('soundboards.cacheSave')}
-          </Button>
-        </div>
+        {memory && (
+          <>
+            <div className="srow">
+              <span>{t('soundboards.cacheLimit')}</span>
+              <NumberField whole min={MIN_CACHE_MB} step={16} value={Number(cacheText) || 0} onChange={(n) => onCacheText(String(n))} />
+            </div>
+            <div className="srow">
+              <span>{t('soundboards.compressAbove')}</span>
+              <NumberField whole min={0} step={1} value={Number(compressText) || 0} onChange={(n) => onCompressText(String(n))} />
+            </div>
+            <div className="lib-save">
+              <small className="muted">{t('soundboards.compressHint')}</small>
+              <Button icon="save" onClick={onSaveSettings} disabled={settings !== null && String(settings.sound_cache_mb) === cacheText && String(settings.compress_above_mb) === compressText}>
+                {t('soundboards.cacheSave')}
+              </Button>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

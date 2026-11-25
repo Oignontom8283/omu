@@ -14,6 +14,7 @@ const categoryOfKind = (id: string): Category | undefined => CATEGORIES.find((c)
 function linkClass(scheme: LinkScheme, id: string, links: DocLinks): string {
   if (scheme === 'port') return `ref flow-${links.flowOf?.(id) ?? 'audio'}`;
   if (scheme === 'type') return `ref flow-${id}`;
+  if (scheme === 'setting') return 'ref setting';
   return `ref cat-${categoryOfKind(id) ?? 'processing'} kind`;
 }
 
@@ -58,8 +59,9 @@ function BlockView({ block, links }: { block: Block; links: DocLinks }): ReactNo
         </p>
       );
     case 'list':
+      // a list of nothing but links (see also, used by) runs along the line; a list of sentences is a list
       return (
-        <ul>
+        <ul className={block.items.every((item) => item.length === 1 && item[0].link) ? 'links' : undefined}>
           {block.items.map((item, i) => (
             <li key={i}>
               <Inlines items={item} links={links} />

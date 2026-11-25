@@ -47,9 +47,8 @@ export function Shortcuts({ overrides, onChange }: { overrides: Overrides; onCha
     onChange(next);
   };
   return (
-    <section>
-      <h3>{t('settings.section.shortcuts')}</h3>
-      <div className="shortcuts">
+    <div className="shortcuts">
+      <div>
         {COMMANDS.map((c) => {
           const clash = map[c.id] !== '' && commandsFor(map[c.id], map).length > 1;
           return (
@@ -62,6 +61,6 @@ export function Shortcuts({ overrides, onChange }: { overrides: Overrides; onCha
           );
         })}
       </div>
-    </section>
+    </div>
   );
 }
