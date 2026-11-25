@@ -36,7 +36,7 @@ import { ExtensionWindow, JsonWindow } from './components/ToolWindows.tsx';
 import { getSnapshot as extensionsNow, subscribe as onExtensions } from './extensionRegistry.ts';
 import { flashPort } from './components/BlockHelp.tsx';
 import { Modules } from './components/Modules.tsx';
-import { SettingsPanel } from './components/SettingsPanel.tsx';
+import { SettingsPage } from './settings/SettingsPage.tsx';
 import { Soundboards } from './components/Soundboards.tsx';
 import {
   GAP,
@@ -64,7 +64,7 @@ import {
   withoutLive,
 } from './graph.ts';
 import { useI18n } from './i18n/index.tsx';
-import { SETTING_DECLS } from './settingsRegistry.ts';
+import { getSnapshot as settingsNow, subscribe as onSettings, keywordsOf as settingKeywords, textOf as settingText } from './settings/registry.ts';
 import { useTheme } from './theme.tsx';
 import type { AppInfo, Category, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundInfo, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
@@ -648,9 +648,11 @@ export function App() {
 
   // what extensions added, and the panels of them that are open
   const extensions = useSyncExternalStore(onExtensions, extensionsNow);
+  // the settings of the program and of the extensions, which the palette finds too
+  const registered = useSyncExternalStore(onSettings, settingsNow);
   const [openPanels, setOpenPanels] = useState<string[]>([]);
 
-  // what the search bar offers: the commands, the settings (declared in `settingsRegistry.ts`) and every kind of block
+  // what the search bar offers: the commands, the settings (registered in `settings/registry.ts`) and every kind of block
   const paletteItems: PaletteItem[] = palette
     ? [
         ...extensions.commands.map((c): PaletteItem => ({ id: `ext-${c.id}`, kind: 'command', label: c.title, icon: 'panel', run: c.run })),
@@ -680,12 +682,12 @@ export function App() {
         status?.running
           ? { id: 'engine', kind: 'command', label: t('app.stopEngine'), icon: 'stop', run: () => void stopEngine() }
           : { id: 'engine', kind: 'command', label: t('app.startEngine'), icon: 'play', run: () => void startEngine() },
-        ...SETTING_DECLS.map((d): PaletteItem => ({
+        ...registered.settings.map((d): PaletteItem => ({
           id: `setting-${d.id}`,
           kind: 'setting',
           icon: 'gear',
-          label: t(d.label),
-          keywords: d.hint ? t(d.hint) : undefined,
+          label: settingText(t, d.plain, d.title),
+          keywords: [d.description ? settingText(t, d.plain, d.description) : '', settingKeywords(d, t)].join(' ').trim() || undefined,
           run: () => {
             setTab('settings');
             setSettingFocus({ id: d.id, nonce: Date.now() });
@@ -996,7 +998,7 @@ export function App() {
             />
           )}
           {tab === 'modules' && <Modules daemon={daemon} notify={setNotice} />}
-          {tab === 'settings' && <SettingsPanel daemon={daemon} notify={setNotice} library={library} setLibrary={setLibrary} imports={imports} focus={settingFocus} shortcuts={{ overrides, onChange: setOverrides }} />}
+          {tab === 'settings' && <SettingsPage daemon={daemon} notify={setNotice} library={library} setLibrary={setLibrary} imports={imports} focus={settingFocus} shortcuts={{ overrides, onChange: setOverrides }} />}
           {showJson && <JsonWindow graph={graph} onClose={() => setShowJson(false)} />}
           {extensions.panels.filter((p) => openPanels.includes(p.id)).map((p) => (
             <ExtensionWindow key={p.id} panel={p} onClose={() => setOpenPanels((open) => open.filter((id) => id !== p.id))} />

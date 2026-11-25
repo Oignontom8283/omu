@@ -4,10 +4,11 @@
 import * as kit from './kit/controls.tsx';
 import { controlNames, controlNamed, registerControl } from './kit/registry.ts';
 import { registerCommand, registerPanel } from './extensionRegistry.ts';
+import { getSetting, onSettingChange, registerExtension, registerExtensionSetting } from './settings/extensionApi.ts';
 
 export type OmuApi = {
   /** The version of this surface: it changes when something an extension uses is taken away. */
-  version: 2;
+  version: 3;
   /** The controls of the program (button, number field, slider, switch, drop-down...), ready to use. */
   kit: typeof kit;
   /** Makes a control available to the blocks under a name of its own (`my-extension.knob`). */
@@ -18,6 +19,14 @@ export type OmuApi = {
   registerCommand: typeof registerCommand;
   /** Adds a panel (a floating window the extension fills), opened from the command palette. Returns what takes it away. */
   registerPanel: typeof registerPanel;
+  /** Declares the extension in the settings: it gets a category of its own under "Extensions". Returns what takes it away, with its settings. */
+  registerExtension: typeof registerExtension;
+  /** Adds a setting to the category of an extension (a switch, a choice, a text, a number, a slider, or a control of its own). Returns what takes it away. */
+  registerSetting: typeof registerExtensionSetting;
+  /** The value of a setting of an extension: what the person set, or the default. */
+  getSetting: typeof getSetting;
+  /** Calls a function each time a setting of an extension changes. Returns what stops it. */
+  onSettingChange: typeof onSettingChange;
 };
 
 declare global {
@@ -28,5 +37,5 @@ declare global {
 
 /** Puts the surface on the page. */
 export function exposeApi(): void {
-  window.omu = { version: 2, kit, registerControl, controlNames, controlNamed, registerCommand, registerPanel };
+  window.omu = { version: 3, kit, registerControl, controlNames, controlNamed, registerCommand, registerPanel, registerExtension, registerSetting: registerExtensionSetting, getSetting, onSettingChange };
 }
