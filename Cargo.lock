@@ -174,7 +174,7 @@ checksum = "fb5dfbc6d8d2675589ccbe4d0fd61df2419075625f8c1a62325e718e2b0049f9"
 
 [[package]]
 name = "app-omu-cli"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-branding",
  "omu-cli",
@@ -184,7 +184,7 @@ dependencies = [
 
 [[package]]
 name = "app-omu-gui"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-branding",
  "omu-diagnostics",
@@ -195,7 +195,7 @@ dependencies = [
 
 [[package]]
 name = "app-omud"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "clap",
  "omu-branding",
@@ -3685,7 +3685,7 @@ dependencies = [
 
 [[package]]
 name = "omu-audiofile"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "claxon",
  "flacenc",
@@ -3696,21 +3696,21 @@ dependencies = [
 
 [[package]]
 name = "omu-branding"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]
 name = "omu-build"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "toml 1.2.1+spec-1.1.0",
 ]
 
 [[package]]
 name = "omu-cli"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "clap",
  "omu-branding",
@@ -3725,7 +3725,7 @@ dependencies = [
 
 [[package]]
 name = "omu-client"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "minreq",
  "omu-branding",
@@ -3736,7 +3736,7 @@ dependencies = [
 
 [[package]]
 name = "omu-daemon"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "axum",
  "axum-server",
@@ -3770,7 +3770,7 @@ dependencies = [
 
 [[package]]
 name = "omu-deepfilter"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "deep_filter",
  "ndarray",
@@ -3786,7 +3786,7 @@ dependencies = [
 
 [[package]]
 name = "omu-desktop"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-branding",
  "omu-diagnostics",
@@ -3795,7 +3795,7 @@ dependencies = [
 
 [[package]]
 name = "omu-diagnostics"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-branding",
  "serde",
@@ -3805,7 +3805,7 @@ dependencies = [
 
 [[package]]
 name = "omu-discovery"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "dirs",
  "omu-branding",
@@ -3816,14 +3816,14 @@ dependencies = [
 
 [[package]]
 name = "omu-dsp"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "nnnoiseless",
 ]
 
 [[package]]
 name = "omu-engine"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-deepfilter",
  "omu-diagnostics",
@@ -3839,7 +3839,7 @@ dependencies = [
 
 [[package]]
 name = "omu-graph"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-types",
  "thiserror 2.0.21",
@@ -3847,7 +3847,7 @@ dependencies = [
 
 [[package]]
 name = "omu-gui"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-branding",
  "omu-build",
@@ -3867,7 +3867,7 @@ dependencies = [
 
 [[package]]
 name = "omu-hal"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-types",
  "thiserror 2.0.21",
@@ -3877,7 +3877,7 @@ dependencies = [
 
 [[package]]
 name = "omu-logging"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-branding",
  "omu-diagnostics",
@@ -3888,7 +3888,7 @@ dependencies = [
 
 [[package]]
 name = "omu-modules"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "flate2",
  "omu-audiofile",
@@ -3907,7 +3907,7 @@ dependencies = [
 
 [[package]]
 name = "omu-net"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "if-addrs",
  "omu-diagnostics",
@@ -3921,7 +3921,7 @@ dependencies = [
 
 [[package]]
 name = "omu-protocol"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-diagnostics",
  "omu-types",
@@ -3931,7 +3931,7 @@ dependencies = [
 
 [[package]]
 name = "omu-soundboard"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-audiofile",
  "omu-branding",
@@ -3947,7 +3947,7 @@ dependencies = [
 
 [[package]]
 name = "omu-tls"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "if-addrs",
  "omu-branding",
@@ -3967,7 +3967,7 @@ dependencies = [
 
 [[package]]
 name = "omu-types"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "cel",
  "fasteval",
@@ -3979,7 +3979,7 @@ dependencies = [
 
 [[package]]
 name = "omu-virtual-devices"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "omu-branding",
  "omu-desktop",
@@ -3994,7 +3994,7 @@ dependencies = [
 
 [[package]]
 name = "omu-win-installer"
-version = "0.22.1"
+version = "0.35.0"
 dependencies = [
  "base64 0.22.1",
  "clap",

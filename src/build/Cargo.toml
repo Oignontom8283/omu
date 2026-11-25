@@ -1,6 +1,6 @@
 [package]
 name = "omu-build"
-version = "0.22.1"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "helpers for the build scripts: the web panel build and the window configuration"

@@ -1,6 +1,6 @@
 [package]
 name = "omu-modules"
-version = "0.22.1"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "optional modules (FFmpeg, the DeepFilterNet model) and their downloads"

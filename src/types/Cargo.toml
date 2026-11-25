@@ -1,6 +1,6 @@
 [package]
 name = "omu-types"
-version = "0.22.1"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "the data types shared by every part of the program: graph, blocks, devices, soundboards, settings"

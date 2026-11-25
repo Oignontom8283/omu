@@ -1,6 +1,6 @@
 [package]
 name = "omu-net"
-version = "0.22.1"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "sound over the network: VBAN, and WebRTC (WHIP and WHEP)"

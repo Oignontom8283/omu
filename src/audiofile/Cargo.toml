@@ -1,6 +1,6 @@
 [package]
 name = "omu-audiofile"
-version = "0.22.1"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "files that hold sound: WAV, compressed storage, and importing MP3, FLAC, OGG, AAC and videos"

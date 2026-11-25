@@ -1,6 +1,6 @@
 [package]
 name = "omu-win-installer"
-version = "0.22.1"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "script of the repository: builds the Windows installers (one per processor), on Windows or on Linux"

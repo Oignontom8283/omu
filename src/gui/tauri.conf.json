@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "overridden-by-build.rs",
-  "version": "0.1.0",
   "identifier": "overridden.by.build.rs",
   "build": {
     "frontendDist": "../../ui/dist",

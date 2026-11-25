@@ -34,6 +34,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # the file names and the version the programs show come from Cargo.toml: a release whose tag is another number is refused at once
+      - name: The tag is the version of the programs
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version *= *"\(.*\)"/\1/p' Cargo.toml)
+          if [ "${TAG#v}" != "$version" ]; then
+            echo "::error::the release is $TAG but the programs are version $version: raise [workspace.package] version in Cargo.toml, then make the tag again"
+            exit 1
+          fi
+
       # clang, lld and llvm (llvm-rc makes the resources of the programs) for the cross-compilation, NSIS for the installer, osslsigncode to sign it
       - name: Tools
         run: |

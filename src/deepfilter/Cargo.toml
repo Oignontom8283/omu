@@ -1,6 +1,6 @@
 [package]
 name = "omu-deepfilter"
-version = "0.22.1"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "the DeepFilterNet noise reduction model, run on a thread of its own"

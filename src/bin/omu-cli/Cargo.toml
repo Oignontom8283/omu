@@ -1,6 +1,6 @@
 [package]
 name = "app-omu-cli"
-version = "0.22.1"
+version.workspace = true
 edition = "2021"
 rust-version = "1.88"
 description = "the omu-cli executable"
