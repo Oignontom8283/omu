@@ -10,6 +10,7 @@ import { PRODUCT_NAME, type Diagnostic, type EngineStatus, type GraphSpec, type 
 import { differences, same, type Version } from '../versions.ts';
 import { Icon, type IconName } from './Icon.tsx';
 import { InlineValue, Params } from './NodeCard.tsx';
+import { formatDateTime } from '../i18n/core.ts';
 
 // The places around the graph, as in a code editor: a panel under it (problems, activity log, monitor), a panel beside it
 // (the inspector of the selected block), a bar at the bottom with the counts and the buttons that open them. Their sizes and
@@ -239,7 +240,7 @@ export function MonitorPanel({ status, nodes, daemon }: { status: EngineStatus |
     const timer = setInterval(read, 1500);
     return () => clearInterval(timer);
   }, [daemon]);
-  const memory = sounds?.active ? t('monitor.soundMemory', { used: formatBytes(sounds.cache_used_bytes), reserved: formatBytes(sounds.cache_allocated_bytes), limit: formatBytes(sounds.cache_limit_bytes), loaded: sounds.sounds_loaded }) : t('monitor.soundMemoryIdle');
+  const memory = sounds?.active ? t('monitor.soundMemory', { used: formatBytes(sounds.cache_used_bytes), reserved: formatBytes(sounds.cache_allocated_bytes), limit: formatBytes(sounds.cache_limit_bytes), count: sounds.sounds_loaded }) : t('monitor.soundMemoryIdle');
   if (!status || !status.running) return <p className="panel-empty">{t('monitor.stopped')}</p>;
   return (
     <>
@@ -288,7 +289,7 @@ export function VersionsPanel({ versions, current, onRestore }: { versions: Vers
         const d = differences(current, v.graph);
         return (
           <li key={v.at}>
-            <span className="when">{new Date(v.at).toLocaleString()}</span>
+            <span className="when">{formatDateTime(v.at)}</span>
             <span className="summary muted">
               {i === 0 && same(d) ? t('versions.current') : t('versions.diff', { added: d.removed.length, removed: d.added.length, changed: d.changed.length, links: d.links })}
             </span>

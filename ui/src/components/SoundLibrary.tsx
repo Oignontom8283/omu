@@ -131,7 +131,7 @@ export function SoundLibrary({
         {memory && <h4>{t('soundboards.memory')}</h4>}
         <p className="muted">
           {status?.active
-            ? t('soundboards.memoryUsed', { used: formatBytes(status.cache_used_bytes), limit: formatBytes(status.cache_limit_bytes), loaded: status.sounds_loaded })
+            ? t('soundboards.memoryUsed', { used: formatBytes(status.cache_used_bytes), limit: formatBytes(status.cache_limit_bytes), count: status.sounds_loaded })
             : t('soundboards.memoryIdle')}
           {status && status.streams > 0 ? ` · ${t('soundboards.streams', { count: status.streams })}` : ''}
         </p>

@@ -68,6 +68,7 @@ import { getSnapshot as settingsNow, subscribe as onSettings, keywordsOf as sett
 import { useTheme } from './theme.tsx';
 import type { AppInfo, Category, ControlAction, DeviceInfo, Diagnostic, EngineStatus, GraphSpec, InputValue, Layout, NodeKind, NodeSpec, NodeType, SoundInfo, SoundLibrary, StaleDevices, SystemInfo } from './types.ts';
 import { PRODUCT_NAME } from './types.ts';
+import { formatDateTime } from './i18n/core.ts';
 
 const nodeTypes = { omu: NodeCard };
 
@@ -826,7 +827,7 @@ export function App() {
         {draftOffer && (
           <div className="banners">
             <div className="banner info" role="status">
-              {t('draft.found', { date: new Date(draftOffer.at).toLocaleString() })}{' '}
+              {t('draft.found', { date: formatDateTime(draftOffer.at) })}{' '}
               <Button size="small" variant="primary" onClick={() => { bringBack(draftOffer); setDraftOffer(null); }}>
                 {t('draft.restore')}
               </Button>{' '}

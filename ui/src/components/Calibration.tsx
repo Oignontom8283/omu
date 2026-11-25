@@ -5,6 +5,7 @@ import { useEditor } from '../context.ts';
 import { useT } from '../i18n/index.tsx';
 import { Button } from '../kit/controls.tsx';
 import type { NodeSpec } from '../types.ts';
+import { formatDateTime } from '../i18n/core.ts';
 
 const QUIET_SECONDS = 4;
 const SPEECH_SECONDS = 6;
@@ -153,7 +154,7 @@ export function Calibration({ spec, daemon, running }: { spec: NodeSpec; daemon:
       {problem && <p className="calibration-advice">{t(`calibration.problem.${problem}`)}</p>}
       {saved && (
         <p className="muted">
-          {t('calibration.last', { date: new Date(saved.date).toLocaleString(), margin: saved.suggestion.margin })}
+          {t('calibration.last', { date: formatDateTime(saved.date), margin: saved.suggestion.margin })}
         </p>
       )}
       <Button variant="primary" icon="record" onClick={start} disabled={!running}>
