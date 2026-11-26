@@ -694,3 +694,60 @@ body.resizing-col * {
   font-size: 12px;
 }
 
+/* ---- the modules */
+.mod-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.mod-progress progress {
+  flex: 1;
+  min-width: 40px;
+  height: 6px;
+}
+.dt-row.failed .dt-cell:first-child {
+  box-shadow: inset 3px 0 0 var(--bad);
+}
+.mod-details {
+  padding: 12px 14px 24px;
+  user-select: text;
+}
+.mod-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.mod-head h2 {
+  margin: 0;
+  font-size: 17px;
+}
+.mod-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.mod-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0;
+}
+.mod-download {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mod-download progress {
+  flex: 1;
+}
+.mod-doc {
+  margin-top: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--line);
+}
+
