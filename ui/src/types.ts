@@ -6,6 +6,9 @@ declare const __PRODUCT_NAME__: string;
 export const DEV_TOKEN: string = typeof __OMU_DEV_TOKEN__ === 'string' ? __OMU_DEV_TOKEN__ : '';
 // the build defines it; without it (the tests, run by node) a neutral word stands in
 export const PRODUCT_NAME: string = typeof __PRODUCT_NAME__ === 'string' ? __PRODUCT_NAME__ : 'Product';
+declare const __SOUND_CACHE_MB__: number;
+/** The memory the soundboards may use until someone changes it (from the branding of the build, like the daemon's). */
+export const SOUND_CACHE_MB: number = typeof __SOUND_CACHE_MB__ === 'number' ? __SOUND_CACHE_MB__ : 256;
 
 export type AppTarget = { pid: number } | { process_name: string };
 export type DeviceRef = 'default' | { id: string } | { name: string };

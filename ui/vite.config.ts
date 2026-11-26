@@ -25,15 +25,16 @@ function daemonDiscovery(): { address: string; token: string } | null {
   }
 }
 
-// The product's name comes from branding.toml (one source of truth for every build target).
-function productName(): string {
-  const text = readFileSync(join(import.meta.dirname, '..', 'branding.toml'), 'utf8');
-  const m = text.match(/^display_name\s*=\s*"([^"]*)"/m);
-  if (!m) throw new Error('branding.toml: display_name not found');
+// The product's name and the usual memory of the sounds come from branding.toml (one source of truth for every build target).
+const branding = readFileSync(join(import.meta.dirname, '..', 'branding.toml'), 'utf8');
+function brandingValue(key: string, pattern: string): string {
+  const m = branding.match(new RegExp(`^${key}\\s*=\\s*${pattern}`, 'm'));
+  if (!m) throw new Error(`branding.toml: ${key} not found`);
   return m[1];
 }
 
-const product = productName();
+const product = brandingValue('display_name', '"([^"]*)"');
+const soundCacheMb = Number(brandingValue('sound_cache_mb', '(\\d+)'));
 const daemon = daemonDiscovery();
 const target = `http://${daemon?.address ?? '127.0.0.1:7650'}`;
 
@@ -54,6 +55,7 @@ export default defineConfig(({ command }) => ({
     // anyone, so it must never carry a key
     __OMU_DEV_TOKEN__: JSON.stringify(command === 'serve' ? (daemon?.token ?? '') : ''),
     __PRODUCT_NAME__: JSON.stringify(product),
+    __SOUND_CACHE_MB__: JSON.stringify(soundCacheMb),
   },
   server: {
     port: 5173,

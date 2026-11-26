@@ -5,7 +5,7 @@ import { BUILTIN_CATEGORIES, builtinSettings } from './builtin.ts';
 import { categoryDocument, settingDocument } from './doc.ts';
 import { extensionCategory, getSetting, onSettingChange, registerExtension, registerExtensionSetting } from './extensionApi.ts';
 import { resetExtensionValues, writeExtensionSetting } from './extensionValues.ts';
-import { getSnapshot, groupsOf, isShown, pageOf, registerCategory, registerSetting, resetSettings, searchSettings, settingsIn, subCategories, textOf, topCategories, type SettingCategory, type SettingDecl, type Translate } from './registry.ts';
+import { defaultOf, getSnapshot, groupsOf, isChanged, isShown, pageOf, pagesInOrder, registerCategory, registerSetting, resetSettings, searchSettings, settingsIn, subCategories, textOf, topCategories, type SettingCategory, type SettingDecl, type Translate } from './registry.ts';
 
 // a translation that shows the key it was given, so that a test sees what was asked for
 const t: Translate = (key) => `<${key}>`;
@@ -207,4 +207,37 @@ test('the documentation of a setting is made of what it declares: its line, its 
   // the page lists its settings, each a link
   const page = categoryDocument(state, state.categories[0], t, () => undefined);
   assert.ok(page.source.includes('- [Theme](setting:theme)') && page.source.includes('settings.doc.inPage'));
+});
+
+test('a setting is changed when it differs from its usual value; a block of the page, or a setting without a usual value, never is', () => {
+  const tray = toggle('tray', 'system', { default: true });
+  assert.equal(isChanged(tray, true), false);
+  assert.equal(isChanged(tray, false), true);
+  assert.equal(isChanged(toggle('language', 'appearance'), 'fr'), false, 'no usual value');
+  const section: SettingDecl = { id: 'colours', category: 'appearance', title: 'x', control: { type: 'section', component: 'colours' }, bind: { source: 'none' }, default: 'x' };
+  assert.equal(isChanged(section, 'y'), false);
+  const fromExtension: SettingDecl = { id: 'x.speed', category: 'x', title: 's', control: { type: 'number' }, bind: { source: 'extension', extension: 'x', key: 'speed', default: 3 } };
+  assert.equal(defaultOf(fromExtension), 3, 'an extension gives its usual value with the place it keeps it');
+  assert.equal(isChanged(fromExtension, 4), true);
+});
+
+test('the program declares the usual value of every setting it can put back, and it is a value the setting accepts', () => {
+  for (const s of builtinSettings([{ value: 'en', label: 'English' }])) {
+    const usual = defaultOf(s);
+    if (usual === undefined) continue;
+    if (s.control.type === 'toggle') assert.equal(typeof usual, 'boolean', s.id);
+    if (s.control.type === 'number') assert.ok(typeof usual === 'number' && usual >= (s.control.min ?? -Infinity), s.id);
+    if (s.control.type === 'choice') {
+      const options = typeof s.control.options === 'function' ? s.control.options(t) : s.control.options;
+      assert.ok(options.some((o) => o.value === usual), s.id);
+    }
+  }
+});
+
+test('the pages follow the tree: the pages of a heading one after the other, then a page that is alone', () => {
+  registerCategory({ id: 'b', title: 'b', order: 2 });
+  registerCategory({ id: 'a', title: 'a', order: 1 });
+  registerCategory({ id: 'a2', title: 'a2', parent: 'a', order: 2 });
+  registerCategory({ id: 'a1', title: 'a1', parent: 'a', order: 1 });
+  assert.deepEqual(pagesInOrder(getSnapshot(), t).map((c) => c.id), ['a1', 'a2', 'b']);
 });

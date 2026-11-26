@@ -564,7 +564,8 @@ export function App() {
       const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName));
       const id = commandOf(e, keys);
       if (!id) return;
-      const alwaysOn = id.startsWith('palette.open') || id === 'search.blocks' || id === 'graph.apply' || id.startsWith('dock.');
+      // on a page other than the graph, Ctrl+F is the page's own search
+      const alwaysOn = id.startsWith('palette.open') || (id === 'search.blocks' && tab === 'nodes') || id === 'graph.apply' || id.startsWith('dock.');
       if (typing && !alwaysOn) return;
       if (!alwaysOn && tab !== 'nodes') return;
       // some text is selected (in the log, the problems, a help window...): the browser copies and selects it, the graph keeps out of it

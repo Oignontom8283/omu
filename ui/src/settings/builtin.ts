@@ -5,6 +5,7 @@
 
 import type { IconName } from '../components/Icon.tsx';
 import { MIN_CACHE_MB } from '../soundboard.ts';
+import { SOUND_CACHE_MB } from '../types.ts';
 import type { Choice, SettingCategory, SettingControl, SettingDecl, Translate } from './registry.ts';
 
 /** A heading of the tree: it has pages under it and nothing of its own. */
@@ -75,23 +76,23 @@ const options =
 /** The settings of the program. The languages are the ones the program has (the list comes from its translation files). */
 export const builtinSettings = (languages: Choice[]): SettingDecl[] => [
   setting('language', 'appearance', { type: 'choice', options: () => languages }, { source: 'ui', key: 'language' }, { related: ['theme'] }),
-  setting('theme', 'appearance', { type: 'choice', options: options('theme', ['system', 'light', 'dark', 'contrast']) }, { source: 'ui', key: 'theme' }, { related: ['colours'] }),
+  setting('theme', 'appearance', { type: 'choice', options: options('theme', ['system', 'light', 'dark', 'contrast']) }, { source: 'ui', key: 'theme' }, { related: ['colours'], default: 'system' }),
   setting('colours', 'appearance', { type: 'section', component: 'colours' }, none, { related: ['theme'] }),
 
-  setting('logon', 'system', { type: 'toggle' }, { source: 'daemon', key: 'start_at_logon' }, { related: ['tray'] }),
-  setting('tray', 'system', { type: 'toggle' }, { source: 'daemon', key: 'show_tray_icon' }, { related: ['logon'] }),
+  setting('logon', 'system', { type: 'toggle' }, { source: 'daemon', key: 'start_at_logon' }, { related: ['tray'], default: false }),
+  setting('tray', 'system', { type: 'toggle' }, { source: 'daemon', key: 'show_tray_icon' }, { related: ['logon'], default: true }),
 
-  setting('trust', 'connections', { type: 'choice', options: options('trust', ['system', 'own']) }, { source: 'daemon', key: 'trust' }, { related: ['certificates_dir'] }),
+  setting('trust', 'connections', { type: 'choice', options: options('trust', ['system', 'own']) }, { source: 'daemon', key: 'trust' }, { related: ['certificates_dir'], default: 'system' }),
   setting('certificates_dir', 'connections', { type: 'section', component: 'certificates' }, none, { related: ['trust'] }),
 
-  setting('remote', 'remote_access', { type: 'toggle' }, { source: 'daemon', key: 'remote_access' }, { related: ['remote_addresses', 'trust'] }),
+  setting('remote', 'remote_access', { type: 'toggle' }, { source: 'daemon', key: 'remote_access' }, { related: ['remote_addresses', 'trust'], default: false }),
   setting('remote_addresses', 'remote_access', { type: 'section', component: 'remote' }, none, { related: ['remote'], when: { setting: 'remote', equals: true } }),
 
 
   // pages that are one block and nothing else: what is said about the page is what is said about the block
   pageBlock('sounds', 'sounds', 'sounds'),
-  setting('sound_cache_mb', 'sounds', { type: 'number', min: MIN_CACHE_MB, step: 16, whole: true, unit: 'unit.mb' }, { source: 'daemon', key: 'sound_cache_mb' }, { related: ['compress_above_mb'] }),
-  setting('compress_above_mb', 'sounds', { type: 'number', min: 0, step: 1, whole: true, unit: 'unit.mb' }, { source: 'daemon', key: 'compress_above_mb' }, { related: ['sound_cache_mb'] }),
+  setting('sound_cache_mb', 'sounds', { type: 'number', min: MIN_CACHE_MB, step: 16, whole: true, unit: 'unit.mb' }, { source: 'daemon', key: 'sound_cache_mb' }, { related: ['compress_above_mb'], default: SOUND_CACHE_MB }),
+  setting('compress_above_mb', 'sounds', { type: 'number', min: 0, step: 1, whole: true, unit: 'unit.mb' }, { source: 'daemon', key: 'compress_above_mb' }, { related: ['sound_cache_mb'], default: 20 }),
   pageBlock('shortcuts', 'shortcuts', 'shortcuts'),
   pageBlock('extensions', 'installed', 'extensions'),
 ];

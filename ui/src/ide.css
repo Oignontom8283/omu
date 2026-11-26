@@ -519,3 +519,178 @@ body.resizing-col * {
   color: var(--muted);
 }
 
+/* ---- the settings: every page one after the other, each setting a dense block with a mark when it was changed */
+.tree-badge:has(> .changed) {
+  background: color-mix(in srgb, var(--ide-changed) 22%, transparent);
+  color: var(--ide-changed);
+}
+.sp-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 0 40vh;
+  background: var(--bg);
+}
+.sp-page {
+  max-width: 980px;
+}
+.sp-page-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 10px 20px 8px;
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+}
+.sp-page-head.selected {
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+.sp-page-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sp-page-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+.sp-crumb {
+  color: var(--muted);
+  font-size: 13px;
+}
+.sp-page-desc {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.sp-group-title {
+  margin: 14px 20px 2px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.sp-row {
+  position: relative;
+  padding: 8px 20px 10px 22px;
+  outline: none;
+  border-radius: 0;
+}
+.sp-row:hover {
+  background: var(--ide-hover);
+}
+.sp-row.selected {
+  background: var(--ide-select);
+}
+.sp-row:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+.sp-row.flash {
+  animation: sp-flash 1.8s ease-out;
+}
+@keyframes sp-flash {
+  0%,
+  40% {
+    background: var(--ide-select-strong);
+  }
+}
+.sp-mark {
+  position: absolute;
+  top: 8px;
+  bottom: 10px;
+  left: 10px;
+  width: 3px;
+  border-radius: 2px;
+}
+.sp-row.changed .sp-mark {
+  background: var(--ide-changed);
+}
+.sp-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+}
+.sp-title {
+  font-weight: 600;
+}
+.sp-tools {
+  display: inline-flex;
+  gap: 0;
+  opacity: 0.55;
+}
+.sp-row:hover .sp-tools,
+.sp-row.selected .sp-tools,
+.sp-row:focus-within .sp-tools {
+  opacity: 1;
+}
+.sp-tools .kit-button.small.icon-only {
+  width: 22px;
+  height: 22px;
+}
+.sp-desc {
+  margin: 1px 0 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  max-width: 72ch;
+}
+.sp-inline {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: default;
+}
+.sp-inline .sp-desc {
+  margin: 2px 0 0;
+}
+.sp-control {
+  display: block;
+}
+.sp-row:not(.wide) .sp-control > .kit-select,
+.sp-row:not(.wide) .sp-control > .kit-text,
+.sp-row:not(.wide) .sp-control .setting-choice {
+  min-width: 240px;
+  max-width: 420px;
+}
+.sp-row.wide .sp-control {
+  margin-top: 4px;
+}
+.sp-row.bare {
+  padding-top: 12px;
+}
+.sp-doc {
+  padding: 4px 14px 24px;
+  font-size: 13px;
+  user-select: text;
+}
+
+/* blocks of the settings drawn by components: tables get a height of their own inside the long list */
+.shortcuts,
+.sp-row .sounds-manager {
+  display: flex;
+  flex-direction: column;
+  height: 440px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--panel);
+}
+.toolbar.inner {
+  border-bottom: 1px solid var(--line);
+}
+.dt-row.clash .dt-cell:first-child {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.key-capture.listening {
+  padding: 1px 8px;
+  border: 1px dashed var(--focus);
+  border-radius: 4px;
+  outline: none;
+  color: var(--focus);
+  font-size: 12px;
+}
+
