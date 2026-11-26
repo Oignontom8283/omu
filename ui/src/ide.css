@@ -7,7 +7,7 @@
   --ide-pad: 8px;
   --ide-select: color-mix(in srgb, var(--primary) 22%, transparent);
   --ide-select-strong: color-mix(in srgb, var(--primary) 34%, transparent);
-  --ide-hover: color-mix(in srgb, var(--text) 6%, transparent);
+  --ide-hover: color-mix(in srgb, var(--text) 4.5%, transparent);
   --ide-zebra: color-mix(in srgb, var(--text) 2.5%, transparent);
   --ide-mark: color-mix(in srgb, var(--warn) 32%, transparent);
   --ide-changed: var(--primary);
@@ -524,66 +524,82 @@ body.resizing-col * {
   background: color-mix(in srgb, var(--ide-changed) 22%, transparent);
   color: var(--ide-changed);
 }
+/* the list reads like a document: a category is a chapter (a large title over a line), a page a section with its title and what it is
+   for, a group a smaller title; the room above each title is larger than the room under it, so each one goes with what follows */
 .sp-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 0 40vh;
+  padding: 0 24px 40vh;
   background: var(--bg);
 }
 .sp-page {
-  max-width: 980px;
+  max-width: 900px;
+}
+.sp-category {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 48px 0 0;
+  padding: 0 12px 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.sp-page:first-child .sp-category {
+  margin-top: 22px;
+}
+.sp-category svg {
+  flex: none;
+  color: var(--primary);
 }
 .sp-page-head {
   position: sticky;
   top: 0;
   z-index: 3;
-  padding: 10px 20px 8px;
-  background: color-mix(in srgb, var(--bg) 94%, transparent);
-  backdrop-filter: blur(6px);
-  border-bottom: 1px solid var(--line);
-}
-.sp-page-head.selected {
-  box-shadow: inset 3px 0 0 var(--primary);
+  margin-top: 14px;
+  padding: 14px 12px 6px;
+  background: var(--bg);
 }
 .sp-page-title {
   display: flex;
   align-items: center;
   gap: 6px;
 }
-.sp-page-title h2 {
+.sp-page-title h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 650;
+  line-height: 1.3;
 }
-.sp-crumb {
-  color: var(--muted);
-  font-size: 13px;
+.sp-page-head.selected h3 {
+  color: var(--primary);
 }
 .sp-page-desc {
-  margin: 2px 0 0;
+  margin: 3px 0 0;
+  max-width: 75ch;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: 13.5px;
+  line-height: 1.5;
 }
 .sp-group-title {
-  margin: 14px 20px 2px;
-  font-size: 11px;
+  margin: 20px 12px 2px;
+  font-size: 14px;
   font-weight: 650;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--muted);
 }
 .sp-row {
   position: relative;
-  padding: 8px 20px 10px 22px;
+  padding: 11px 12px 13px 14px;
+  border-radius: 6px;
   outline: none;
-  border-radius: 0;
 }
 .sp-row:hover {
-  background: var(--ide-hover);
+  background: color-mix(in srgb, var(--text) 2.5%, transparent);
 }
 .sp-row.selected {
-  background: var(--ide-select);
+  background: color-mix(in srgb, var(--primary) 6%, transparent);
 }
 .sp-row:focus-visible {
   box-shadow: inset 0 0 0 1px var(--focus);
@@ -599,9 +615,9 @@ body.resizing-col * {
 }
 .sp-mark {
   position: absolute;
-  top: 8px;
-  bottom: 10px;
-  left: 10px;
+  top: 12px;
+  bottom: 13px;
+  left: 3px;
   width: 3px;
   border-radius: 2px;
 }
@@ -615,12 +631,13 @@ body.resizing-col * {
   min-height: 22px;
 }
 .sp-title {
+  font-size: 13.5px;
   font-weight: 600;
 }
 .sp-tools {
   display: inline-flex;
   gap: 0;
-  opacity: 0.55;
+  opacity: 0.4;
 }
 .sp-row:hover .sp-tools,
 .sp-row.selected .sp-tools,
@@ -632,11 +649,11 @@ body.resizing-col * {
   height: 22px;
 }
 .sp-desc {
-  margin: 1px 0 6px;
+  margin: 2px 0 8px;
   color: var(--muted);
-  font-size: 12.5px;
-  line-height: 1.45;
-  max-width: 72ch;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: 75ch;
 }
 .sp-inline {
   display: flex;
@@ -694,88 +711,279 @@ body.resizing-col * {
   font-size: 12px;
 }
 
-/* ---- the modules */
-.mod-progress {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-.mod-progress progress {
+/* ---- the modules: a list of blocks in the middle of the page, each one opened on its documentation */
+.mod-scroll {
   flex: 1;
-  min-width: 40px;
-  height: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 60px;
 }
-.dt-row.failed .dt-cell:first-child {
-  box-shadow: inset 3px 0 0 var(--bad);
+.mod-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 860px;
+  margin: 0 auto;
 }
-.mod-details {
-  padding: 12px 14px 24px;
-  user-select: text;
+.mod-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  outline: none;
+  cursor: default;
 }
-.mod-head {
+.mod-card:hover {
+  border-color: color-mix(in srgb, var(--text) 22%, var(--line));
+}
+.mod-card:focus-visible {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+.mod-card.failed {
+  border-left: 3px solid var(--bad);
+}
+.mod-card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 12px 10px;
+}
+.mod-chevron {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 20px;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.12s;
+}
+.mod-card.open .mod-chevron {
+  transform: none;
+}
+.mod-card-text {
+  flex: 1;
+  min-width: 0;
+}
+.mod-card-title {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 4px 10px;
+  min-height: 20px;
 }
-.mod-head h2 {
-  margin: 0;
-  font-size: 17px;
+.mod-card-title strong {
+  font-size: 14px;
+  font-weight: 650;
 }
-.mod-state {
+.mod-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  font-size: 11.5px;
+  line-height: 19px;
+}
+.mod-badge.on {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: color-mix(in srgb, var(--ok) 75%, var(--text));
+}
+.mod-badge.bad,
+.mod-badge.unsupported {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  color: color-mix(in srgb, var(--bad) 80%, var(--text));
+}
+.mod-card-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.mod-card-facts {
+  margin: 3px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
-.mod-actions {
+.mod-card-actions {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 10px 0;
+  align-items: center;
+  gap: 4px;
 }
 .mod-download {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  padding: 0 14px 12px 38px;
 }
 .mod-download progress {
   flex: 1;
+  height: 6px;
 }
-.mod-doc {
-  margin-top: 8px;
-  padding-top: 4px;
+.mod-download small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.mod-card-note {
+  margin: 0;
+  padding: 0 14px 12px 38px;
+  font-size: 12.5px;
+}
+.mod-card-doc {
+  padding: 4px 18px 16px 38px;
   border-top: 1px solid var(--line);
+  font-size: 13px;
+  user-select: text;
+  cursor: auto;
 }
 
 /* ---- the soundboards */
 .soundboards-page .board-pane {
   flex: 1;
   background: var(--bg);
-}
-.board-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 12.5px;
-  color: var(--text);
-}
-.board-meta {
-  color: var(--muted);
-  font-weight: 400;
-  font-size: 11.5px;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.board-pane .pane-body {
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
+
+/* the soundboards as tabs along the top of the page */
+.board-tabs {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 8px 0 6px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.board-tab-list {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  min-width: 0;
+  padding-top: 5px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.board-tab {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+}
+.board-tab > button[role='tab'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 260px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--muted);
+  font: 500 13px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.board-tab > button[role='tab']:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: -2px;
+}
+.board-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board-tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.board-tab:hover {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+.board-tab:hover > button[role='tab'],
+.board-tab.on > button[role='tab'] {
+  color: var(--text);
+}
+/* the open one is joined to the page under it */
+.board-tab.on {
+  border-color: var(--line);
+  background: var(--bg);
+  box-shadow: inset 0 2px 0 var(--primary);
+}
+.board-tab.on > button[role='tab'] {
+  font-weight: 600;
+}
+.board-tab .tab-x {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.board-tab .tab-x:hover {
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+  color: var(--bad);
+}
+.board-tab.drop-before::before,
+.board-tab.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--primary);
+}
+.board-tab.drop-before::before {
+  left: -2px;
+}
+.board-tab.drop-after::after {
+  right: -2px;
+}
+.board-tab-input {
+  width: 170px;
+  height: 26px;
+  margin: 3px 4px;
+  padding: 0 8px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--text);
+  font: 500 13px var(--font-ui);
+}
+.board-tab-add {
+  flex: none;
+  align-self: center;
+  margin-left: 4px;
+}
+.board-tab-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: center;
+}
+
+/* the pads: a grid of cards, chosen like files (a quiet tint and a thin line, never a thick frame) */
 .pad-grid {
   flex: 1;
   min-height: 0;
@@ -783,27 +991,34 @@ body.resizing-col * {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--card, 240px), 1fr));
   align-content: start;
-  gap: 8px;
-  padding: 10px;
+  gap: 10px;
+  padding: 12px;
   outline: none;
+  user-select: none;
 }
 .pad-cell {
-  border-radius: 9px;
-  outline: 2px solid transparent;
-  outline-offset: 1px;
+  border-radius: 8px;
 }
 .pad-cell .pad-card {
   height: 100%;
   box-sizing: border-box;
 }
-.pad-cell.selected {
-  outline-color: color-mix(in srgb, var(--primary) 55%, transparent);
-}
 .pad-cell.selected .pad-card {
-  background: color-mix(in srgb, var(--primary) 9%, var(--panel));
+  border-color: color-mix(in srgb, var(--primary) 70%, var(--line));
+  background: color-mix(in srgb, var(--primary) 5%, var(--panel));
 }
-.pad-grid:focus .pad-cell.cursor {
-  outline-color: var(--focus);
+.pad-cell.selected .pad-card.playing {
+  border-color: var(--ok);
+}
+.pad-grid:focus-visible .pad-cell.cursor .pad-card {
+  outline: 1px dashed var(--focus);
+  outline-offset: 2px;
+}
+/* the rectangle drawn with the mouse */
+.marquee {
+  border: 1px solid color-mix(in srgb, var(--primary) 75%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 .grid-empty {
   grid-column: 1 / -1;
@@ -860,26 +1075,6 @@ body.resizing-col * {
 .cell-slider .pad-db {
   width: 52px;
   font-size: 11.5px;
-}
-.tree-row.board-live > svg {
-  color: var(--ok);
-}
-.tree-row.pad-playing .tree-label {
-  color: var(--cat-input);
-  font-weight: 600;
-}
-.tree-row.pad-lost .tree-label {
-  color: var(--bad);
-}
-.tree-badge .kbd-chip {
-  font-size: 10px;
-  line-height: 13px;
-  padding: 0 3px;
-  border-bottom-width: 1px;
-}
-.tree-badge:has(> .kbd-chip) {
-  background: none;
-  padding: 0;
 }
 .pad-inspector,
 .many-pads,
