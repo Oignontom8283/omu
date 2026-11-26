@@ -865,5 +865,8 @@
   "test.fn.split": "the parts of the text between the b (a list, whose size is its count)",
   "test.fn.size": "how many characters the text has",
   "port.variable.help": "An input of the block, named by its letter: write that letter in the expression where its value goes.",
-  "panel.notRunning": "Nothing happens while the graph is not running: apply it and start the engine."
+  "panel.notRunning": "Nothing happens while the graph is not running: apply it and start the engine.",
+  "table.resetColumns": "Reset the columns",
+  "tree.expandAll": "Expand all",
+  "tree.collapseAll": "Collapse all"
 }

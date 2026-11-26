@@ -1,0 +1,521 @@
+/* The pages that are not the graph (settings, modules, soundboards) are laid out like an IDE: panes side by side that are resized
+   with the bars between them, thin title bars, dense toolbars, tables and trees that are driven with the keyboard. */
+
+:root {
+  --ide-row: 26px;
+  --ide-head: 30px;
+  --ide-pad: 8px;
+  --ide-select: color-mix(in srgb, var(--primary) 22%, transparent);
+  --ide-select-strong: color-mix(in srgb, var(--primary) 34%, transparent);
+  --ide-hover: color-mix(in srgb, var(--text) 6%, transparent);
+  --ide-zebra: color-mix(in srgb, var(--text) 2.5%, transparent);
+  --ide-mark: color-mix(in srgb, var(--warn) 32%, transparent);
+  --ide-changed: var(--primary);
+}
+
+/* ---- the page: a toolbar over panes */
+.ide-page {
+  position: absolute;
+  z-index: 7;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  font-size: 13px;
+}
+.ide-page .ide-columns {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.ide-page .ide-center {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.side-pane {
+  flex: none;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+}
+.side-pane > .pane {
+  flex: 1;
+}
+.pane {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pane-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--ide-head);
+  padding: 0 4px 0 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.pane-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pane-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+.pane-empty {
+  margin: 0;
+  padding: 16px 12px;
+  color: var(--muted);
+}
+
+/* ---- toolbars */
+.toolbar {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 3px 8px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  box-sizing: border-box;
+}
+.toolbar .kit-button {
+  height: 26px;
+  padding: 0 8px;
+  font-size: 12.5px;
+}
+.toolbar .kit-button.icon-only {
+  width: 26px;
+  padding: 0;
+}
+.toolbar .spacer {
+  flex: 1;
+}
+.toolbar .tool-text {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tool-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 4px 4px;
+  background: var(--line);
+}
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.segmented .kit-button {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+.segmented .kit-button + .kit-button {
+  border-left: 1px solid var(--line);
+}
+.segmented .kit-button[aria-pressed='true'] {
+  background: var(--ide-select-strong);
+}
+
+/* the field that filters a list */
+.filter-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  min-width: 180px;
+  flex: 0 1 300px;
+  padding: 0 4px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--field);
+  color: var(--muted);
+  box-sizing: border-box;
+}
+.filter-box:focus-within {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+.filter-box.active {
+  border-color: color-mix(in srgb, var(--primary) 60%, var(--line));
+}
+.filter-box .kit-text {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  font-size: 12.5px;
+}
+.filter-box .kit-text:focus {
+  outline: none;
+}
+.filter-count {
+  white-space: nowrap;
+  font-size: 11px;
+}
+.filter-clear {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.filter-clear:hover {
+  background: var(--ide-hover);
+  color: var(--text);
+}
+mark {
+  background: var(--ide-mark);
+  color: inherit;
+  border-radius: 2px;
+}
+
+/* ---- tables */
+.dt {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+  background: var(--panel);
+  user-select: none;
+}
+.dt-space {
+  position: relative;
+}
+.dt-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: grid;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  box-sizing: border-box;
+}
+.dt-hcell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  border-right: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+.dt-hcell.sortable {
+  cursor: pointer;
+}
+.dt-hcell.sortable:hover {
+  color: var(--text);
+  background: var(--ide-hover);
+}
+.dt-hcell.end {
+  justify-content: flex-end;
+}
+.dt-hcell.center {
+  justify-content: center;
+}
+.dt-hlabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dt-sort {
+  font-size: 8px;
+}
+.dt-grip {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 8px;
+  z-index: 1;
+  cursor: col-resize;
+}
+.dt-grip:hover {
+  background: linear-gradient(to right, transparent 3px, var(--primary) 3px, var(--primary) 5px, transparent 5px);
+}
+body.resizing-col,
+body.resizing-col * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+.dt-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  align-items: center;
+  box-sizing: border-box;
+  cursor: default;
+}
+.dt-row.odd {
+  background: var(--ide-zebra);
+}
+.dt-row:hover {
+  background: var(--ide-hover);
+}
+.dt-row.selected {
+  background: var(--ide-select);
+}
+.dt:focus .dt-row.selected {
+  background: var(--ide-select-strong);
+}
+.dt:focus-visible .dt-row.cursor,
+.dt:focus .dt-row.cursor {
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+.dt-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.dt-cell.end {
+  justify-content: flex-end;
+  font-variant-numeric: tabular-nums;
+}
+.dt-cell.center {
+  justify-content: center;
+}
+.dt-cell .ellipsis {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dt-cell .kit-button.small {
+  height: 20px;
+}
+.dt-cell .kit-button.icon-only.small {
+  width: 20px;
+}
+.dt-empty {
+  position: absolute;
+  inset: var(--ide-row) 0 auto;
+  padding: 16px 12px;
+  color: var(--muted);
+}
+
+.dt-hcell.dt-fill {
+  border-right: 0;
+}
+.dt-cell.dt-fill {
+  padding: 0;
+}
+
+/* ---- trees */
+.tree {
+  padding: 4px 0;
+  outline: none;
+  user-select: none;
+}
+.tree-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding-inline-end: 8px;
+  cursor: default;
+  outline: none;
+  white-space: nowrap;
+  color: var(--text);
+}
+.tree-row:hover {
+  background: var(--ide-hover);
+}
+.tree-row.selected {
+  background: var(--ide-select);
+}
+.tree:focus-within .tree-row.selected {
+  background: var(--ide-select-strong);
+}
+.tree-row:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--focus);
+}
+.tree-row.dim {
+  opacity: 0.45;
+}
+.tree-row > svg {
+  flex: none;
+  color: var(--muted);
+}
+.tree-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--line) 80%, transparent);
+}
+.tree-twisty {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.1s;
+}
+.tree-twisty.open {
+  transform: none;
+}
+.tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-badge {
+  flex: none;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.tree-badge.changed {
+  background: color-mix(in srgb, var(--ide-changed) 22%, transparent);
+  color: var(--ide-changed);
+}
+.tree-rename {
+  flex: 1;
+  min-width: 0;
+  height: 20px;
+  padding: 0 4px;
+  border: 1px solid var(--focus);
+  border-radius: 3px;
+  background: var(--field);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+/* ---- the menus of a right click: ticks, keys on the right, lines between groups */
+.context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px 5px 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+.context-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.context-menu button:focus-visible,
+.context-menu button:focus {
+  outline: none;
+  background: var(--ide-select-strong);
+}
+.menu-check {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  font-size: 12px;
+}
+.menu-label {
+  flex: 1;
+}
+.menu-keys {
+  margin-left: 24px;
+  color: var(--muted);
+  font: 11px var(--font-ui);
+  background: none;
+  border: 0;
+}
+.menu-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line);
+}
+
+/* small things that rows carry */
+.state-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.state-dot.on {
+  background: var(--ok);
+}
+.state-dot.ready {
+  background: var(--primary);
+}
+.state-dot.busy {
+  background: var(--warn);
+  animation: ide-pulse 1s infinite alternate;
+}
+.state-dot.bad {
+  background: var(--bad);
+}
+@keyframes ide-pulse {
+  to {
+    opacity: 0.35;
+  }
+}
+.kbd-chip {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--field);
+  font: 11px/16px var(--font-mono, ui-monospace, monospace);
+  white-space: nowrap;
+}
+.muted-cell {
+  color: var(--muted);
+}
+

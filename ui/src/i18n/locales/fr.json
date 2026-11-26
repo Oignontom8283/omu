@@ -865,5 +865,8 @@
   "test.fn.split": "les morceaux du texte entre les b (une liste, dont la taille est le nombre)",
   "test.fn.size": "combien de caractères le texte a",
   "port.variable.help": "Une entrée du bloc, nommée par sa lettre : écris cette lettre dans l’expression là où sa valeur doit aller.",
-  "panel.notRunning": "Rien ne se passe tant que le graphe ne tourne pas : applique-le et démarre le moteur."
+  "panel.notRunning": "Rien ne se passe tant que le graphe ne tourne pas : applique-le et démarre le moteur.",
+  "table.resetColumns": "Rétablir les colonnes",
+  "tree.expandAll": "Tout déplier",
+  "tree.collapseAll": "Tout replier"
 }

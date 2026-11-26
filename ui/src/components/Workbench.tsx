@@ -60,9 +60,12 @@ export function Splitter({
   max,
   usual,
   label,
+  before = false,
   onSize,
 }: {
   direction: 'horizontal' | 'vertical';
+  /** The panel is before the bar (on its left, or above it): dragging away from it makes it bigger. */
+  before?: boolean;
   size: number;
   min: number;
   max: number;
@@ -79,7 +82,8 @@ export function Splitter({
     e.preventDefault();
     const at = horizontal ? e.clientY : e.clientX;
     const from = size;
-    const move = (ev: PointerEvent) => onSize(clamp(from - ((horizontal ? ev.clientY : ev.clientX) - at)));
+    const sign = before ? -1 : 1;
+    const move = (ev: PointerEvent) => onSize(clamp(from - sign * ((horizontal ? ev.clientY : ev.clientX) - at)));
     const stop = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', stop);
@@ -94,8 +98,8 @@ export function Splitter({
     setDragging(true);
   };
   const key = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    const grow = horizontal ? 'ArrowUp' : 'ArrowLeft';
-    const shrink = horizontal ? 'ArrowDown' : 'ArrowRight';
+    const [towards, away] = horizontal ? ['ArrowUp', 'ArrowDown'] : ['ArrowLeft', 'ArrowRight'];
+    const [grow, shrink] = before ? [away, towards] : [towards, away];
     const step = e.shiftKey ? 64 : 16;
     if (e.key === grow) onSize(clamp(size + step));
     else if (e.key === shrink) onSize(clamp(size - step));
