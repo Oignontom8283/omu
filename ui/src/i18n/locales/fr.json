@@ -900,7 +900,6 @@
   "library.memoryIdle": "Mémoire : rien de réservé (aucun soundboard ne tourne)",
   "dialog.removePads.title": "Retirer {count} pads ?",
   "dialog.removeSounds.title": "Supprimer {count} sons ?",
-  "soundboards.explorer": "Explorateur",
   "soundboards.inspector": "Inspecteur",
   "soundboards.view": "Affichage",
   "soundboards.viewGrid": "Pads",
@@ -926,6 +925,10 @@
   "soundboards.stateLabel": "État",
   "soundboards.playingLabel": "En lecture",
   "soundboards.pickHint": "Choisissez un pad pour changer ses réglages, ou plusieurs pour les changer ensemble.",
+  "soundboards.tabs": "Soundboards",
+  "soundboards.tabHint": "double-clic ou F2 pour renommer, glisser pour déplacer",
+  "soundboards.moveLeft": "Déplacer à gauche",
+  "soundboards.moveRight": "Déplacer à droite",
   "modules.more": "Plus",
   "modules.less": "Moins"
 }

@@ -842,27 +842,148 @@ body.resizing-col * {
 .soundboards-page .board-pane {
   flex: 1;
   background: var(--bg);
-}
-.board-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  text-transform: none;
-  letter-spacing: 0;
-  font-size: 12.5px;
-  color: var(--text);
-}
-.board-meta {
-  color: var(--muted);
-  font-weight: 400;
-  font-size: 11.5px;
-  text-transform: none;
-  letter-spacing: 0;
-}
-.board-pane .pane-body {
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
+
+/* the soundboards as tabs along the top of the page */
+.board-tabs {
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 8px 0 6px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.board-tab-list {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  min-width: 0;
+  padding-top: 5px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.board-tab {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  margin-bottom: -1px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 6px 6px 0 0;
+}
+.board-tab > button[role='tab'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 260px;
+  height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px 6px 0 0;
+  background: none;
+  color: var(--muted);
+  font: 500 13px var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.board-tab > button[role='tab']:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: -2px;
+}
+.board-tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.board-tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.board-tab:hover {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+.board-tab:hover > button[role='tab'],
+.board-tab.on > button[role='tab'] {
+  color: var(--text);
+}
+/* the open one is joined to the page under it */
+.board-tab.on {
+  border-color: var(--line);
+  background: var(--bg);
+  box-shadow: inset 0 2px 0 var(--primary);
+}
+.board-tab.on > button[role='tab'] {
+  font-weight: 600;
+}
+.board-tab .tab-x {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.board-tab .tab-x:hover {
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+  color: var(--bad);
+}
+.board-tab.drop-before::before,
+.board-tab.drop-after::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--primary);
+}
+.board-tab.drop-before::before {
+  left: -2px;
+}
+.board-tab.drop-after::after {
+  right: -2px;
+}
+.board-tab-input {
+  width: 170px;
+  height: 26px;
+  margin: 3px 4px;
+  padding: 0 8px;
+  border: 1px solid var(--primary);
+  border-radius: 4px;
+  background: var(--field);
+  color: var(--text);
+  font: 500 13px var(--font-ui);
+}
+.board-tab-add {
+  flex: none;
+  align-self: center;
+  margin-left: 4px;
+}
+.board-tab-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  align-self: center;
+}
+
+/* the pads: a grid of cards, chosen like files (a quiet tint and a thin line, never a thick frame) */
 .pad-grid {
   flex: 1;
   min-height: 0;
@@ -870,27 +991,34 @@ body.resizing-col * {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(var(--card, 240px), 1fr));
   align-content: start;
-  gap: 8px;
-  padding: 10px;
+  gap: 10px;
+  padding: 12px;
   outline: none;
+  user-select: none;
 }
 .pad-cell {
-  border-radius: 9px;
-  outline: 2px solid transparent;
-  outline-offset: 1px;
+  border-radius: 8px;
 }
 .pad-cell .pad-card {
   height: 100%;
   box-sizing: border-box;
 }
-.pad-cell.selected {
-  outline-color: color-mix(in srgb, var(--primary) 55%, transparent);
-}
 .pad-cell.selected .pad-card {
-  background: color-mix(in srgb, var(--primary) 9%, var(--panel));
+  border-color: color-mix(in srgb, var(--primary) 70%, var(--line));
+  background: color-mix(in srgb, var(--primary) 5%, var(--panel));
 }
-.pad-grid:focus .pad-cell.cursor {
-  outline-color: var(--focus);
+.pad-cell.selected .pad-card.playing {
+  border-color: var(--ok);
+}
+.pad-grid:focus-visible .pad-cell.cursor .pad-card {
+  outline: 1px dashed var(--focus);
+  outline-offset: 2px;
+}
+/* the rectangle drawn with the mouse */
+.marquee {
+  border: 1px solid color-mix(in srgb, var(--primary) 75%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
 }
 .grid-empty {
   grid-column: 1 / -1;
@@ -947,26 +1075,6 @@ body.resizing-col * {
 .cell-slider .pad-db {
   width: 52px;
   font-size: 11.5px;
-}
-.tree-row.board-live > svg {
-  color: var(--ok);
-}
-.tree-row.pad-playing .tree-label {
-  color: var(--cat-input);
-  font-weight: 600;
-}
-.tree-row.pad-lost .tree-label {
-  color: var(--bad);
-}
-.tree-badge .kbd-chip {
-  font-size: 10px;
-  line-height: 13px;
-  padding: 0 3px;
-  border-bottom-width: 1px;
-}
-.tree-badge:has(> .kbd-chip) {
-  background: none;
-  padding: 0;
 }
 .pad-inspector,
 .many-pads,

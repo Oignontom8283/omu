@@ -900,7 +900,6 @@
   "library.memoryIdle": "Memory: nothing reserved (no soundboard is running)",
   "dialog.removePads.title": "Remove {count} pads?",
   "dialog.removeSounds.title": "Delete {count} sounds?",
-  "soundboards.explorer": "Explorer",
   "soundboards.inspector": "Inspector",
   "soundboards.view": "View",
   "soundboards.viewGrid": "Pads",
@@ -926,6 +925,10 @@
   "soundboards.stateLabel": "State",
   "soundboards.playingLabel": "Playing now",
   "soundboards.pickHint": "Choose one pad to change its settings, or several to change them together.",
+  "soundboards.tabs": "Soundboards",
+  "soundboards.tabHint": "double click or F2 to rename, drag to move",
+  "soundboards.moveLeft": "Move left",
+  "soundboards.moveRight": "Move right",
   "modules.more": "More",
   "modules.less": "Less"
 }

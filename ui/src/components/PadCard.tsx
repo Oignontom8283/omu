@@ -10,8 +10,8 @@ const colorOf = (pad: Pad): CSSProperties | undefined => (pad.color ? ({ '--pad'
 
 /**
  * One sound of a soundboard, from top to bottom: its name (a field that does not look like one until it is touched), the file with its
- * length and size under it, the volume, then the shortcut, the play button and the one that stops the sound. Everything is always there
- * (nothing moves when a sound starts), and a thin bar along the bottom shows how far the sound has got.
+ * length and size beside it, the volume, the shortcut, and at the bottom the play button across the card with the square one that stops
+ * the sound. Everything is always there (nothing moves when a sound starts), and a thin bar along the bottom shows how far it has got.
  */
 export function PadCard({
   pad,
@@ -54,9 +54,9 @@ export function PadCard({
         <Button variant="flat" size="small" icon="trash" title={t('soundboards.removePad')} onClick={onRemove} />
       </div>
       <p className="pad-file" title={sound?.name}>
-        {sound ? sound.name : t('soundboards.lost')}
+        <span className="pad-file-name">{sound ? sound.name : t('soundboards.lost')}</span>
+        {sound && <span className="pad-meta">{`${formatDuration(sound.frames)} · ${formatBytes(sound.bytes)}`}</span>}
       </p>
-      <p className="pad-meta">{sound ? `${formatDuration(sound.frames)} · ${formatBytes(sound.bytes)}` : '\u00a0'}</p>
       <div className="pad-volume" title={t('soundboards.volumeHint')}>
         <Icon name="speaker" size={14} />
         <Slider label={t('soundboards.volume')} min={-30} max={12} step={0.5} value={gain} onChange={(gain_db) => onChange({ gain_db })} />
@@ -67,8 +67,8 @@ export function PadCard({
           {p}
         </small>
       ))}
+      <ShortcutField value={pad.key ?? ''} placeholder={t('soundboards.shortcutShort')} onChange={(keys) => onChange({ key: keys || null })} />
       <div className="pad-actions">
-        <ShortcutField value={pad.key ?? ''} placeholder={t('soundboards.shortcutShort')} onChange={(keys) => onChange({ key: keys || null })} />
         <button
           type="button"
           className="pad-play nodrag"
