@@ -121,19 +121,8 @@ export function newBoardName(boards: Board[], base: string): string {
   }
 }
 
-/** The size above which sounds are stored compressed, typed in megabytes: a whole number, 0 for never. */
-export function cleanCompressMb(text: string): number | null {
-  if (text.trim() === '') return null;
-  const n = Math.round(Number(text));
-  return Number.isFinite(n) && n >= 0 ? Math.min(n, 1_000_000) : null;
-}
-
-/** Megabytes the way the setting is typed: a whole number, at least the daemon's smallest memory. */
+/** The smallest memory the daemon gives the sounds, in megabytes. */
 export const MIN_CACHE_MB = 16;
-export function cleanCacheMb(text: string): number | null {
-  const n = Math.round(Number(text));
-  return Number.isFinite(n) && n >= MIN_CACHE_MB ? Math.min(n, 1_000_000) : null;
-}
 
 /**
  * What typing a start or an end (seconds) changes in a pad: the start never goes past the end (when there is one), and
