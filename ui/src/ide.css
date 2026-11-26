@@ -711,61 +711,131 @@ body.resizing-col * {
   font-size: 12px;
 }
 
-/* ---- the modules */
-.mod-progress {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-}
-.mod-progress progress {
+/* ---- the modules: a list of blocks in the middle of the page, each one opened on its documentation */
+.mod-scroll {
   flex: 1;
-  min-width: 40px;
-  height: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 20px 24px 60px;
 }
-.dt-row.failed .dt-cell:first-child {
-  box-shadow: inset 3px 0 0 var(--bad);
+.mod-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 860px;
+  margin: 0 auto;
 }
-.mod-details {
-  padding: 12px 14px 24px;
-  user-select: text;
+.mod-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  outline: none;
+  cursor: default;
 }
-.mod-head {
+.mod-card:hover {
+  border-color: color-mix(in srgb, var(--text) 22%, var(--line));
+}
+.mod-card:focus-visible {
+  border-color: var(--focus);
+  box-shadow: 0 0 0 1px var(--focus);
+}
+.mod-card.failed {
+  border-left: 3px solid var(--bad);
+}
+.mod-card-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 12px 10px;
+}
+.mod-chevron {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 20px;
+  color: var(--muted);
+  transform: rotate(-90deg);
+  transition: transform 0.12s;
+}
+.mod-card.open .mod-chevron {
+  transform: none;
+}
+.mod-card-text {
+  flex: 1;
+  min-width: 0;
+}
+.mod-card-title {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 4px 10px;
+  min-height: 20px;
 }
-.mod-head h2 {
-  margin: 0;
-  font-size: 17px;
+.mod-card-title strong {
+  font-size: 14px;
+  font-weight: 650;
 }
-.mod-state {
+.mod-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  padding: 0 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+  font-size: 11.5px;
+  line-height: 19px;
+}
+.mod-badge.on {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  color: color-mix(in srgb, var(--ok) 75%, var(--text));
+}
+.mod-badge.bad,
+.mod-badge.unsupported {
+  background: color-mix(in srgb, var(--bad) 12%, transparent);
+  color: color-mix(in srgb, var(--bad) 80%, var(--text));
+}
+.mod-card-desc {
+  margin: 4px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.mod-card-facts {
+  margin: 3px 0 0;
   color: var(--muted);
   font-size: 12px;
 }
-.mod-actions {
+.mod-card-actions {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 10px 0;
+  align-items: center;
+  gap: 4px;
 }
 .mod-download {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  padding: 0 14px 12px 38px;
 }
 .mod-download progress {
   flex: 1;
+  height: 6px;
 }
-.mod-doc {
-  margin-top: 8px;
-  padding-top: 4px;
+.mod-download small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.mod-card-note {
+  margin: 0;
+  padding: 0 14px 12px 38px;
+  font-size: 12.5px;
+}
+.mod-card-doc {
+  padding: 4px 18px 16px 38px;
   border-top: 1px solid var(--line);
+  font-size: 13px;
+  user-select: text;
+  cursor: auto;
 }
 
 /* ---- the soundboards */

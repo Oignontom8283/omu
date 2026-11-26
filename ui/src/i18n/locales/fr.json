@@ -880,12 +880,6 @@
   "keys.filter": "Chercher une commande ou des touches",
   "keys.noMatch": "Aucune commande ne correspond.",
   "keys.space": "Espace",
-  "modules.col.name": "Module",
-  "modules.col.state": "État",
-  "modules.col.version": "Version",
-  "modules.col.source": "Emplacement",
-  "modules.col.download": "Téléchargement",
-  "modules.col.description": "Ce qu’il fait",
   "modules.source.local": "Dossier des modules",
   "modules.source.system": "Cet ordinateur",
   "modules.sizeMb": "{mb} Mo",
@@ -897,8 +891,6 @@
   "modules.count": "{on} activé(s) sur {count}",
   "modules.filter": "Chercher dans les modules",
   "modules.refresh": "Actualiser",
-  "modules.details": "Détails",
-  "modules.pick": "Choisissez un module pour voir ses détails.",
   "modules.loading": "Lecture des modules…",
   "modules.noMatch": "Aucun module ne correspond.",
   "modules.openDoc": "Documentation dans une fenêtre",
@@ -933,5 +925,7 @@
   "soundboards.padsLabel": "Pads",
   "soundboards.stateLabel": "État",
   "soundboards.playingLabel": "En lecture",
-  "soundboards.pickHint": "Choisissez un pad pour changer ses réglages, ou plusieurs pour les changer ensemble."
+  "soundboards.pickHint": "Choisissez un pad pour changer ses réglages, ou plusieurs pour les changer ensemble.",
+  "modules.more": "Plus",
+  "modules.less": "Moins"
 }
