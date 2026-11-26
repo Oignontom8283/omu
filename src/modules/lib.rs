@@ -246,8 +246,8 @@ impl Modules {
             ModuleInfo {
                 id: DEEPFILTER.into(),
                 name: "DeepFilterNet".into(),
-                description: "A larger noise reduction than the built-in one: a neural network that keeps the voice and \
-                              takes out most other sounds. Used by the \"Deep noise reduction\" block; it needs a \
+                description: "A larger noise reduction than the built-in one: it keeps the voice and \
+                              takes out most other sounds. Used by the \"Noise reduction (strong)\" block; it needs a \
                               little processor time."
                     .into(),
                 enabled: st.saved.deepfilter_enabled,

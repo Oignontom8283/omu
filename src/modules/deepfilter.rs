@@ -1,6 +1,6 @@
 //! The DeepFilterNet module: a larger noise reduction model, downloaded once into the modules folder.
 //!
-//! DeepFilterNet (Hendrik Schröter, MIT or Apache-2.0) is a neural network that separates a voice from everything else.
+//! DeepFilterNet (Hendrik Schröter, MIT or Apache-2.0) is a model that separates a voice from everything else.
 //! The program carries the code that runs it (when built with the `deepfilter` feature); the trained model, a few
 //! megabytes, is what this module downloads. The address is fixed to one version of the model and its SHA-256 is
 //! written here, so what is installed is exactly what was checked.

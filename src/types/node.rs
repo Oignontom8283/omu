@@ -575,8 +575,8 @@ pub enum NodeKind {
     },
     /// Processing: the sound, `ms` milliseconds later (to line a sound up with another, e.g. a camera).
     Delay { ms: u32 },
-    /// Processing: takes the background noise out of a voice (a fan, a keyboard, hiss) with RNNoise, a small neural
-    /// network that tells voice from noise. Adds 10 ms of delay.
+    /// Processing: takes the background noise out of a voice (a fan, a keyboard, hiss) with RNNoise, a small model
+    /// that tells voice from noise. Adds 10 ms of delay.
     NoiseReduction,
     /// Processing: the larger noise reduction (DeepFilterNet). It needs the DeepFilterNet module; `limit_db` is the most
     /// the noise is reduced by (100: no limit).

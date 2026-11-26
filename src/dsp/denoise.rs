@@ -1,4 +1,4 @@
-//! Noise reduction: RNNoise (Xiph.Org's recurrent neural network that tells voice from noise), through `nnnoiseless`, its
+//! Noise reduction: RNNoise (Xiph.Org's recurrent model that tells voice from noise), through `nnnoiseless`, its
 //! pure Rust rewrite with the trained model built in (BSD-3-Clause, see `THIRD-PARTY-NOTICES.md`).
 //!
 //! RNNoise works on mono frames of 10 ms at 48 kHz, which is exactly one cycle of the engine, so each channel has its
