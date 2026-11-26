@@ -3,8 +3,6 @@ import { test } from 'node:test';
 import { KINDS_BY_CATEGORY, PORTS, canConnect, categoryOf, defaultKind, portsOf } from './graph.ts';
 import {
   boardInGraph,
-  cleanCacheMb,
-  cleanCompressMb,
   formatBytes,
   formatDuration,
   nameFromFile,
@@ -113,22 +111,6 @@ test('the part of a sound that plays: an end that is not after the start means t
   assert.deepEqual(partChange({ start_ms: 1000 }, 'end_ms', '0.5'), { start_ms: 1000, end_ms: 0 }, 'ends before it starts');
   assert.deepEqual(partChange({ start_ms: 1000, end_ms: 3000 }, 'start_ms', '4'), { start_ms: 4000, end_ms: 0 }, 'start moved past the end');
   assert.deepEqual(partChange({}, 'start_ms', '-2'), { start_ms: 0, end_ms: 0 });
-});
-
-test('the size above which sounds are compressed: a whole number of megabytes, 0 means never', () => {
-  assert.equal(cleanCompressMb('20'), 20);
-  assert.equal(cleanCompressMb('0'), 0);
-  assert.equal(cleanCompressMb('-1'), null);
-  assert.equal(cleanCompressMb(''), null);
-  assert.equal(cleanCompressMb('x'), null);
-});
-
-test('the memory limit is a whole number of megabytes, 16 at least', () => {
-  assert.equal(cleanCacheMb('256'), 256);
-  assert.equal(cleanCacheMb(' 64.4 '), 64);
-  assert.equal(cleanCacheMb('15'), null);
-  assert.equal(cleanCacheMb(''), null);
-  assert.equal(cleanCacheMb('abc'), null);
 });
 
 test('a soundboard block only sends sound, and a block that plays one sound also sends how far it has got', () => {

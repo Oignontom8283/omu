@@ -20,7 +20,7 @@ function CertificatesSection({ env }: SectionProps) {
 }
 
 function SoundsSection({ env }: SectionProps) {
-  return <SoundsManager daemon={env.daemon} library={env.library} setLibrary={env.setLibrary} imports={env.imports} notify={env.notify} memory={false} />;
+  return <SoundsManager daemon={env.daemon} library={env.library} setLibrary={env.setLibrary} imports={env.imports} notify={env.notify} />;
 }
 
 function ShortcutsSection({ env }: SectionProps) {

@@ -73,6 +73,8 @@ export type SettingDecl = {
   keywords?: string;
   control: SettingControl;
   bind: Binding;
+  /** What it is worth until someone changes it: the setting is marked as changed when it differs, and can be put back. None: it has no usual value (the language follows the system). */
+  default?: SettingValue;
   order?: number;
 };
 
@@ -200,4 +202,22 @@ export function searchSettings(state: Snapshot, query: string, t: Translate, sho
     return exact.map((s, at) => ({ s, at })).sort((a, b) => Number(inTitle(b.s)) - Number(inTitle(a.s)) || a.at - b.at).map(({ s }) => s);
   }
   return rank(query, candidates, words).map((r) => r.item);
+}
+
+/** What a setting is worth until someone changes it (an extension gives it with the place it keeps the value in). */
+export const defaultOf = (decl: SettingDecl): SettingValue | undefined => decl.default ?? (decl.bind.source === 'extension' ? decl.bind.default : undefined);
+
+/** Whether a setting was changed from its usual value (a setting without one, or a block of the page, never is). */
+export function isChanged(decl: SettingDecl, value: SettingValue | undefined): boolean {
+  const usual = defaultOf(decl);
+  if (usual === undefined || value === undefined || decl.control.type === 'section' || decl.control.type === 'custom') return false;
+  return value !== usual;
+}
+
+/** The pages of the settings in the order of the tree: a heading's pages, one after the other, then the next heading's. */
+export function pagesInOrder(state: Snapshot, t: Translate): SettingCategory[] {
+  return topCategories(state, t).flatMap((top) => {
+    const pages = subCategories(state, top.id, t);
+    return pages.length > 0 ? pages : [top];
+  });
 }
