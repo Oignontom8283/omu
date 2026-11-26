@@ -737,162 +737,6 @@ button.inline:where(:not(.kit-button)) {
   padding: 2px 6px;
 }
 
-/* the soundboards panel: a drawer over the right of the canvas */
-/* a tab other than the graph: a page of its own, a readable column in the middle */
-.boards {
-  position: absolute;
-  z-index: 7;
-  inset: 0;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px max(16px, calc((100% - 880px) / 2));
-  background: var(--bg);
-}
-.boards.over {
-  outline: 3px dashed var(--primary);
-  outline-offset: -6px;
-}
-.boards > header {
-  display: flex;
-  align-items: center;
-}
-.boards h2,
-.boards h3 {
-  margin: 0;
-  font-size: 15px;
-}
-.boards h3 {
-  font-size: 13px;
-  color: var(--muted);
-}
-.boards .row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-}
-.boards .grow {
-  flex: 1;
-  min-width: 0;
-}
-.boards .drop-hint {
-  margin: 0;
-  font-size: 12px;
-}
-.boards .banner {
-  position: static;
-  margin: 0;
-}
-
-/* the soundboards page: a tab per soundboard, then a card for each sound */
-.boards.soundboards-page {
-  padding: 0;
-  gap: 0;
-}
-.board-tabs {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  padding: 6px max(16px, 3%) 0;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-}
-.board-tabs > .kit-button {
-  margin-bottom: 4px;
-}
-.board-tabs .spacer {
-  flex: 1;
-}
-.board-tab-list {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  min-width: 0;
-  overflow-x: auto;
-}
-.board-tab {
-  display: flex;
-  align-items: center;
-  border-bottom: 2px solid transparent;
-  border-radius: 6px 6px 0 0;
-}
-.board-tab button {
-  padding: 8px 12px;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font: 500 13px/1 var(--font-ui);
-  white-space: nowrap;
-  cursor: pointer;
-}
-.board-tab > button[role='tab'] {
-  border-radius: 6px 0 0 0;
-}
-.board-tab:hover {
-  background: color-mix(in srgb, var(--text) 6%, transparent);
-}
-.board-tab:hover button,
-.board-tab.on button {
-  color: var(--text);
-}
-.board-tab.on {
-  border-bottom-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 8%, transparent);
-}
-.board-tab .tab-x {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  margin-right: 6px;
-  padding: 0;
-  border-radius: 4px;
-}
-.board-tab .tab-x:hover {
-  background: color-mix(in srgb, var(--text) 14%, transparent);
-}
-.board-tab-input {
-  width: 160px;
-  height: 26px;
-  margin: 3px 4px;
-  padding: 0 8px;
-  border: 1px solid var(--primary);
-  border-radius: 4px;
-  background: var(--field);
-  color: var(--text);
-  font: 500 13px var(--font-ui);
-}
-.board-tab-add {
-  align-self: center;
-}
-.boards-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px max(16px, 3%) 32px;
-}
-.boards-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-.boards-toolbar {
-  flex-wrap: nowrap;
-}
-.boards-toolbar .boards-filter {
-  flex: 0 0 220px;
-  width: 220px;
-}
-.boards-hint {
-  min-width: 0;
-  font-size: 12px;
-}
 .boards-empty {
   display: flex;
   flex-direction: column;
@@ -901,11 +745,7 @@ button.inline:where(:not(.kit-button)) {
   padding: 80px 0;
   color: var(--muted);
 }
-.pad-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-  gap: 10px;
-}
+
 .pad-card {
   position: relative;
   display: flex;
@@ -1065,20 +905,7 @@ button.inline:where(:not(.kit-button)) {
 .progress.thick > span {
   border-radius: 5px;
 }
-.pad-add {
-  display: grid;
-  place-items: center;
-  min-height: 72px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted);
-  cursor: pointer;
-}
-.pad-add:hover {
-  border-color: var(--primary);
-  color: var(--primary);
-}
+
 .progress {
   height: 6px;
   overflow: hidden;
@@ -1105,23 +932,6 @@ button.inline:where(:not(.kit-button)) {
   }
 }
 
-/* the windows of the page are the editor's floating windows: wider than an information window */
-.fwin.pad-window {
-  width: 400px;
-  min-width: 340px;
-}
-.pad-window .fwin-body {
-  max-height: min(78vh, 560px);
-  padding: 10px 12px 12px;
-}
-.fwin.lib-window {
-  width: 780px;
-  max-width: calc(100vw - 8px);
-}
-.lib-window .fwin-body {
-  max-height: min(82vh, 680px);
-  padding: 10px 12px 12px;
-}
 .settings-grid {
   display: flex;
   flex-direction: column;
@@ -1148,9 +958,7 @@ button.inline:where(:not(.kit-button)) {
   flex: 1;
   min-width: 0;
 }
-.lib-memory .srow {
-  grid-template-columns: 230px minmax(0, 160px);
-}
+
 .srow-inline {
   display: flex;
   flex: 1;
@@ -1170,67 +978,7 @@ button.inline:where(:not(.kit-button)) {
 .settings-file > span {
   overflow-wrap: anywhere;
 }
-/* the library: a table that scrolls, only the rows in view exist */
-.sounds-manager {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.sounds-importing {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
-}
-.library {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.lib-bar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.lib-table {
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-}
-.lib-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 64px 76px 100px 44px 96px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 8px;
-  height: 100%;
-}
-.lib-row > .right,
-.lib-row > .lib-head.right {
-  text-align: right;
-}
-.lib-row > :nth-child(4) {
-  padding-left: 14px;
-}
-.lib-header {
-  height: 28px;
-  background: var(--field);
-  border-bottom: 1px solid var(--line);
-}
-.lib-head {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font: 600 11.5px var(--font-ui);
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.lib-head:hover {
-  color: var(--text);
-}
+
 .vrows {
   position: relative;
   height: min(46vh, 340px);
@@ -1248,38 +996,7 @@ button.inline:where(:not(.kit-button)) {
 .vrow:hover {
   background: color-mix(in srgb, var(--text) 5%, transparent);
 }
-.lib-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.lib-actions {
-  display: flex;
-  justify-content: flex-end;
-}
-.lib-empty {
-  margin: 0;
-  padding: 16px;
-}
-.lib-memory {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.lib-memory h4 {
-  margin: 0;
-  font-size: 12px;
-  color: var(--muted);
-}
-.lib-memory p {
-  margin: 0;
-}
-.lib-save {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
+
 .checks {
   display: flex;
   flex-wrap: wrap;
@@ -1758,248 +1475,6 @@ button.ref:hover:not(:disabled) {
   color: var(--bad);
 }
 
-/* a page of the program (the settings, the modules): it fills the space under the top bar; a title, what it is for, then its items */
-.page {
-  position: absolute;
-  z-index: 7;
-  inset: 0;
-  overflow-y: auto;
-  background: var(--bg);
-}
-.page-inner {
-  max-width: 840px;
-  padding: 28px 36px 64px;
-}
-.page .row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.page-head {
-  margin-bottom: 6px;
-}
-.page-crumbs {
-  margin-bottom: 2px;
-  color: var(--muted);
-  font-size: 12.5px;
-}
-.page-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.page h1 {
-  margin: 0;
-  font-size: 22px;
-  font-weight: 650;
-}
-.page-lead {
-  max-width: 78ch;
-  margin: 6px 0 0;
-  color: var(--muted);
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-/* the settings: a search and the tree of the categories on the left, the chosen page on the right */
-.settings-page {
-  display: grid;
-  grid-template-columns: 264px minmax(0, 1fr);
-  overflow: hidden;
-}
-.settings-side {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 0;
-  padding: 16px 10px;
-  overflow-y: auto;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-}
-.settings-search {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  height: 34px;
-  padding: 0 4px 0 10px;
-  color: var(--muted);
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-}
-.settings-search:focus-within {
-  border-color: var(--primary);
-}
-.settings-search .kit-text {
-  flex: 1;
-  min-width: 0;
-  height: 30px;
-  background: none;
-  border: 0;
-  box-shadow: none;
-}
-.settings-main {
-  min-width: 0;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/* the tree: a heading opens and closes, its pages hang under it along a line */
-.stree {
-  display: flex;
-  flex-direction: column;
-}
-.stree-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 32px;
-  padding: 0 10px;
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 13.5px;
-  cursor: pointer;
-  user-select: none;
-}
-.stree-row:hover {
-  background: var(--field);
-}
-.stree-row:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: -2px;
-}
-.stree-row.heading {
-  margin-top: 8px;
-  font-weight: 600;
-}
-.stree-row.heading:first-child {
-  margin-top: 0;
-}
-.stree-row.heading > svg:first-child {
-  color: var(--muted);
-  transform: rotate(-90deg);
-  transition: transform 0.12s;
-}
-.stree-row.heading[aria-expanded='true'] > svg:first-child {
-  transform: none;
-}
-.stree-row.level-1:not(.heading) {
-  padding-left: 30px;
-}
-.stree-row.level-2 {
-  margin-left: 15px;
-  padding-left: 25px;
-  border-left: 1px solid var(--line);
-  border-radius: 0 6px 6px 0;
-}
-.stree-row.level-2.on {
-  padding-left: 24px;
-  border-left: 2px solid var(--primary);
-  background: color-mix(in srgb, var(--primary) 14%, transparent);
-  color: var(--primary);
-  font-weight: 600;
-}
-
-/* a setting: its name and "i", what it does, then its control under them (a switch goes at the end of the line instead) */
-.setting-group > h2 {
-  margin: 26px 0 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.setting-item,
-.module-item {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 20px 0;
-  border-bottom: 1px solid var(--line);
-}
-.setting-group > .setting-item:last-child,
-.setting-result > .setting-item,
-.page-inner > .module-item:last-of-type {
-  border-bottom: 0;
-}
-.setting-item.inline {
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  gap: 28px;
-}
-.lib-bar small {
-  white-space: nowrap;
-}
-.setting-item.bare {
-  padding-top: 14px;
-  border-bottom: 0;
-}
-.setting-item.flash {
-  animation: flash 1.8s ease-out;
-}
-.setting-text {
-  flex: 1;
-  min-width: 0;
-}
-.setting-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 26px;
-}
-.setting-title {
-  margin: 0;
-  font-size: 14.5px;
-  font-weight: 600;
-  line-height: 1.3;
-}
-.setting-desc {
-  max-width: 78ch;
-  margin: 2px 0 0;
-  color: var(--muted);
-  font-size: 13px;
-  line-height: 1.5;
-}
-.setting-control {
-  min-width: 0;
-}
-.setting-item:not(.inline) .setting-control > .kit-text {
-  width: min(100%, 440px);
-}
-.setting-control .setting-choice {
-  width: min(100%, 340px);
-}
-.setting-slider {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: min(100%, 320px);
-}
-.setting-slider .kit-slider {
-  flex: 1;
-}
-.setting-custom {
-  min-width: 0;
-  max-width: 100%;
-}
-.setting-result {
-  margin-top: 14px;
-}
-.setting-crumb {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--muted);
-  font-size: 12px;
-  cursor: pointer;
-}
-.setting-crumb:hover {
-  color: var(--primary);
-}
 .extension-list {
   display: flex;
   flex-direction: column;
@@ -2040,24 +1515,7 @@ button.ref:hover:not(:disabled) {
   align-items: stretch;
   gap: 10px;
 }
-.module-item .pill {
-  white-space: nowrap;
-}
-.module-item p {
-  margin: 0;
-}
-.module-meta {
-  font-size: 12.5px;
-}
-.module-progress {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 440px;
-}
-.module-progress progress {
-  width: 100%;
-}
+
 @media (max-width: 720px) {
   .settings-page {
     grid-template-columns: minmax(0, 1fr);
@@ -3009,36 +2467,7 @@ body.resizing {
 .versions .summary {
   flex: 1;
 }
-.shortcuts {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.shortcut-row {
-  display: grid;
-  grid-template-columns: 220px 170px auto 1fr;
-  align-items: center;
-  gap: 8px;
-}
-.key-capture {
-  height: var(--ctl-h);
-  padding: 0 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--ctl-radius);
-  background: var(--field);
-  color: var(--text);
-  font: 12px var(--font-code);
-  text-align: left;
-  cursor: pointer;
-}
-.key-capture.listening {
-  border-color: var(--focus);
-  outline: 1px solid var(--focus);
-  color: var(--muted);
-}
-.shortcut-row.clash .key-capture {
-  border-color: var(--warn);
-}
+
 .node.muted {
   opacity: 0.5;
 }
