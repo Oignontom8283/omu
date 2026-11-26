@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentType, type KeyboardEvent } from 'react';
 import type { api } from '../api.ts';
 import { ContextMenu, SEPARATOR, type MenuItem } from '../components/ContextMenu.tsx';
+import { Icon } from '../components/Icon.tsx';
 import { useInfoWindows } from '../components/InfoWindows.tsx';
 import { Markdown } from '../components/Markdown.tsx';
 import { useI18n } from '../i18n/index.tsx';
@@ -452,22 +453,30 @@ export function SettingsPage({ daemon, notify, library, setLibrary, imports, foc
             {visiblePages.length === 0 && (
               <p className="pane-empty">{onlyChanged && !found ? t('settings.noneChanged') : t('settings.noResults', { query: words || CHANGED_WORD })}</p>
             )}
-            {visiblePages.map(({ page, items }) => {
+            {visiblePages.map(({ page, items }, index) => {
               const parent = page.parent ? state.categories.find((c) => c.id === page.parent) : undefined;
               const groups = groupsOf(items);
+              // the first page of a category opens with the name of the category, as a chapter
+              const before = visiblePages[index - 1]?.page;
+              const opensCategory = parent && (!before || before.parent !== page.parent);
               return (
                 <section key={page.id} className="sp-page" data-page={page.id} aria-label={name(page)}>
+                  {opensCategory && (
+                    <h2 className="sp-category">
+                      {parent.icon && <Icon name={parent.icon} size={18} />}
+                      {name(parent)}
+                    </h2>
+                  )}
                   <header className={`sp-page-head${pick?.kind === 'page' && pick.id === page.id ? ' selected' : ''}`} onMouseDown={() => setPick({ kind: 'page', id: page.id })}>
                     <div className="sp-page-title">
-                      {parent && <span className="sp-crumb">{name(parent)} ›</span>}
-                      <h2>{name(page)}</h2>
+                      <h3>{name(page)}</h3>
                       {about(`category:${page.id}`, name(page))}
                     </div>
                     {page.description && <p className="sp-page-desc">{textOf(t, page.plain, page.description)}</p>}
                   </header>
                   {groups.map((group, i) => (
                     <div key={group.title?.text ?? `group-${i}`} className="sp-group">
-                      {group.title && groups.length > 1 && <h3 className="sp-group-title">{textOf(t, group.title.plain, group.title.text)}</h3>}
+                      {group.title && groups.length > 1 && <h4 className="sp-group-title">{textOf(t, group.title.plain, group.title.text)}</h4>}
                       {group.items.map((decl) => item(decl, items.length === 1))}
                     </div>
                   ))}
